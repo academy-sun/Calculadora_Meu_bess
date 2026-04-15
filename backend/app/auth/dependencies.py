@@ -16,10 +16,14 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token não fornecido")
     token = credentials.credentials
     try:
+        # Diagnostic log
+        header = jwt.get_unverified_header(token)
+        print(f"DEBUG JWT: Header={header}")
+
         payload = jwt.decode(
             token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            settings.supabase_jwt_secret.strip(),
+            algorithms=["HS256", "RS256", "HS384", "HS512"],
             options={"verify_aud": False},
         )
         user_metadata = payload.get("user_metadata", {})
