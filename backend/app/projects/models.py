@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,7 +23,7 @@ class Project(Base):
     solicitante_nome: Mapped[str] = mapped_column(Text, nullable=False)
     solicitado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     calculado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
     load_curve: Mapped["LoadCurve | None"] = relationship(back_populates="project", uselist=False)
     project_loads: Mapped[list["ProjectLoad"]] = relationship(back_populates="project")
