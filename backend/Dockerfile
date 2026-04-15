@@ -5,7 +5,7 @@ WORKDIR /app
 RUN pip install uv
 
 COPY pyproject.toml .
-RUN uv sync --frozen --no-dev
+RUN uv lock && uv sync --no-dev
 
 COPY app/ app/
 
