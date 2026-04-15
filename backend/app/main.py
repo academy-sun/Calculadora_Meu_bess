@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.calculate.router import router as calculate_router
@@ -17,6 +18,14 @@ app.add_middleware(
 app.include_router(catalog_router)
 app.include_router(projects_router)
 app.include_router(calculate_router)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"ERRO GLOBAL: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno do servidor", "error": str(exc)},
+    )
 
 
 @app.get("/health")

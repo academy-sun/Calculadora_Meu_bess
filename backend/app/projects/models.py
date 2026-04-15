@@ -1,11 +1,22 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class Project(Base):
@@ -23,7 +34,7 @@ class Project(Base):
     solicitante_nome: Mapped[str] = mapped_column(Text, nullable=False)
     solicitado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     calculado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     load_curve: Mapped["LoadCurve | None"] = relationship(back_populates="project", uselist=False)
     project_loads: Mapped[list["ProjectLoad"]] = relationship(back_populates="project")
