@@ -5,10 +5,49 @@ import type { KitInfo } from '@/types'
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: project, isLoading } = useProject(id!)
+  const { data: project, isLoading, isError, error } = useProject(id!)
+  const errorMessage = error instanceof Error ? error.message : 'Erro ao carregar projeto'
 
-  if (isLoading) return <div className="p-6 text-gray-500">Carregando...</div>
-  if (!project) return <div className="p-6 text-red-600">Projeto não encontrado.</div>
+  if (isLoading) return <div className="p-6 text-gray-500 font-medium animate-pulse">Carregando detalhes...</div>
+  
+  if (isError) {
+    return (
+      <div className="p-6">
+        <Link to="/projects" className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-primary">
+          <ArrowLeft size={14} /> Voltar
+        </Link>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
+          <h2 className="mb-2 text-lg font-bold">Erro ao carregar projeto</h2>
+          <p className="text-sm opacity-90">{errorMessage}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button 
+              onClick={() => window.location.reload()} 
+              className="rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-red-700"
+            >
+              Tentar Novamente
+            </button>
+            <Link 
+              to="/projects" 
+              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-xs font-bold text-red-600 transition-colors hover:bg-red-50"
+            >
+              Ver Lista de Projetos
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!project) return (
+    <div className="p-6 text-center">
+      <Link to="/projects" className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-primary">
+        <ArrowLeft size={14} /> Voltar
+      </Link>
+      <div className="mt-8 rounded-lg bg-gray-50 p-12 text-gray-500">
+        <p className="text-lg font-medium">Projeto não encontrado.</p>
+      </div>
+    </div>
+  )
 
   const params = project.parametros as Record<string, unknown> | undefined
   const capacidade = params?.capacidade_kwh as number | undefined

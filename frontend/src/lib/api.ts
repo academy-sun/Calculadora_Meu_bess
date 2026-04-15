@@ -16,7 +16,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 export async function apiGet<T>(path: string): Promise<T> {
   const headers = await getAuthHeaders()
   const res = await fetch(`${API_URL}${path}`, { headers })
-  if (!res.ok) throw new Error(`GET ${path} falhou: ${res.status}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { detail?: string }
+    throw new Error(err.detail ?? `GET ${path} falhou: ${res.status}`)
+  }
   return res.json() as Promise<T>
 }
 

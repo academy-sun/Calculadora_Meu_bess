@@ -28,8 +28,12 @@ def get_current_user(
             email=payload.get("email", ""),
             role=user_metadata.get("role", "engineer"),
         )
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    except JWTError as e:
+        print(f"ERRO JWT: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail=f"Token inválido ou expirado: {str(e)}"
+        )
 
 
 def require_admin(user: UserInToken = Depends(get_current_user)) -> UserInToken:
