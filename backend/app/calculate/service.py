@@ -146,8 +146,48 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         else:
             payback = None
 
+        payback_meses = round(payback, 1) if payback else None
         calculado_em = datetime.now(timezone.utc)
+
+        # Atualizar parâmetros com os RESULTADOS para persistência e exibição no front
+        results_data = {
+            "capacidade_kwh": capacidade_kwh,
+            "potencia_kw": potencia_kw,
+            "payback_meses": payback_meses,
+            "kit_selecionado": kit_selecionado.model_dump() if kit_selecionado else None,
+            "alternativas": [k.model_dump() for k in alternativas],
+            "economia_mensal_rs": economia_mensal,
+            "economia_anual_rs": economia_anual,
+        }
+        
+        # Merge results into parameters
+        current_params = project.parametros or {}
+        project.parametros = {**current_params, **results_data}
+        
         await mark_project_done(db, project, calculado_em)
+
+        # Integração com Ploomes (Sync Automático)
+        if req.origem_info.origem == "ploomes" and req.origem_info.negocio_id:
+            from app.shared.ploomes import create_ploomes_interaction
+            
+            # Montar mensagem de resumo
+            resumo = (
+                f"📊 Dimensionamento BESS concluído ({req.tipo_calculo.upper()})\n"
+                f"- Capacidade: {capacidade_kwh} kWh\n"
+                f"- Potência: {potencia_kw} kW\n"
+            )
+            if kit_selecionado:
+                resumo += f"- Kit Sugerido: {kit_selecionado.marca} {kit_selecionado.bateria_modelo}\n"
+                resumo += f"- Investimento: R$ {kit_selecionado.preco_total:,.2f}\n"
+            
+            if payback_meses:
+                resumo += f"- Payback estimado: {payback_meses} meses\n"
+            
+            resumo += f"\n👉 Ver detalhes: https://calculadora-meu-bess.vercel.app/projects/{project.id}"
+            
+            # Executar em background (não travar a resposta da API)
+            import asyncio
+            asyncio.create_task(create_ploomes_interaction(req.origem_info.negocio_id, resumo))
 
         return CalculateResponse(
             projeto_id=str(project.id),
@@ -161,7 +201,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             kit_selecionado=kit_selecionado,
             economia_mensal_rs=economia_mensal,
             economia_anual_rs=economia_anual,
-            payback_meses=round(payback, 1) if payback else None,
+            payback_meses=payback_meses,
             alternativas=alternativas,
         )
 
