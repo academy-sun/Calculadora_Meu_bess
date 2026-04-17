@@ -26,7 +26,7 @@ class ProductBESS(Base):
     capacidade_kwh: Mapped[float | None] = mapped_column(Numeric)
     dod_percent: Mapped[float | None] = mapped_column(Numeric)
     potencia_continua_kw: Mapped[float | None] = mapped_column(Numeric)
-    max_baterias: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_baterias: Mapped[int | None] = mapped_column(Integer)
     preco: Mapped[float] = mapped_column(Numeric, nullable=False)
     disponivel: Mapped[bool] = mapped_column(Boolean, default=True)
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
