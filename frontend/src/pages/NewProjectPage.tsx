@@ -30,19 +30,34 @@ export function NewProjectPage() {
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const [potenciaCritica, setPotenciaCritica] = useState('')
+  // ── Campos compartilhados ────────────────────────────────────────────────────
   const [autonomia, setAutonomia] = useState('')
   const [tensao, setTensao] = useState('220')
+  const [dod, setDod] = useState('80')
+
+  // ── Peak Shaving ─────────────────────────────────────────────────────────────
   const [demandaAlvo, setDemandaAlvo] = useState('')
   const [tarifaDemanda, setTarifaDemanda] = useState('')
-  const [pontaInicio, setPontaInicio] = useState('18')
-  const [pontaFim, setPontaFim] = useState('21')
+  const [curvaInput, setCurvaInput] = useState('')
+
+  // ── Arbitragem Tarifária ─────────────────────────────────────────────────────
+  const [modalidade, setModalidade] = useState<'verde' | 'azul'>('verde')
   const [tarifaPonta, setTarifaPonta] = useState('')
   const [tarifaForaPonta, setTarifaForaPonta] = useState('')
+  const [demandaMedidaPonta, setDemandaMedidaPonta] = useState('')
+  const [demandaMedidaForaPonta, setDemandaMedidaForaPonta] = useState('')
+  const [demandaContratadaPonta, setDemandaContratadaPonta] = useState('')
+  const [demandaContratadaForaPonta, setDemandaContratadaForaPonta] = useState('')
+  const [tarifaDemandaPonta, setTarifaDemandaPonta] = useState('')
+  const [tarifaDemandaForaPonta, setTarifaDemandaForaPonta] = useState('')
+  const [tarifaDemandaUnica, setTarifaDemandaUnica] = useState('')
+
+  // ── Solar ────────────────────────────────────────────────────────────────────
   const [irradiacao, setIrradiacao] = useState('5.0')
   const [area, setArea] = useState('')
+
+  // ── Cargas (Backup / Peak Shaving) ──────────────────────────────────────────
   const [selectedLoads, setSelectedLoads] = useState<SelectedLoad[]>([])
-  const [curvaInput, setCurvaInput] = useState('')
 
   function addLoad(id: string) {
     const load = loads?.find(l => l.id === id)
@@ -86,22 +101,34 @@ export function NewProjectPage() {
         solicitado_em: new Date().toISOString(),
       },
       tipo_calculo: tipo,
-      curva_carga_kw: curva,
-      cargas,
     }
 
     if (tipo === 'backup') {
-      payload.potencia_critica_kw = parseFloat(potenciaCritica)
+      payload.cargas = cargas
       payload.autonomia_horas = parseFloat(autonomia)
       payload.tensao_instalacao_v = parseFloat(tensao)
+      payload.dod_percent = parseFloat(dod)
     } else if (tipo === 'peak_shaving') {
+      payload.curva_carga_kw = curva
+      payload.cargas = cargas
       payload.demanda_alvo_kw = parseFloat(demandaAlvo)
       payload.tarifa_demanda_rs_kw = parseFloat(tarifaDemanda)
     } else if (tipo === 'arbitragem') {
-      payload.horario_ponta_inicio = parseInt(pontaInicio)
-      payload.horario_ponta_fim = parseInt(pontaFim)
+      payload.modalidade_tarifaria = modalidade
       payload.tarifa_ponta_rs_kwh = parseFloat(tarifaPonta)
       payload.tarifa_fora_ponta_rs_kwh = parseFloat(tarifaForaPonta)
+      payload.demanda_medida_ponta_kw = parseFloat(demandaMedidaPonta)
+      payload.demanda_medida_fora_ponta_kw = parseFloat(demandaMedidaForaPonta)
+      payload.demanda_contratada_ponta_kw = parseFloat(demandaContratadaPonta)
+      payload.demanda_contratada_fora_ponta_kw = parseFloat(demandaContratadaForaPonta)
+      payload.dod_percent = parseFloat(dod)
+      payload.tensao_instalacao_v = parseFloat(tensao)
+      if (modalidade === 'azul') {
+        payload.tarifa_demanda_ponta_rs_kw = parseFloat(tarifaDemandaPonta)
+        payload.tarifa_demanda_fora_ponta_rs_kw = parseFloat(tarifaDemandaForaPonta)
+      } else {
+        payload.tarifa_demanda_unica_rs_kw = parseFloat(tarifaDemandaUnica)
+      }
     } else if (tipo === 'solar' || tipo === 'solar_storage') {
       payload.irradiacao_kwh_m2_dia = parseFloat(irradiacao)
       payload.area_disponivel_m2 = parseFloat(area)
@@ -160,7 +187,9 @@ export function NewProjectPage() {
         <p className="mb-6 text-gray-500">Preencha os parâmetros do dimensionamento</p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {(tipo === 'peak_shaving' || tipo === 'arbitragem') && (
+
+          {/* ── Peak Shaving: curva de carga ─────────────────────────────────── */}
+          {tipo === 'peak_shaving' && (
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 Curva de Carga (kW separados por vírgula, hora a hora)
@@ -176,7 +205,8 @@ export function NewProjectPage() {
             </div>
           )}
 
-          {tipo !== 'solar' && tipo !== 'solar_storage' && (
+          {/* ── Cargas: somente Backup e Peak Shaving ───────────────────────── */}
+          {(tipo === 'backup' || tipo === 'peak_shaving') && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
               {loads && loads.length > 0 && (
@@ -204,13 +234,17 @@ export function NewProjectPage() {
                   <button type="button" onClick={() => removeLoad(l.id)} className="text-red-400 hover:text-red-600">✕</button>
                 </div>
               ))}
+              {selectedLoads.length === 0 && (
+                <p className="text-xs text-gray-400">Adicione ao menos uma carga para calcular o backup.</p>
+              )}
             </div>
           )}
 
+          {/* ── Backup ──────────────────────────────────────────────────────── */}
           {tipo === 'backup' && (
             <>
-              <Field label="Potência Crítica da Carga (kW)" value={potenciaCritica} onChange={setPotenciaCritica} placeholder="ex: 5.0" required />
               <Field label="Autonomia Desejada (horas)" value={autonomia} onChange={setAutonomia} placeholder="ex: 4" required />
+              <Field label="Profundidade de Descarga — DoD (%)" value={dod} onChange={setDod} placeholder="ex: 80" required />
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Tensão da Instalação</label>
                 <select value={tensao} onChange={e => setTensao(e.target.value)}
@@ -223,6 +257,7 @@ export function NewProjectPage() {
             </>
           )}
 
+          {/* ── Peak Shaving ─────────────────────────────────────────────────── */}
           {tipo === 'peak_shaving' && (
             <>
               <Field label="Demanda-Alvo (kW)" value={demandaAlvo} onChange={setDemandaAlvo} placeholder="ex: 80" required />
@@ -230,17 +265,73 @@ export function NewProjectPage() {
             </>
           )}
 
+          {/* ── Arbitragem Tarifária ─────────────────────────────────────────── */}
           {tipo === 'arbitragem' && (
             <>
-              <div className="flex gap-3">
-                <Field label="Início da Ponta (hora)" value={pontaInicio} onChange={setPontaInicio} placeholder="18" />
-                <Field label="Fim da Ponta (hora)" value={pontaFim} onChange={setPontaFim} placeholder="21" />
+              {/* Modalidade */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Modalidade Tarifária</label>
+                <select value={modalidade} onChange={e => setModalidade(e.target.value as 'verde' | 'azul')}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="verde">Verde</option>
+                  <option value="azul">Azul</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-400">
+                  Ponta horária fixada em 18h–21h (3 horas) · 22 dias úteis/mês
+                </p>
               </div>
-              <Field label="Tarifa na Ponta (R$/kWh)" value={tarifaPonta} onChange={setTarifaPonta} placeholder="ex: 0.90" required />
-              <Field label="Tarifa Fora da Ponta (R$/kWh)" value={tarifaForaPonta} onChange={setTarifaForaPonta} placeholder="ex: 0.30" required />
+
+              {/* Tarifas de energia */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <p className="text-xs font-semibold uppercase text-gray-500">Tarifas de Energia</p>
+                <Field label="Tarifa na Ponta (R$/kWh)" value={tarifaPonta} onChange={setTarifaPonta} placeholder="ex: 0.90" required />
+                <Field label="Tarifa Fora da Ponta (R$/kWh)" value={tarifaForaPonta} onChange={setTarifaForaPonta} placeholder="ex: 0.30" required />
+              </div>
+
+              {/* Demandas */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <p className="text-xs font-semibold uppercase text-gray-500">Demanda Medida (kW)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Medida na Ponta" value={demandaMedidaPonta} onChange={setDemandaMedidaPonta} placeholder="ex: 100" required />
+                  <Field label="Medida Fora da Ponta" value={demandaMedidaForaPonta} onChange={setDemandaMedidaForaPonta} placeholder="ex: 80" required />
+                </div>
+                <p className="text-xs font-semibold uppercase text-gray-500">Demanda Contratada (kW)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Contratada na Ponta" value={demandaContratadaPonta} onChange={setDemandaContratadaPonta} placeholder="ex: 120" required />
+                  <Field label="Contratada Fora da Ponta" value={demandaContratadaForaPonta} onChange={setDemandaContratadaForaPonta} placeholder="ex: 100" required />
+                </div>
+              </div>
+
+              {/* Tarifa de demanda — condicional por modalidade */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <p className="text-xs font-semibold uppercase text-gray-500">Tarifa de Demanda (R$/kW/mês)</p>
+                {modalidade === 'azul' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Demanda na Ponta" value={tarifaDemandaPonta} onChange={setTarifaDemandaPonta} placeholder="ex: 45.00" required />
+                    <Field label="Demanda Fora da Ponta" value={tarifaDemandaForaPonta} onChange={setTarifaDemandaForaPonta} placeholder="ex: 20.00" required />
+                  </div>
+                ) : (
+                  <Field label="Demanda Única" value={tarifaDemandaUnica} onChange={setTarifaDemandaUnica} placeholder="ex: 30.00" required />
+                )}
+              </div>
+
+              {/* DoD e Tensão */}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="ex: 80" required />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Tensão da Instalação</label>
+                  <select value={tensao} onChange={e => setTensao(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                    <option value="127">127V</option>
+                    <option value="220">220V</option>
+                    <option value="380">380V</option>
+                  </select>
+                </div>
+              </div>
             </>
           )}
 
+          {/* ── Solar / Solar + Storage ──────────────────────────────────────── */}
           {(tipo === 'solar' || tipo === 'solar_storage') && (
             <>
               <Field label="Irradiação Solar (kWh/m²/dia)" value={irradiacao} onChange={setIrradiacao} placeholder="ex: 5.0" required />
@@ -286,7 +377,9 @@ export function NewProjectPage() {
 
       {result?.kit_selecionado && (
         <div className="mb-4 rounded-xl border-2 border-primary/40 bg-primary/5 p-4">
-          <p className="mb-3 text-xs font-bold uppercase text-primary">Kit Recomendado — Menor Preço</p>
+          <p className="mb-3 text-xs font-bold uppercase text-primary">
+            Kit Recomendado — {tipo === 'arbitragem' ? 'Menor Payback' : 'Menor Preço'}
+          </p>
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <div><p className="text-xs text-gray-500">Marca</p><p className="font-semibold">{result.kit_selecionado.marca}</p></div>
             <div><p className="text-xs text-gray-500">Bateria</p><p className="font-semibold">{result.kit_selecionado.bateria_modelo}</p></div>
@@ -297,8 +390,26 @@ export function NewProjectPage() {
             </div>
           </div>
           <p className="mt-2 text-xs text-gray-500">
-            {result.kit_selecionado.qtd_baterias}× baterias · {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
+            {result.kit_selecionado.qtd_baterias}× baterias
+            {result.kit_selecionado.qtd_inversores && result.kit_selecionado.qtd_inversores > 1
+              ? ` · ${result.kit_selecionado.qtd_inversores}× inversores`
+              : ''}
+            {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
           </p>
+          {(result.kit_selecionado.economia_mensal_rs || result.kit_selecionado.payback_anos) && (
+            <div className="mt-3 flex gap-4 text-sm">
+              {result.kit_selecionado.economia_mensal_rs && (
+                <span className="text-green-700">
+                  Economia: <strong>R$ {result.kit_selecionado.economia_mensal_rs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês</strong>
+                </span>
+              )}
+              {result.kit_selecionado.payback_anos && (
+                <span className="text-gray-600">
+                  Payback: <strong>{result.kit_selecionado.payback_anos} anos</strong>
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -309,7 +420,10 @@ export function NewProjectPage() {
             {result.alternativas.map((k, i) => (
               <div key={i} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
                 <span>{k.marca} — {k.bateria_modelo} + {k.inversor_modelo}</span>
-                <span className="font-medium">R$ {k.preco_total.toLocaleString('pt-BR')}</span>
+                <div className="flex items-center gap-4">
+                  {k.payback_anos && <span className="text-gray-500">{k.payback_anos} anos</span>}
+                  <span className="font-medium">R$ {k.preco_total.toLocaleString('pt-BR')}</span>
+                </div>
               </div>
             ))}
           </div>

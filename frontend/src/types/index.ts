@@ -81,9 +81,12 @@ export interface KitInfo {
   bateria_modelo: string
   inversor_modelo: string
   qtd_baterias: number
+  qtd_inversores?: number
   capacidade_total_kwh: number
   potencia_total_kw: number
   preco_total: number
+  economia_mensal_rs?: number
+  payback_anos?: number
 }
 
 export interface CalculateResponse {
