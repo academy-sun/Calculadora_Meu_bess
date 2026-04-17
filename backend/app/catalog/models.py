@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Numeric, Text
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,7 @@ class ProductBESS(Base):
     capacidade_kwh: Mapped[float | None] = mapped_column(Numeric)
     dod_percent: Mapped[float | None] = mapped_column(Numeric)
     potencia_continua_kw: Mapped[float | None] = mapped_column(Numeric)
+    max_baterias: Mapped[int | None] = mapped_column(Integer, nullable=True)
     preco: Mapped[float] = mapped_column(Numeric, nullable=False)
     disponivel: Mapped[bool] = mapped_column(Boolean, default=True)
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

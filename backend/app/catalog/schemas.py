@@ -19,6 +19,7 @@ class ProductBESSCreate(BaseModel):
     capacidade_kwh: Optional[float] = None
     dod_percent: Optional[float] = None
     potencia_continua_kw: Optional[float] = None
+    max_baterias: Optional[int] = None
     preco: float
     disponivel: bool = True
 
