@@ -1,22 +1,35 @@
 import numpy as np
 
 from app.engines.schemas import (
-    ArbitrageInput, ArbitrageResult,
+    ArbitrageInput, ArbitrageKitEconomy,
     BackupInput, BackupResult,
     PeakShavingInput, PeakShavingResult,
 )
 
+_EFICIENCIA_SISTEMA = 0.9   # round-trip + inversor
+_HORAS_PONTA = 3.0          # 18h–21h
+_DIAS_UTEIS_MES = 22
 
-def calculate_backup(data: BackupInput, dod_percent: float) -> BackupResult:
-    """Capacidade necessária = potência × autonomia ÷ DoD"""
-    if dod_percent <= 0:
+
+def calculate_backup(data: BackupInput) -> BackupResult:
+    """
+    Capacidade (kWh)      = Σ(Pp_i × TDIA_i)
+    Energia Necessária    = Capacidade × (Autonomia / 24) / DoD / 0.9
+    """
+    if data.dod_percent <= 0:
         raise ValueError("dod_percent deve ser maior que zero")
-    dod = dod_percent / 100.0
-    capacidade_kwh = data.potencia_critica_kw * data.autonomia_horas / dod
+    if not data.cargas:
+        raise ValueError("cargas não pode ser vazia")
+
+    dod = data.dod_percent / 100.0
+    capacidade_kwh = sum(c.potencia_kw * c.tdia_horas for c in data.cargas)
+    energia_necessaria_kwh = (
+        capacidade_kwh * (data.autonomia_horas / 24.0) / dod / _EFICIENCIA_SISTEMA
+    )
+
     return BackupResult(
-        capacidade_necessaria_kwh=round(capacidade_kwh, 2),
-        potencia_necessaria_kw=data.potencia_critica_kw,
-        observacoes=f"Autonomia de {data.autonomia_horas}h com DoD {dod_percent}%",
+        capacidade_kwh=round(capacidade_kwh, 2),
+        energia_necessaria_kwh=round(energia_necessaria_kwh, 2),
     )
 
 
@@ -52,37 +65,39 @@ def calculate_peak_shaving(data: PeakShavingInput) -> PeakShavingResult:
     )
 
 
-def calculate_arbitrage(data: ArbitrageInput) -> ArbitrageResult:
+def calculate_arbitrage_economy(
+    data: ArbitrageInput,
+    n_baterias: int,
+    cap_bateria_kwh: float,
+) -> ArbitrageKitEconomy:
     """
-    Carrega na fora-de-ponta, descarrega na ponta.
-    Capacidade ótima = energia consumida durante a janela de ponta.
+    Calcula economia mensal para uma combinação específica de baterias.
+    Parâmetros fixos: ponta = 18h–21h (3h), 22 dias úteis/mês.
+
+    Args:
+        data:             Dados tarifários e de demanda do cliente.
+        n_baterias:       Quantidade de baterias nesta combinação.
+        cap_bateria_kwh:  Capacidade nominal de cada bateria (kWh, sem DoD).
     """
-    curva = np.array(data.curva_carga_kw)
-    horas = len(curva)
+    dod = data.dod_percent / 100.0
+    energia_arbitrada_dia = n_baterias * cap_bateria_kwh * dod
+    potencia_descarga_kw = energia_arbitrada_dia / _HORAS_PONTA
 
-    indices_ponta = [
-        i for i in range(horas)
-        if data.horario_ponta_inicio <= (i % 24) < data.horario_ponta_fim
-    ]
+    economia_energia = (
+        energia_arbitrada_dia
+        * (data.tarifa_ponta_kwh - data.tarifa_fora_ponta_kwh)
+        * _DIAS_UTEIS_MES
+    )
 
-    if not indices_ponta:
-        return ArbitrageResult(
-            capacidade_otima_kwh=0.0,
-            ciclos_dia=0.0,
-            economia_anual_estimada_rs=0.0,
-            payback_meses=None,
-        )
+    economia_demanda = 0.0
+    if data.modalidade == "azul" and data.tarifa_demanda_ponta_kw:
+        reducao_demanda = min(potencia_descarga_kw, data.demanda_medida_ponta_kw)
+        economia_demanda = reducao_demanda * data.tarifa_demanda_ponta_kw
 
-    energia_ponta_dia = float(curva[indices_ponta].sum()) / (horas / 24)
-    delta_tarifa = data.tarifa_ponta_rs_kwh - data.tarifa_fora_ponta_rs_kwh
-    economia_diaria = energia_ponta_dia * delta_tarifa
-    economia_anual = economia_diaria * 365
-    ciclos_dia = 1.0
-    capacidade_kwh = energia_ponta_dia / ciclos_dia
-
-    return ArbitrageResult(
-        capacidade_otima_kwh=round(capacidade_kwh, 2),
-        ciclos_dia=ciclos_dia,
-        economia_anual_estimada_rs=round(economia_anual, 2),
-        payback_meses=None,
+    return ArbitrageKitEconomy(
+        energia_arbitrada_dia_kwh=round(energia_arbitrada_dia, 2),
+        potencia_descarga_kw=round(potencia_descarga_kw, 2),
+        economia_energia_mensal=round(economia_energia, 2),
+        economia_demanda_mensal=round(economia_demanda, 2),
+        economia_total_mensal=round(economia_energia + economia_demanda, 2),
     )
