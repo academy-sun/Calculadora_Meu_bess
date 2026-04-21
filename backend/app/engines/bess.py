@@ -5,6 +5,7 @@ import numpy as np
 
 from app.engines.schemas import (
     ArbitrageInput, ArbitrageKitEconomy,
+    ArbitrageInputV2, ArbitrageResult,
     BackupInput, BackupResult, LoadRowResult,
     PeakShavingInput, PeakShavingResult,
 )
@@ -121,4 +122,45 @@ def calculate_arbitrage_economy(
         economia_energia_mensal=round(economia_energia, 2),
         economia_demanda_mensal=round(economia_demanda, 2),
         economia_total_mensal=round(economia_energia + economia_demanda, 2),
+    )
+
+
+def calculate_arbitrage_v2(data: ArbitrageInputV2) -> ArbitrageResult:
+    """
+    Replicates CALCULADORA ARBITRAGEM.xlsx formulas exactly:
+      E16 = AVERAGE(E4:E15)  → avg_consumo_ponta
+      fator = 22 × cap × (DoD/100) × 0.9
+      qty_consumo  = ROUNDUP(E16/22/(cap×dod×0.9), 0) = ceil(avg / fator)
+      qty_potencia = ROUNDUP(LARGE(F4:F15, 1) / 100, 0)
+      qty_bess     = MAX(qty_consumo, qty_potencia)
+      economia     = E16 × (tarifa_ponta - tarifa_fora_ponta)   [I14]
+      custo        = qty × preco                                 [I13]
+      payback_meses = custo / economia                           [I15]
+    """
+    avg_consumo = round(_mean(data.consumo_ponta_kwh), 4)
+    max_demanda = max(data.demanda_ponta_kw)
+
+    fator = 22.0 * data.bess_capacidade_kwh * (data.bess_dod / 100.0) * 0.9
+    qty_consumo  = math.ceil(avg_consumo / fator)
+    qty_potencia = math.ceil(max_demanda / 100.0)
+    qty_bess     = max(qty_consumo, qty_potencia)
+
+    diff_tarifa     = data.tarifa_ponta_kwh - data.tarifa_fora_ponta_kwh
+    economia_mensal = round(avg_consumo * diff_tarifa, 2)
+    custo_total     = round(qty_bess * data.bess_preco, 2)
+
+    if economia_mensal > 0:
+        payback_meses = round(custo_total / economia_mensal, 1)
+    else:
+        payback_meses = None
+
+    return ArbitrageResult(
+        qty_bess=qty_bess,
+        qty_consumo=qty_consumo,
+        qty_potencia=qty_potencia,
+        avg_consumo_ponta=round(avg_consumo, 2),
+        max_demanda_ponta=round(max_demanda, 2),
+        economia_mensal=economia_mensal,
+        custo_total=custo_total,
+        payback_meses=payback_meses,
     )

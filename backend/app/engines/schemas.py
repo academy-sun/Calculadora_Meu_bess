@@ -181,3 +181,53 @@ class SolarResult:
         self.quantidade_modulos = quantidade_modulos
         self.potencia_inversor_kw = potencia_inversor_kw
         self.geracao_anual_estimada_kwh = geracao_anual_estimada_kwh
+
+
+class ArbitrageInputV2:
+    """
+    Input para o novo motor de Arbitragem (baseado na planilha CALCULADORA ARBITRAGEM.xlsx).
+    Substitui ArbitrageInput (tarifa-baseada) para o fluxo de Arbitragem Tarifária.
+    """
+    def __init__(
+        self,
+        consumo_ponta_kwh: list,      # 12 valores mensais (E4:E15)
+        demanda_ponta_kw: list,        # 12 valores mensais (F4:F15)
+        tarifa_ponta_kwh: float,       # I4
+        tarifa_fora_ponta_kwh: float,  # I3
+        bess_capacidade_kwh: float,    # capacidade nominal do BESS comercial
+        bess_dod: float,               # DoD em 0-100, e.g. 90
+        bess_preco: float,             # preço unitário R$
+    ):
+        if len(consumo_ponta_kwh) != 12:
+            raise ValueError("consumo_ponta_kwh deve ter 12 valores")
+        if len(demanda_ponta_kw) != 12:
+            raise ValueError("demanda_ponta_kw deve ter 12 valores")
+        self.consumo_ponta_kwh = consumo_ponta_kwh
+        self.demanda_ponta_kw = demanda_ponta_kw
+        self.tarifa_ponta_kwh = tarifa_ponta_kwh
+        self.tarifa_fora_ponta_kwh = tarifa_fora_ponta_kwh
+        self.bess_capacidade_kwh = bess_capacidade_kwh
+        self.bess_dod = bess_dod
+        self.bess_preco = bess_preco
+
+
+class ArbitrageResult:
+    def __init__(
+        self,
+        qty_bess: int,
+        qty_consumo: int,
+        qty_potencia: int,
+        avg_consumo_ponta: float,
+        max_demanda_ponta: float,
+        economia_mensal: float,
+        custo_total: float,
+        payback_meses,
+    ):
+        self.qty_bess = qty_bess
+        self.qty_consumo = qty_consumo
+        self.qty_potencia = qty_potencia
+        self.avg_consumo_ponta = avg_consumo_ponta
+        self.max_demanda_ponta = max_demanda_ponta
+        self.economia_mensal = economia_mensal
+        self.custo_total = custo_total
+        self.payback_meses = payback_meses

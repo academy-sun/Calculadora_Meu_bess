@@ -5,8 +5,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import math
 import pytest
 import unittest
-from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_economy
-from app.engines.schemas import BackupInput, LoadRow, PeakShavingInput, ArbitrageInput
+from app.engines.bess import (
+    calculate_backup, calculate_peak_shaving, calculate_arbitrage_economy, calculate_arbitrage_v2,
+)
+from app.engines.schemas import BackupInput, LoadRow, PeakShavingInput, ArbitrageInput, ArbitrageInputV2
 
 
 class TestBackup:
@@ -169,6 +171,96 @@ class TestArbitrageEconomy(unittest.TestCase):
             eco.economia_energia_mensal + eco.economia_demanda_mensal,
             places=2,
         )
+
+
+class TestArbitrageV2:
+    """Tests verified against CALCULADORA ARBITRAGEM.xlsx formulas."""
+
+    # Fixed BESS product specs matching the seed in Task 2
+    BESS_CAP   = 215.0
+    BESS_DOD   = 90.0
+    BESS_PRECO = 550_000.0
+
+    def _make_input(self, consumo, demanda, tp=2.5, tfp=0.3):
+        return ArbitrageInputV2(
+            consumo_ponta_kwh=consumo,
+            demanda_ponta_kw=demanda,
+            tarifa_ponta_kwh=tp,
+            tarifa_fora_ponta_kwh=tfp,
+            bess_capacidade_kwh=self.BESS_CAP,
+            bess_dod=self.BESS_DOD,
+            bess_preco=self.BESS_PRECO,
+        )
+
+    def test_qty_driven_by_consumption(self):
+        """
+        avg_consumo = 10000 kWh
+        fator = 22 × 215 × 0.9 × 0.9 = 3831.3
+        qty_consumo = ceil(10000 / 3831.3) = ceil(2.609) = 3
+        qty_potencia = ceil(250 / 100) = 3
+        qty_bess = max(3, 3) = 3
+        """
+        consumo = [10000.0] * 12
+        demanda = [250.0] * 12
+        result = calculate_arbitrage_v2(self._make_input(consumo, demanda))
+
+        assert result.qty_consumo == 3
+        assert result.qty_potencia == 3
+        assert result.qty_bess == 3
+        assert abs(result.avg_consumo_ponta - 10000.0) < 0.01
+
+    def test_qty_driven_by_power(self):
+        """
+        avg_consumo = 500 kWh → qty_consumo = ceil(500/3831.3) = 1
+        max_demanda = 450 kW → qty_potencia = ceil(450/100) = 5
+        qty_bess = max(1, 5) = 5
+        """
+        consumo = [500.0] * 12
+        demanda = [300.0] * 11 + [450.0]
+        result = calculate_arbitrage_v2(self._make_input(consumo, demanda))
+
+        assert result.qty_consumo == 1
+        assert result.qty_potencia == 5
+        assert result.qty_bess == 5
+        assert abs(result.max_demanda_ponta - 450.0) < 0.01
+
+    def test_economia_mensal(self):
+        """economia = avg_consumo × (tarifa_ponta - tarifa_fora_ponta)"""
+        consumo = [10000.0] * 12
+        demanda = [250.0] * 12
+        result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=2.5, tfp=0.3))
+        # 10000 × (2.5 - 0.3) = 22000
+        assert abs(result.economia_mensal - 22000.0) < 0.01
+
+    def test_payback_meses(self):
+        """payback = custo / economia"""
+        consumo = [10000.0] * 12
+        demanda = [250.0] * 12
+        result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=2.5, tfp=0.3))
+        # qty=3, custo = 3 × 550000 = 1650000
+        # payback = 1650000 / 22000 = 75.0
+        assert abs(result.custo_total - 1_650_000.0) < 1.0
+        assert abs(result.payback_meses - 75.0) < 0.1
+
+    def test_raises_on_wrong_length(self):
+        try:
+            ArbitrageInputV2(
+                consumo_ponta_kwh=[100.0] * 11,
+                demanda_ponta_kw=[100.0] * 12,
+                tarifa_ponta_kwh=2.5,
+                tarifa_fora_ponta_kwh=0.3,
+                bess_capacidade_kwh=215, bess_dod=90, bess_preco=550000,
+            )
+            assert False, "should have raised ValueError"
+        except ValueError:
+            pass
+
+    def test_payback_none_when_no_economia(self):
+        """When tarifa_ponta <= tarifa_fora_ponta, economia <= 0, payback = None."""
+        consumo = [1000.0] * 12
+        demanda = [100.0] * 12
+        result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=0.3, tfp=0.5))
+        assert result.payback_meses is None
 
 
 if __name__ == '__main__':
