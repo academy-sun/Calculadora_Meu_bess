@@ -64,3 +64,12 @@ export function useCreateLoad() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'loads'] }),
   })
 }
+
+export function useUpdateLoad() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: StandardLoad) =>
+      apiPut<StandardLoad>(`/catalog/loads/${id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'loads'] }),
+  })
+}

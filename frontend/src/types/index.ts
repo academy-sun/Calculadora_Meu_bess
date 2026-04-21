@@ -5,7 +5,7 @@ export interface ProductBESS {
   marca: string
   modelo: string
   sku: string
-  tipo: 'bateria' | 'inversor_hibrido'
+  tipo: 'bateria' | 'inversor_hibrido' | 'bess_comercial'
   fase?: 'monofasico' | 'trifasico'
   tensao_nominal_v?: number
   tensao_min_dc_v?: number
@@ -16,6 +16,8 @@ export interface ProductBESS {
   capacidade_kwh?: number
   dod_percent?: number
   potencia_continua_kw?: number
+  pot_ca_max_eps_kva?: number
+  max_baterias?: number
   preco: number
   disponivel: boolean
   atualizado_em: string
@@ -43,6 +45,9 @@ export interface StandardLoad {
   categoria: string
   potencia_w: number
   fator_potencia: number
+  tdia_horas?: number
+  fator_demanda?: number
+  ip_in?: number
   tensao: string
   fase: 'monofasico' | 'trifasico'
   ativo: boolean
@@ -76,6 +81,25 @@ export interface LoadItem {
   horas_uso_dia: number
 }
 
+export interface BackupLoadRow {
+  nome: string
+  qtd: number
+  pnom_w: number
+  fp: number
+  fd: number
+  ip_in: number
+  tdia_h: number
+}
+
+export interface BackupRowResult {
+  nome: string
+  pn_kva: number
+  dmn_kva: number
+  pp_kva: number
+  dmp_kva: number
+  e_eps_kwh: number
+}
+
 export interface KitInfo {
   marca: string
   bateria_modelo: string
@@ -98,6 +122,21 @@ export interface CalculateResponse {
   calculado_em: string
   capacidade_kwh: number
   potencia_kw: number
+
+  // Backup
+  backup_rows?: BackupRowResult[]
+  total_pn_kva?: number
+  total_dmn_kva?: number
+  total_pp_kva?: number
+  total_dmp_kva?: number
+
+  // Arbitragem
+  qty_bess?: number
+  qty_consumo?: number
+  qty_potencia?: number
+  avg_consumo_ponta?: number
+  max_demanda_ponta?: number
+
   kit_selecionado?: KitInfo
   economia_mensal_rs?: number
   economia_anual_rs?: number
