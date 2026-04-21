@@ -1,118 +1,168 @@
 import { useState } from 'react'
-import { useStandardLoads, useCreateLoad } from '@/hooks/useCatalog'
+import { useStandardLoads, useCreateLoad, useUpdateLoad } from '@/hooks/useCatalog'
 import type { StandardLoad } from '@/types'
-import { PlusCircle } from 'lucide-react'
 
 type LoadForm = Omit<StandardLoad, 'id'>
 
 const EMPTY_FORM: LoadForm = {
-  nome: '', categoria: '', potencia_w: 0, fator_potencia: 1.0, tensao: '220V', fase: 'monofasico', ativo: true,
+  nome: '', categoria: '', potencia_w: 0,
+  fator_potencia: 1, tdia_horas: 4, fator_demanda: 1, ip_in: 1,
+  tensao: '220', fase: 'monofasico', ativo: true,
 }
 
 export function CatalogLoadsPage() {
   const { data: loads, isLoading } = useStandardLoads()
   const createMutation = useCreateLoad()
+  const updateMutation = useUpdateLoad()
+
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<StandardLoad | null>(null)
   const [form, setForm] = useState<LoadForm>(EMPTY_FORM)
+  const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  function set(field: keyof LoadForm, value: unknown) { setForm(prev => ({ ...prev, [field]: value })) }
+  function set(field: keyof LoadForm, value: unknown) {
+    setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  function openCreate() { setForm(EMPTY_FORM); setEditing(null); setShowForm(true) }
+  function openEdit(l: StandardLoad) {
+    const { id: _id, ...rest } = l
+    setForm(rest as LoadForm); setEditing(l); setShowForm(true)
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setError(null)
-    try { await createMutation.mutateAsync(form); setShowForm(false); setForm(EMPTY_FORM) }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Erro ao salvar') }
+    try {
+      if (editing) await updateMutation.mutateAsync({ id: editing.id, ...form })
+      else await createMutation.mutateAsync(form)
+      setShowForm(false)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar')
+    }
   }
+
+  const filtered = (loads ?? []).filter(l =>
+    l.nome.toLowerCase().includes(search.toLowerCase()) ||
+    l.categoria.toLowerCase().includes(search.toLowerCase())
+  )
 
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Cargas Padrão</h1>
-          <p className="text-sm text-gray-500">Biblioteca de cargas para dimensionamento</p>
+          <h1 className="text-2xl font-bold">Catálogo de Cargas</h1>
+          <p className="text-sm text-gray-500">Equipamentos para Backup</p>
         </div>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
-          <PlusCircle size={16} /> Nova Carga
+        <button onClick={openCreate}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark">
+          + Nova Carga
         </button>
       </div>
 
-      {isLoading && <p className="text-gray-500">Carregando...</p>}
+      <input
+        type="text" value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="Buscar por nome ou categoria..."
+        className="mb-4 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+      />
 
-      {loads && (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      {isLoading ? (
+        <p className="text-sm text-gray-400">Carregando...</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-200">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs font-semibold uppercase text-gray-500">
+            <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left">Nome</th>
-                <th className="px-4 py-3 text-left">Categoria</th>
-                <th className="px-4 py-3 text-right">Potência (W)</th>
-                <th className="px-4 py-3 text-left">Tensão</th>
-                <th className="px-4 py-3 text-left">Status</th>
+                {['Nome', 'PNOM (W)', 'TDIA (h)', 'FP', 'FD', 'IP/IN', 'Fase', 'Cat.', 'Ativo', ''].map(h => (
+                  <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {loads.map(l => (
+              {filtered.map(l => (
                 <tr key={l.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{l.nome}</td>
-                  <td className="px-4 py-3 text-gray-500">{l.categoria}</td>
-                  <td className="px-4 py-3 text-right">{l.potencia_w}</td>
-                  <td className="px-4 py-3">{l.tensao} · {l.fase}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${l.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {l.ativo ? 'Ativa' : 'Inativa'}
+                  <td className="px-3 py-2 font-medium">{l.nome}</td>
+                  <td className="px-3 py-2">{l.potencia_w}</td>
+                  <td className="px-3 py-2">{l.tdia_horas ?? '—'}</td>
+                  <td className="px-3 py-2">{l.fator_potencia}</td>
+                  <td className="px-3 py-2">{l.fator_demanda ?? '—'}</td>
+                  <td className="px-3 py-2">{l.ip_in ?? '—'}</td>
+                  <td className="px-3 py-2 capitalize">{l.fase}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500">{l.categoria}</td>
+                  <td className="px-3 py-2">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${l.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {l.ativo ? 'Ativo' : 'Inativo'}
                     </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => openEdit(l)} className="text-xs text-primary hover:underline">Editar</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {filtered.length === 0 && (
+            <p className="py-8 text-center text-sm text-gray-400">Nenhuma carga encontrada.</p>
+          )}
         </div>
       )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-lg font-bold">Nova Carga Padrão</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-lg font-bold">{editing ? 'Editar Carga' : 'Nova Carga'}</h2>
             <form onSubmit={handleSave} className="space-y-3">
-              <div><label className="mb-1 block text-xs font-medium text-gray-700">Nome</label>
-                <input type="text" value={form.nome} onChange={e => set('nome', e.target.value)} required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" /></div>
-              <div><label className="mb-1 block text-xs font-medium text-gray-700">Categoria</label>
-                <input type="text" value={form.categoria} onChange={e => set('categoria', e.target.value)} required
-                  placeholder="ex: Climatização"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" /></div>
-              <div><label className="mb-1 block text-xs font-medium text-gray-700">Potência (W)</label>
-                <input type="number" step="any" value={form.potencia_w}
-                  onChange={e => set('potencia_w', parseFloat(e.target.value))} required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" /></div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">Nome</label>
+                <input required value={form.nome} onChange={e => set('nome', e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  { label: 'PNOM (W)', field: 'potencia_w' },
+                  { label: 'TDIA (h)', field: 'tdia_horas' },
+                  { label: 'FP', field: 'fator_potencia' },
+                  { label: 'FD', field: 'fator_demanda' },
+                  { label: 'IP/IN', field: 'ip_in' },
+                ] as { label: string; field: keyof LoadForm }[]).map(({ label, field }) => (
+                  <div key={field}>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">{label}</label>
+                    <input type="number" step="any"
+                      value={form[field] as number ?? ''}
+                      onChange={e => set(field, parseFloat(e.target.value))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                  </div>
+                ))}
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="mb-1 block text-xs font-medium text-gray-700">Tensão</label>
-                  <select value={form.tensao} onChange={e => set('tensao', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                    <option>127V</option><option>220V</option><option>380V</option>
-                  </select></div>
-                <div><label className="mb-1 block text-xs font-medium text-gray-700">Fase</label>
-                  <select value={form.fase} onChange={e => set('fase', e.target.value as StandardLoad['fase'])}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">Fase</label>
+                  <select value={form.fase} onChange={e => set('fase', e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                     <option value="monofasico">Monofásico</option>
                     <option value="trifasico">Trifásico</option>
-                  </select></div>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">Categoria</label>
+                  <input value={form.categoria} onChange={e => set('categoria', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                </div>
               </div>
-              <div><label className="mb-1 block text-xs font-medium text-gray-700">Fator de Potência</label>
-                <input type="number" step="0.01" min="0.1" max="1" value={form.fator_potencia}
-                  onChange={e => set('fator_potencia', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" /></div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.ativo} onChange={e => set('ativo', e.target.checked)} />
-                Ativa
-              </label>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              <div className="flex items-center gap-2">
+                <input type="checkbox" checked={form.ativo} onChange={e => set('ativo', e.target.checked)} id="ativo" />
+                <label htmlFor="ativo" className="text-sm text-gray-700">Ativo</label>
+              </div>
+              {error && <p className="rounded bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowForm(false)}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">Cancelar</button>
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
+                  Cancelar
+                </button>
                 <button type="submit"
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">Criar</button>
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark">
+                  Salvar
+                </button>
               </div>
             </form>
           </div>
