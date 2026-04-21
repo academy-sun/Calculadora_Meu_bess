@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
-import type { TipoCalculo, LoadItem, CalculateResponse } from '@/types'
+import type { TipoCalculo, CalculateResponse, StandardLoad } from '@/types'
 
 const TIPOS: { value: TipoCalculo; label: string; desc: string }[] = [
   { value: 'backup', label: 'Backup de Energia', desc: 'Garante autonomia em caso de falta de energia' },
@@ -13,10 +13,23 @@ const TIPOS: { value: TipoCalculo; label: string; desc: string }[] = [
   { value: 'solar_storage', label: 'Solar + Storage', desc: 'Sistema híbrido solar com armazenamento' },
 ]
 
+const MONTHS = [
+  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
+]
+
 type Step = 'tipo' | 'dados' | 'resultado'
 
-interface SelectedLoad extends LoadItem {
+// ── Backup row type ───────────────────────────────────────────────────────────
+type BackupRow = {
   id: string
+  nome: string
+  qtd: number
+  pnom_w: number
+  fp: number
+  fd: number
+  ip_in: number
+  tdia_h: number
 }
 
 export function NewProjectPage() {
@@ -30,65 +43,53 @@ export function NewProjectPage() {
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Campos compartilhados ────────────────────────────────────────────────────
-  const [autonomia, setAutonomia] = useState('')
-  const [tensao, setTensao] = useState('220')
-  const [dod, setDod] = useState('80')
+  // ── Backup ────────────────────────────────────────────────────────────────
+  const [tipoInstalacao, setTipoInstalacao] = useState<'monofasico' | 'trifasico'>('monofasico')
+  const [autonomia, setAutonomia] = useState('4')
+  const [dod, setDod] = useState('90')
+  const [backupRows, setBackupRows] = useState<BackupRow[]>([])
 
-  // ── Peak Shaving ─────────────────────────────────────────────────────────────
+  function addBackupRow(load: StandardLoad) {
+    const id = crypto.randomUUID()
+    setBackupRows(prev => [...prev, {
+      id,
+      nome: load.nome,
+      qtd: 1,
+      pnom_w: load.potencia_w,
+      fp: load.fator_potencia ?? 1,
+      fd: load.fator_demanda ?? 1,
+      ip_in: load.ip_in ?? 1,
+      tdia_h: load.tdia_horas ?? 4,
+    }])
+  }
+
+  function updateBackupRow(id: string, field: keyof Omit<BackupRow, 'id' | 'nome'>, value: number) {
+    setBackupRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  }
+
+  function removeBackupRow(id: string) {
+    setBackupRows(prev => prev.filter(r => r.id !== id))
+  }
+
+  // ── Arbitragem ────────────────────────────────────────────────────────────
+  const [arbConsumoPonta, setArbConsumoPonta] = useState<string[]>(Array(12).fill(''))
+  const [arbDemandaPonta, setArbDemandaPonta] = useState<string[]>(Array(12).fill(''))
+  const [arbTarifaPonta, setArbTarifaPonta] = useState('2.50')
+  const [arbTarifaForaPonta, setArbTarifaForaPonta] = useState('0.30')
+
+  // ── Peak Shaving ──────────────────────────────────────────────────────────
   const [demandaAlvo, setDemandaAlvo] = useState('')
   const [tarifaDemanda, setTarifaDemanda] = useState('')
   const [curvaInput, setCurvaInput] = useState('')
 
-  // ── Arbitragem Tarifária ─────────────────────────────────────────────────────
-  const [modalidade, setModalidade] = useState<'verde' | 'azul'>('verde')
-  const [tarifaPonta, setTarifaPonta] = useState('')
-  const [tarifaForaPonta, setTarifaForaPonta] = useState('')
-  const [demandaMedidaPonta, setDemandaMedidaPonta] = useState('')
-  const [demandaMedidaForaPonta, setDemandaMedidaForaPonta] = useState('')
-  const [demandaContratadaPonta, setDemandaContratadaPonta] = useState('')
-  const [demandaContratadaForaPonta, setDemandaContratadaForaPonta] = useState('')
-  const [tarifaDemandaPonta, setTarifaDemandaPonta] = useState('')
-  const [tarifaDemandaForaPonta, setTarifaDemandaForaPonta] = useState('')
-  const [tarifaDemandaUnica, setTarifaDemandaUnica] = useState('')
-
-  // ── Solar ────────────────────────────────────────────────────────────────────
+  // ── Solar ─────────────────────────────────────────────────────────────────
   const [irradiacao, setIrradiacao] = useState('5.0')
   const [area, setArea] = useState('')
-
-  // ── Cargas (Backup / Peak Shaving) ──────────────────────────────────────────
-  const [selectedLoads, setSelectedLoads] = useState<SelectedLoad[]>([])
-
-  function addLoad(id: string) {
-    const load = loads?.find(l => l.id === id)
-    if (!load) return
-    setSelectedLoads(prev => [
-      ...prev,
-      { id, nome: load.nome, potencia_w: load.potencia_w, quantidade: 1, horas_uso_dia: 4 },
-    ])
-  }
-
-  function updateLoad(id: string, field: 'quantidade' | 'horas_uso_dia', value: number) {
-    setSelectedLoads(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l))
-  }
-
-  function removeLoad(id: string) {
-    setSelectedLoads(prev => prev.filter(l => l.id !== id))
-  }
+  const [consumoSolar, setConsumoSolar] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-
-    const curva = curvaInput
-      ? curvaInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v))
-      : undefined
-
-    const cargas: LoadItem[] | undefined = selectedLoads.length > 0
-      ? selectedLoads.map(({ nome, potencia_w, quantidade, horas_uso_dia }) => ({
-          nome, potencia_w, quantidade, horas_uso_dia,
-        }))
-      : undefined
 
     const displayName =
       (user?.user_metadata?.nome as string | undefined) ?? user?.email ?? 'Engenheiro'
@@ -104,34 +105,29 @@ export function NewProjectPage() {
     }
 
     if (tipo === 'backup') {
-      payload.cargas = cargas
+      payload.cargas_backup = backupRows.map(({ id: _id, ...r }) => r)
+      payload.tipo_instalacao = tipoInstalacao
       payload.autonomia_horas = parseFloat(autonomia)
-      payload.tensao_instalacao_v = parseFloat(tensao)
       payload.dod_percent = parseFloat(dod)
+      payload.eficiencia_roundtrip = 90
     } else if (tipo === 'peak_shaving') {
+      const curva = curvaInput
+        ? curvaInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v))
+        : undefined
       payload.curva_carga_kw = curva
-      payload.cargas = cargas
       payload.demanda_alvo_kw = parseFloat(demandaAlvo)
       payload.tarifa_demanda_rs_kw = parseFloat(tarifaDemanda)
     } else if (tipo === 'arbitragem') {
-      payload.modalidade_tarifaria = modalidade
-      payload.tarifa_ponta_rs_kwh = parseFloat(tarifaPonta)
-      payload.tarifa_fora_ponta_rs_kwh = parseFloat(tarifaForaPonta)
-      payload.demanda_medida_ponta_kw = parseFloat(demandaMedidaPonta)
-      payload.demanda_medida_fora_ponta_kw = parseFloat(demandaMedidaForaPonta)
-      payload.demanda_contratada_ponta_kw = parseFloat(demandaContratadaPonta)
-      payload.demanda_contratada_fora_ponta_kw = parseFloat(demandaContratadaForaPonta)
-      payload.dod_percent = parseFloat(dod)
-      payload.tensao_instalacao_v = parseFloat(tensao)
-      if (modalidade === 'azul') {
-        payload.tarifa_demanda_ponta_rs_kw = parseFloat(tarifaDemandaPonta)
-        payload.tarifa_demanda_fora_ponta_rs_kw = parseFloat(tarifaDemandaForaPonta)
-      } else {
-        payload.tarifa_demanda_unica_rs_kw = parseFloat(tarifaDemandaUnica)
-      }
+      payload.consumo_ponta_kwh = arbConsumoPonta.map(v => parseFloat(v) || 0)
+      payload.demanda_ponta_kw  = arbDemandaPonta.map(v => parseFloat(v) || 0)
+      payload.tarifa_ponta_rs_kwh = parseFloat(arbTarifaPonta)
+      payload.tarifa_fora_ponta_rs_kwh = parseFloat(arbTarifaForaPonta)
     } else if (tipo === 'solar' || tipo === 'solar_storage') {
       payload.irradiacao_kwh_m2_dia = parseFloat(irradiacao)
       payload.area_disponivel_m2 = parseFloat(area)
+      if (consumoSolar) {
+        payload.curva_carga_kw = Array(24).fill(parseFloat(consumoSolar) / 24 / 30)
+      }
     }
 
     try {
@@ -188,155 +184,168 @@ export function NewProjectPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* ── Peak Shaving: curva de carga ─────────────────────────────────── */}
-          {tipo === 'peak_shaving' && (
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Curva de Carga (kW separados por vírgula, hora a hora)
-              </label>
-              <textarea
-                value={curvaInput}
-                onChange={e => setCurvaInput(e.target.value)}
-                rows={3}
-                placeholder="10.5, 9.8, 8.2, ..., 15.3"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-gray-400">Ou adicione cargas abaixo para gerar curva sintética</p>
-            </div>
-          )}
-
-          {/* ── Cargas: somente Backup e Peak Shaving ───────────────────────── */}
-          {(tipo === 'backup' || tipo === 'peak_shaving') && (
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
-              {loads && loads.length > 0 && (
-                <select
-                  onChange={e => { if (e.target.value) addLoad(e.target.value); e.target.value = '' }}
-                  className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                >
-                  <option value="">+ Adicionar carga do catálogo...</option>
-                  {loads.map(l => (
-                    <option key={l.id} value={l.id}>{l.nome} ({l.potencia_w}W)</option>
-                  ))}
-                </select>
-              )}
-              {selectedLoads.map(l => (
-                <div key={l.id} className="mb-2 flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                  <span className="flex-1 text-sm">{l.nome} ({l.potencia_w}W)</span>
-                  <input type="number" min={1} value={l.quantidade}
-                    onChange={e => updateLoad(l.id, 'quantidade', parseInt(e.target.value))}
-                    title="Quantidade"
-                    className="w-16 rounded border border-gray-300 px-2 py-1 text-center text-sm" />
-                  <input type="number" min={0.5} max={24} step={0.5} value={l.horas_uso_dia}
-                    onChange={e => updateLoad(l.id, 'horas_uso_dia', parseFloat(e.target.value))}
-                    title="Horas/dia"
-                    className="w-16 rounded border border-gray-300 px-2 py-1 text-center text-sm" />
-                  <button type="button" onClick={() => removeLoad(l.id)} className="text-red-400 hover:text-red-600">✕</button>
-                </div>
-              ))}
-              {selectedLoads.length === 0 && (
-                <p className="text-xs text-gray-400">Adicione ao menos uma carga para calcular o backup.</p>
-              )}
-            </div>
-          )}
-
-          {/* ── Backup ──────────────────────────────────────────────────────── */}
+          {/* ── BACKUP ──────────────────────────────────────────────────────── */}
           {tipo === 'backup' && (
             <>
-              <Field label="Autonomia Desejada (horas)" value={autonomia} onChange={setAutonomia} placeholder="ex: 4" required />
-              <Field label="Profundidade de Descarga — DoD (%)" value={dod} onChange={setDod} placeholder="ex: 80" required />
+              {/* Tipo de instalação */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Tensão da Instalação</label>
-                <select value={tensao} onChange={e => setTensao(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="127">127V</option>
-                  <option value="220">220V</option>
-                  <option value="380">380V</option>
-                </select>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de Instalação</label>
+                <div className="flex gap-3">
+                  {(['monofasico', 'trifasico'] as const).map(t => (
+                    <button key={t} type="button"
+                      onClick={() => setTipoInstalacao(t)}
+                      className={`flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-colors ${
+                        tipoInstalacao === t
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}>
+                      {t === 'monofasico' ? 'Monofásico' : 'Trifásico'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Parâmetros */}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Autonomia (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
+                <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="90" required />
+              </div>
+
+              {/* Tabela de cargas */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
+                {loads && loads.length > 0 && (
+                  <select
+                    className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    onChange={e => {
+                      const load = loads.find(l => l.id === e.target.value)
+                      if (load) { addBackupRow(load); e.target.value = '' }
+                    }}
+                  >
+                    <option value="">+ Adicionar carga do catálogo...</option>
+                    {loads.map(l => (
+                      <option key={l.id} value={l.id}>{l.nome} ({l.potencia_w}W)</option>
+                    ))}
+                  </select>
+                )}
+                {backupRows.length > 0 && (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {['Equipamento','Qtd','PNOM (W)','TDIA (h)','FP','FD','IP/IN',''].map(h => (
+                            <th key={h} className="px-2 py-2 text-left text-gray-500 font-medium">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {backupRows.map(row => (
+                          <tr key={row.id} className="border-t border-gray-100">
+                            <td className="px-2 py-1 text-gray-700 min-w-[100px]">{row.nome}</td>
+                            {(['qtd', 'pnom_w', 'tdia_h', 'fp', 'fd', 'ip_in'] as const).map(f => (
+                              <td key={f} className="px-1 py-1">
+                                <input type="number" value={row[f]} step="any" min={0}
+                                  onChange={e => updateBackupRow(row.id, f, parseFloat(e.target.value))}
+                                  className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none" />
+                              </td>
+                            ))}
+                            <td className="px-1 py-1">
+                              <button type="button" onClick={() => removeBackupRow(row.id)}
+                                className="text-red-400 hover:text-red-600">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {backupRows.length === 0 && (
+                  <p className="text-xs text-gray-400">Adicione ao menos uma carga do catálogo.</p>
+                )}
               </div>
             </>
           )}
 
-          {/* ── Peak Shaving ─────────────────────────────────────────────────── */}
+          {/* ── PEAK SHAVING ─────────────────────────────────────────────────── */}
           {tipo === 'peak_shaving' && (
             <>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Curva de Carga (kW separados por vírgula, hora a hora)
+                </label>
+                <textarea
+                  value={curvaInput}
+                  onChange={e => setCurvaInput(e.target.value)}
+                  rows={3}
+                  placeholder="10.5, 9.8, 8.2, ..., 15.3"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
               <Field label="Demanda-Alvo (kW)" value={demandaAlvo} onChange={setDemandaAlvo} placeholder="ex: 80" required />
               <Field label="Tarifa de Demanda (R$/kW/mês)" value={tarifaDemanda} onChange={setTarifaDemanda} placeholder="ex: 45.00" required />
             </>
           )}
 
-          {/* ── Arbitragem Tarifária ─────────────────────────────────────────── */}
+          {/* ── ARBITRAGEM ───────────────────────────────────────────────────── */}
           {tipo === 'arbitragem' && (
             <>
-              {/* Modalidade */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Modalidade Tarifária</label>
-                <select value={modalidade} onChange={e => setModalidade(e.target.value as 'verde' | 'azul')}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="verde">Verde</option>
-                  <option value="azul">Azul</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  Ponta horária fixada em 18h–21h (3 horas) · 22 dias úteis/mês
-                </p>
-              </div>
-
-              {/* Tarifas de energia */}
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
-                <p className="text-xs font-semibold uppercase text-gray-500">Tarifas de Energia</p>
-                <Field label="Tarifa na Ponta (R$/kWh)" value={tarifaPonta} onChange={setTarifaPonta} placeholder="ex: 0.90" required />
-                <Field label="Tarifa Fora da Ponta (R$/kWh)" value={tarifaForaPonta} onChange={setTarifaForaPonta} placeholder="ex: 0.30" required />
-              </div>
-
-              {/* Demandas */}
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
-                <p className="text-xs font-semibold uppercase text-gray-500">Demanda Medida (kW)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Medida na Ponta" value={demandaMedidaPonta} onChange={setDemandaMedidaPonta} placeholder="ex: 100" required />
-                  <Field label="Medida Fora da Ponta" value={demandaMedidaForaPonta} onChange={setDemandaMedidaForaPonta} placeholder="ex: 80" required />
-                </div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Demanda Contratada (kW)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Contratada na Ponta" value={demandaContratadaPonta} onChange={setDemandaContratadaPonta} placeholder="ex: 120" required />
-                  <Field label="Contratada Fora da Ponta" value={demandaContratadaForaPonta} onChange={setDemandaContratadaForaPonta} placeholder="ex: 100" required />
-                </div>
-              </div>
-
-              {/* Tarifa de demanda — condicional por modalidade */}
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
-                <p className="text-xs font-semibold uppercase text-gray-500">Tarifa de Demanda (R$/kW/mês)</p>
-                {modalidade === 'azul' ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Demanda na Ponta" value={tarifaDemandaPonta} onChange={setTarifaDemandaPonta} placeholder="ex: 45.00" required />
-                    <Field label="Demanda Fora da Ponta" value={tarifaDemandaForaPonta} onChange={setTarifaDemandaForaPonta} placeholder="ex: 20.00" required />
-                  </div>
-                ) : (
-                  <Field label="Demanda Única" value={tarifaDemandaUnica} onChange={setTarifaDemandaUnica} placeholder="ex: 30.00" required />
-                )}
-              </div>
-
-              {/* DoD e Tensão */}
               <div className="grid grid-cols-2 gap-3">
-                <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="ex: 80" required />
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Tensão da Instalação</label>
-                  <select value={tensao} onChange={e => setTensao(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                    <option value="127">127V</option>
-                    <option value="220">220V</option>
-                    <option value="380">380V</option>
-                  </select>
+                <Field label="Tarifa Fora da Ponta (R$/kWh)" value={arbTarifaForaPonta}
+                  onChange={setArbTarifaForaPonta} placeholder="ex: 0.30" required />
+                <Field label="Tarifa na Ponta (R$/kWh)" value={arbTarifaPonta}
+                  onChange={setArbTarifaPonta} placeholder="ex: 2.50" required />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  Consumo e Demanda na Ponta — dados da fatura (12 meses)
+                </label>
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-gray-500 font-medium w-28">Mês</th>
+                        <th className="px-3 py-2 text-left text-gray-500 font-medium">Consumo Ponta (kWh)</th>
+                        <th className="px-3 py-2 text-left text-gray-500 font-medium">Demanda Ponta (kW)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {MONTHS.map((mes, i) => (
+                        <tr key={mes} className="border-t border-gray-100">
+                          <td className="px-3 py-1 text-gray-500">{mes}</td>
+                          <td className="px-2 py-1">
+                            <input type="number" step="any" min={0}
+                              value={arbConsumoPonta[i]}
+                              placeholder="0"
+                              onChange={e => setArbConsumoPonta(prev => {
+                                const next = [...prev]; next[i] = e.target.value; return next
+                              })}
+                              className="w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-primary focus:outline-none" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" step="any" min={0}
+                              value={arbDemandaPonta[i]}
+                              placeholder="0"
+                              onChange={e => setArbDemandaPonta(prev => {
+                                const next = [...prev]; next[i] = e.target.value; return next
+                              })}
+                              className="w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-primary focus:outline-none" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </>
           )}
 
-          {/* ── Solar / Solar + Storage ──────────────────────────────────────── */}
+          {/* ── SOLAR / SOLAR + STORAGE ──────────────────────────────────────── */}
           {(tipo === 'solar' || tipo === 'solar_storage') && (
             <>
               <Field label="Irradiação Solar (kWh/m²/dia)" value={irradiacao} onChange={setIrradiacao} placeholder="ex: 5.0" required />
               <Field label="Área Disponível (m²)" value={area} onChange={setArea} placeholder="ex: 100" required />
-              <Field label="Consumo Médio Mensal (kWh)" value={curvaInput} onChange={setCurvaInput} placeholder="ex: 500" />
+              <Field label="Consumo Médio Mensal (kWh)" value={consumoSolar} onChange={setConsumoSolar} placeholder="ex: 500" />
             </>
           )}
 
@@ -360,6 +369,7 @@ export function NewProjectPage() {
       <h1 className="mb-1 text-2xl font-bold text-green-700">✅ Dimensionamento Concluído</h1>
       <p className="mb-6 text-gray-500">Tipo: <span className="font-medium capitalize">{tipo.replace(/_/g, ' ')}</span></p>
 
+      {/* Summary cards */}
       <div className="mb-6 grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-400 uppercase">Capacidade</p>
@@ -371,15 +381,79 @@ export function NewProjectPage() {
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-400 uppercase">Payback</p>
-          <p className="text-2xl font-bold">{result?.payback_meses ? `${result.payback_meses} meses` : '—'}</p>
+          <p className="text-2xl font-bold">{result?.payback_meses ? `${result.payback_meses} m` : '—'}</p>
         </div>
       </div>
 
+      {/* Backup: per-row results table */}
+      {result?.backup_rows && result.backup_rows.length > 0 && (
+        <div className="mb-4 overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50">
+              <tr>
+                {['Equipamento','Pn (kVA)','Dmn (kVA)','Pp (kVA)','DMp (kVA)','E_EPS (kWh)'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.backup_rows.map((r, i) => (
+                <tr key={i} className="border-t border-gray-100">
+                  <td className="px-3 py-1 text-gray-700">{r.nome}</td>
+                  <td className="px-3 py-1">{r.pn_kva}</td>
+                  <td className="px-3 py-1">{r.dmn_kva}</td>
+                  <td className="px-3 py-1">{r.pp_kva}</td>
+                  <td className="px-3 py-1">{r.dmp_kva}</td>
+                  <td className="px-3 py-1 font-medium">{r.e_eps_kwh}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-xs">
+                <td className="px-3 py-1">TOTAL</td>
+                <td className="px-3 py-1">{result.total_pn_kva}</td>
+                <td className="px-3 py-1">{result.total_dmn_kva}</td>
+                <td className="px-3 py-1">{result.total_pp_kva}</td>
+                <td className="px-3 py-1">{result.total_dmp_kva}</td>
+                <td className="px-3 py-1">{result.capacidade_kwh} kWh</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Arbitragem: dimensionamento stats */}
+      {result?.qty_bess !== undefined && (
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="mb-3 text-xs font-bold uppercase text-gray-500">Dimensionamento Arbitragem</p>
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-gray-400">Qtd BESS</p>
+              <p className="text-2xl font-bold text-primary">{result.qty_bess}</p>
+              <p className="text-xs text-gray-400">
+                {result.qty_bess === result.qty_consumo ? 'limitado por consumo' : 'limitado por demanda'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Média Consumo Ponta</p>
+              <p className="font-semibold">{result.avg_consumo_ponta?.toFixed(1)} kWh/mês</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Maior Demanda Ponta</p>
+              <p className="font-semibold">{result.max_demanda_ponta?.toFixed(1)} kW</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Economia Estimada</p>
+              <p className="font-semibold text-green-700">
+                R$ {result.economia_mensal_rs?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Kit recomendado */}
       {result?.kit_selecionado && (
         <div className="mb-4 rounded-xl border-2 border-primary/40 bg-primary/5 p-4">
-          <p className="mb-3 text-xs font-bold uppercase text-primary">
-            Kit Recomendado — {tipo === 'arbitragem' ? 'Menor Payback' : 'Menor Preço'}
-          </p>
+          <p className="mb-3 text-xs font-bold uppercase text-primary">Kit Recomendado — Menor Preço</p>
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <div><p className="text-xs text-gray-500">Marca</p><p className="font-semibold">{result.kit_selecionado.marca}</p></div>
             <div><p className="text-xs text-gray-500">Bateria</p><p className="font-semibold">{result.kit_selecionado.bateria_modelo}</p></div>
@@ -396,23 +470,10 @@ export function NewProjectPage() {
               : ''}
             {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
           </p>
-          {(result.kit_selecionado.economia_mensal_rs || result.kit_selecionado.payback_anos) && (
-            <div className="mt-3 flex gap-4 text-sm">
-              {result.kit_selecionado.economia_mensal_rs && (
-                <span className="text-green-700">
-                  Economia: <strong>R$ {result.kit_selecionado.economia_mensal_rs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês</strong>
-                </span>
-              )}
-              {result.kit_selecionado.payback_anos && (
-                <span className="text-gray-600">
-                  Payback: <strong>{result.kit_selecionado.payback_anos} anos</strong>
-                </span>
-              )}
-            </div>
-          )}
         </div>
       )}
 
+      {/* Alternativas */}
       {result?.alternativas && result.alternativas.length > 0 && (
         <div className="mb-4">
           <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Alternativas</p>
@@ -420,17 +481,14 @@ export function NewProjectPage() {
             {result.alternativas.map((k, i) => (
               <div key={i} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
                 <span>{k.marca} — {k.bateria_modelo} + {k.inversor_modelo}</span>
-                <div className="flex items-center gap-4">
-                  {k.payback_anos && <span className="text-gray-500">{k.payback_anos} anos</span>}
-                  <span className="font-medium">R$ {k.preco_total.toLocaleString('pt-BR')}</span>
-                </div>
+                <span className="font-medium">R$ {k.preco_total.toLocaleString('pt-BR')}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {(result?.economia_mensal_rs || result?.economia_anual_rs) && (
+      {(result?.economia_mensal_rs || result?.economia_anual_rs) && !result?.qty_bess && (
         <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
           {result?.economia_mensal_rs && <>Economia mensal: <strong>R$ {result.economia_mensal_rs.toLocaleString('pt-BR')}</strong></>}
           {result?.economia_anual_rs && <> · Anual: <strong>R$ {result.economia_anual_rs.toLocaleString('pt-BR')}</strong></>}
