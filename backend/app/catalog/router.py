@@ -77,3 +77,16 @@ async def add_load(
     _=Depends(require_admin),
 ):
     return await service.create_load(db, data)
+
+
+@router.put("/loads/{load_id}", response_model=StandardLoadRead)
+async def update_load(
+    load_id: uuid.UUID,
+    data: StandardLoadCreate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    load = await service.update_load(db, load_id, data)
+    if not load:
+        raise HTTPException(status_code=404, detail="Carga não encontrada")
+    return load

@@ -71,3 +71,23 @@ async def create_load(db: AsyncSession, data: StandardLoadCreate) -> StandardLoa
     await db.commit()
     await db.refresh(load)
     return load
+
+
+async def update_load(db: AsyncSession, load_id: uuid.UUID, data: StandardLoadCreate) -> StandardLoad | None:
+    result = await db.execute(select(StandardLoad).where(StandardLoad.id == load_id))
+    load = result.scalar_one_or_none()
+    if not load:
+        return None
+    for key, value in data.model_dump().items():
+        setattr(load, key, value)
+    await db.commit()
+    await db.refresh(load)
+    return load
+
+
+async def get_bess_comercial(db: AsyncSession) -> ProductBESS | None:
+    """Returns the single commercial BESS unit used by the Arbitragem engine."""
+    result = await db.execute(
+        select(ProductBESS).where(ProductBESS.tipo == "bess_comercial").limit(1)
+    )
+    return result.scalar_one_or_none()

@@ -19,6 +19,7 @@ class ProductBESSCreate(BaseModel):
     capacidade_kwh: Optional[float] = None
     dod_percent: Optional[float] = None
     potencia_continua_kw: Optional[float] = None
+    pot_ca_max_eps_kva: Optional[float] = None
     max_baterias: Optional[int] = None
     preco: float
     disponivel: bool = True
@@ -57,6 +58,9 @@ class StandardLoadCreate(BaseModel):
     categoria: str
     potencia_w: float
     fator_potencia: float = 1.0
+    tdia_horas: Optional[float] = None
+    fator_demanda: Optional[float] = None
+    ip_in: Optional[float] = None
     tensao: str
     fase: str
     ativo: bool = True
