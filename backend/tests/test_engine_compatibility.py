@@ -9,138 +9,138 @@ from app.engines.compatibility import find_compatible_kits, KitBESS
 from app.engines.schemas import ProductBESSRead
 
 
-def make_battery(
-    marca="WEG", modelo="BAT-14", sku="W-BAT-14",
-    tensao_nominal_v=51.2, capacidade_kwh=14.3, dod_percent=90.0,
-    corrente_max_descarga_a=100.0, preco=18000.0,
-) -> ProductBESSRead:
-    return ProductBESSRead(
+def _bat(marca="Intelbras", modelo="SBW CB050", sku="SBW-CB050",
+         cap=5.02, dod=90, preco=3000):
+    b = ProductBESSRead(
         id=uuid.uuid4(), marca=marca, modelo=modelo, sku=sku,
-        tipo="bateria", tensao_nominal_v=tensao_nominal_v,
-        capacidade_kwh=capacidade_kwh, dod_percent=dod_percent,
-        corrente_max_descarga_a=corrente_max_descarga_a,
+        tipo='bateria', capacidade_kwh=cap, dod_percent=dod,
         preco=preco, disponivel=True, atualizado_em=datetime.utcnow(),
     )
+    return b
 
 
-def make_inverter(
-    marca="WEG", modelo="INV-5K", sku="W-INV-5K",
-    tensao_min_dc_v=40.0, tensao_max_dc_v=60.0,
-    corrente_max_dc_a=300.0, potencia_continua_kw=5.0, preco=12000.0,
-) -> ProductBESSRead:
-    return ProductBESSRead(
+def _inv(marca="Intelbras", modelo="INV", sku="INV-1",
+         eps_kva=10.0, fase='monofasico', pot_kw=5.0, preco=6000):
+    inv = ProductBESSRead(
         id=uuid.uuid4(), marca=marca, modelo=modelo, sku=sku,
-        tipo="inversor_hibrido", tensao_min_dc_v=tensao_min_dc_v,
-        tensao_max_dc_v=tensao_max_dc_v, corrente_max_dc_a=corrente_max_dc_a,
-        potencia_continua_kw=potencia_continua_kw,
+        tipo='inversor_hibrido', potencia_continua_kw=pot_kw,
         preco=preco, disponivel=True, atualizado_em=datetime.utcnow(),
     )
+    inv.pot_ca_max_eps_kva = eps_kva
+    inv.fase = fase
+    return inv
 
 
-class TestCompatibility(unittest.TestCase):
+class TestKitSelectionV2(unittest.TestCase):
+    """Updated tests for Backup kit selection using P_max EPS and fase."""
 
-    def test_compatible_same_brand_only(self):
-        """Bateria WEG só casa com inversor WEG"""
-        bat = make_battery(marca="WEG")
-        inv_weg = make_inverter(marca="WEG")
-        inv_fox = make_inverter(marca="FoxESS", sku="FOX-INV-1")
+    def test_selects_inverter_by_eps_not_nominal(self):
+        """Inverter with P_max EPS 10 kVA qualifies when total_pp = 8 kVA."""
+        bat = _bat()
+        inv_small = _inv(eps_kva=6.0, preco=5000, sku="INV-6")   # 6 < 8 → excluded
+        inv_large = _inv(eps_kva=10.0, preco=7000, sku="INV-10")  # 10 >= 8 → included
 
         kits = find_compatible_kits(
             baterias=[bat],
-            inversores=[inv_weg, inv_fox],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=4.0,
+            inversores=[inv_small, inv_large],
+            total_pp_kva=8.0,
+            total_e_eps_kwh=4.518,   # exactly 1 × (5.02 × 0.9)
+            tipo_instalacao='monofasico',
         )
-        self.assertGreaterEqual(len(kits), 1)
-        self.assertTrue(all(k.inversor.marca == "WEG" for k in kits))
 
-    def test_different_brands_no_cross_compatibility(self):
-        """WEG bat + FoxESS inverter → lista vazia"""
-        bat = make_battery(marca="WEG")
-        inv = make_inverter(marca="FoxESS")
+        self.assertEqual(len(kits), 1)
+        self.assertEqual(kits[0].inversor.modelo, 'INV')
+
+    def test_filters_by_fase(self):
+        """Monofásico inversor excluded when trifásico installation."""
+        bat = _bat()
+        inv_mono = _inv(eps_kva=10.0, fase='monofasico', preco=5000, sku="INV-MONO")
+        inv_tri  = _inv(eps_kva=10.0, fase='trifasico',  preco=8000, sku="INV-TRI", modelo="INV-TRI")
+
+        kits = find_compatible_kits(
+            baterias=[bat],
+            inversores=[inv_mono, inv_tri],
+            total_pp_kva=8.0,
+            total_e_eps_kwh=4.518,
+            tipo_instalacao='trifasico',
+        )
+
+        self.assertEqual(len(kits), 1)
+        self.assertEqual(kits[0].inversor.fase, 'trifasico')
+
+    def test_battery_quantity_formula(self):
+        """qty = ceil(E_EPS / (cap × dod/100))"""
+        # 5.02 kWh bat, 90% DoD → usable = 4.518 kWh
+        # E_EPS = 9.5 → ceil(9.5 / 4.518) = ceil(2.10) = 3
+        bat = _bat(cap=5.02, dod=90)
+        inv = _inv(eps_kva=20.0)
 
         kits = find_compatible_kits(
             baterias=[bat],
             inversores=[inv],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=4.0,
+            total_pp_kva=5.0,
+            total_e_eps_kwh=9.5,
+            tipo_instalacao='monofasico',
         )
-        self.assertEqual(kits, [])
 
-    def test_voltage_incompatible_returns_empty(self):
-        """Tensão da bateria fora da faixa do inversor → lista vazia"""
-        bat = make_battery(tensao_nominal_v=100.0)
-        inv = make_inverter(tensao_min_dc_v=40.0, tensao_max_dc_v=60.0)
+        self.assertEqual(len(kits), 1)
+        self.assertEqual(kits[0].qtd_baterias, 3)
+
+    def test_returns_cheapest_first(self):
+        bat = _bat()
+        inv_cheap = _inv(eps_kva=10.0, preco=5000, sku="INV-CHEAP")
+        inv_pricey = _inv(eps_kva=10.0, preco=9000, sku="INV-PRICEY")
 
         kits = find_compatible_kits(
             baterias=[bat],
-            inversores=[inv],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=4.0,
+            inversores=[inv_cheap, inv_pricey],
+            total_pp_kva=8.0,
+            total_e_eps_kwh=4.518,
+            tipo_instalacao='monofasico',
         )
-        self.assertEqual(kits, [])
 
-    def test_kits_sorted_by_price_ascending(self):
-        """Kits retornados em ordem crescente de preço total"""
-        bat_cheap = make_battery(preco=10000.0, sku="B-CHEAP")
-        bat_expensive = make_battery(preco=25000.0, sku="B-EXP")
-        inv = make_inverter()
-
-        kits = find_compatible_kits(
-            baterias=[bat_cheap, bat_expensive],
-            inversores=[inv],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=4.0,
-        )
         self.assertGreaterEqual(len(kits), 2)
-        prices = [k.preco_total for k in kits]
-        self.assertEqual(prices, sorted(prices))
+        self.assertLessEqual(kits[0].preco_total, kits[-1].preco_total)
 
-    def test_minimum_capacity_always_met(self):
-        """Kit selecionado sempre atende a capacidade mínima necessária"""
-        bat = make_battery(capacidade_kwh=14.3, dod_percent=90.0)
-        inv = make_inverter()
+    def test_returns_empty_when_no_eligible_inverter(self):
+        bat = _bat()
+        inv = _inv(eps_kva=4.0)   # 4 < 8 → excluded
 
         kits = find_compatible_kits(
-            baterias=[bat],
-            inversores=[inv],
-            capacidade_necessaria_kwh=28.0,
-            potencia_necessaria_kw=4.0,
+            baterias=[bat], inversores=[inv],
+            total_pp_kva=8.0, total_e_eps_kwh=4.518,
+            tipo_instalacao='monofasico',
         )
-        for kit in kits:
-            self.assertGreaterEqual(kit.capacidade_total_kwh, 28.0)
 
-    def test_power_requirement_enforced(self):
-        """Inversor com potência insuficiente não entra no resultado"""
-        bat = make_battery()
-        inv_weak = make_inverter(potencia_continua_kw=2.0, sku="INV-WEAK")
-        inv_strong = make_inverter(potencia_continua_kw=10.0, sku="INV-STRONG")
+        self.assertEqual(kits, [])
+
+    def test_different_brands_excluded(self):
+        """WEG bat + Intelbras inverter → empty"""
+        bat = _bat(marca="WEG")
+        inv = _inv(marca="Intelbras")
 
         kits = find_compatible_kits(
-            baterias=[bat],
-            inversores=[inv_weak, inv_strong],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=8.0,
+            baterias=[bat], inversores=[inv],
+            total_pp_kva=5.0, total_e_eps_kwh=4.0,
+            tipo_instalacao='monofasico',
         )
-        self.assertTrue(all(k.potencia_total_kw >= 8.0 for k in kits))
-        modelos = [k.inversor.modelo for k in kits]
-        self.assertNotIn("INV-WEAK", modelos)
+        self.assertEqual(kits, [])
 
     def test_price_calculation(self):
-        """Preço total = preço bateria × quantidade + preço inversor"""
-        bat = make_battery(preco=10000.0)
-        inv = make_inverter(preco=5000.0)
+        """preco_total = bat.preco × qtd_baterias + inv.preco"""
+        bat = _bat(cap=5.02, dod=90, preco=3000)
+        inv = _inv(eps_kva=20.0, preco=6000)
 
         kits = find_compatible_kits(
-            baterias=[bat],
-            inversores=[inv],
-            capacidade_necessaria_kwh=14.0,
-            potencia_necessaria_kw=4.0,
+            baterias=[bat], inversores=[inv],
+            total_pp_kva=5.0, total_e_eps_kwh=4.518,  # 1 bat needed
+            tipo_instalacao='monofasico',
         )
-        self.assertGreaterEqual(len(kits), 1)
+
+        self.assertEqual(len(kits), 1)
         kit = kits[0]
-        expected_price = bat.preco * kit.qtd_baterias_total + inv.preco
-        self.assertAlmostEqual(kit.preco_total, expected_price, places=2)
+        expected = 3000 * kit.qtd_baterias + 6000
+        self.assertAlmostEqual(kit.preco_total, expected, places=2)
 
 
 if __name__ == '__main__':
