@@ -7,6 +7,7 @@ type BESSForm = Omit<ProductBESS, 'id' | 'atualizado_em'>
 
 const EMPTY_FORM: BESSForm = {
   marca: '', modelo: '', sku: '', tipo: 'bateria', disponivel: true, preco: 0,
+  pot_ca_max_eps_kva: undefined,
 }
 
 export function CatalogBESSPage() {
@@ -63,6 +64,7 @@ export function CatalogBESSPage() {
                 <th className="px-4 py-3 text-left">Marca / Modelo</th>
                 <th className="px-4 py-3 text-left">SKU</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
+                <th className="px-4 py-3 text-right">P_EPS (kVA)</th>
                 <th className="px-4 py-3 text-right">Preço (R$)</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3" />
@@ -73,7 +75,8 @@ export function CatalogBESSPage() {
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3"><p className="font-medium">{p.marca}</p><p className="text-xs text-gray-500">{p.modelo}</p></td>
                   <td className="px-4 py-3 font-mono text-xs">{p.sku}</td>
-                  <td className="px-4 py-3 capitalize">{p.tipo.replace('_', ' ')}</td>
+                  <td className="px-4 py-3 capitalize">{p.tipo.replace(/_/g, ' ')}</td>
+                  <td className="px-4 py-3 text-right">{p.pot_ca_max_eps_kva ? `${p.pot_ca_max_eps_kva} kVA` : '—'}</td>
                   <td className="px-4 py-3 text-right">{p.preco.toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs ${p.disponivel ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -106,6 +109,7 @@ export function CatalogBESSPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   <option value="bateria">Bateria</option>
                   <option value="inversor_hibrido">Inversor Híbrido</option>
+                  <option value="bess_comercial">BESS Comercial</option>
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -117,6 +121,7 @@ export function CatalogBESSPage() {
                 <NField label="Tensão Máx DC (V)" value={form.tensao_max_dc_v} onChange={v => set('tensao_max_dc_v', v)} />
                 <NField label="Corrente Máx DC (A)" value={form.corrente_max_dc_a} onChange={v => set('corrente_max_dc_a', v)} />
                 <NField label="Potência Contínua (kW)" value={form.potencia_continua_kw} onChange={v => set('potencia_continua_kw', v)} />
+                <NField label="P_máx EPS (kVA)" value={form.pot_ca_max_eps_kva} onChange={v => set('pot_ca_max_eps_kva', v)} />
               </div>
               <NField label="Preço (R$)" value={form.preco} onChange={v => set('preco', v ?? 0)} required />
               <label className="flex items-center gap-2 text-sm">
