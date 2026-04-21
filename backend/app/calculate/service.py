@@ -2,15 +2,18 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.calculate.schemas import CalculateRequest, CalculateResponse, KitInfo, LoadItem
-from app.catalog.service import list_bess
-from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_economy
-from app.engines.compatibility import find_compatible_kits, find_arbitrage_kits
+from app.calculate.schemas import (
+    BackupLoadRow, BackupRowResult,
+    CalculateRequest, CalculateResponse, KitInfo, LoadItem,
+)
+from app.catalog.service import list_bess, get_bess_comercial
+from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
+from app.engines.compatibility import find_compatible_kits
 from app.engines.schemas import (
-    BackupInput, CargaItem,
-    ArbitrageInput,
+    BackupInput, LoadRow,
+    ArbitrageInputV2,
     PeakShavingInput, SolarInput,
-    BackupResult, PeakShavingResult, SolarResult,
+    PeakShavingResult, SolarResult,
 )
 from app.projects.models import Project
 from app.projects.service import create_project, mark_project_done, mark_project_error
@@ -35,7 +38,7 @@ def _kits_to_response(kits) -> tuple[KitInfo | None, list[KitInfo]]:
             marca=k.bateria.marca,
             bateria_modelo=k.bateria.modelo,
             inversor_modelo=k.inversor.modelo,
-            qtd_baterias=k.qtd_baterias_total,
+            qtd_baterias=k.qtd_baterias,
             qtd_inversores=k.qtd_inversores,
             capacidade_total_kwh=k.capacidade_total_kwh,
             potencia_total_kw=k.potencia_total_kw,
@@ -83,29 +86,64 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         alternativas = []
         payback_meses = None
 
-        if req.tipo_calculo == "backup":
-            # Converter cargas do request → CargaItem para o engine
-            cargas_engine = []
-            if req.cargas:
-                for c in req.cargas:
-                    kw = (c.potencia_w * c.quantidade) / 1000.0
-                    cargas_engine.append(CargaItem(potencia_kw=kw, tdia_horas=c.horas_uso_dia))
-            elif req.potencia_critica_kw:
-                # Compatibilidade retroativa: campo único. TDIA = autonomia (h).
-                cargas_engine.append(CargaItem(
-                    potencia_kw=req.potencia_critica_kw,
-                    tdia_horas=req.autonomia_horas or 4.0,
-                ))
+        # Backup-specific extras
+        backup_rows = None
+        backup_result = None
 
-            dod = req.dod_percent or 80.0
-            result: BackupResult = calculate_backup(BackupInput(
+        # Arbitragem-specific extras
+        arb_result = None
+
+        if req.tipo_calculo == "backup":
+            if not req.cargas_backup:
+                raise ValueError("cargas_backup é obrigatório para backup")
+
+            cargas_engine = [
+                LoadRow(
+                    qtd=c.qtd,
+                    pnom_w=c.pnom_w,
+                    fp=c.fp,
+                    fd=c.fd,
+                    ip_in=c.ip_in,
+                    tdia_h=c.tdia_h,
+                )
+                for c in req.cargas_backup
+            ]
+
+            backup_result = calculate_backup(BackupInput(
                 cargas=cargas_engine,
-                autonomia_horas=req.autonomia_horas or 4.0,
-                dod_percent=dod,
-                tensao_instalacao_v=req.tensao_instalacao_v or 220.0,
+                tipo_instalacao=req.tipo_instalacao or "monofasico",
+                dod_percent=req.dod_percent or 90.0,
+                autonomia_h=req.autonomia_horas or 4.0,
+                eficiencia_roundtrip=req.eficiencia_roundtrip or 90.0,
             ))
-            capacidade_kwh = result.energia_necessaria_kwh    # energia que o kit deve armazenar
-            potencia_kw = sum(c.potencia_kw for c in cargas_engine)
+
+            capacidade_kwh = backup_result.total_e_eps
+            potencia_kw = backup_result.total_pp
+
+            kits = find_compatible_kits(
+                baterias=baterias,
+                inversores=inversores,
+                total_pp_kva=backup_result.total_pp,
+                total_e_eps_kwh=backup_result.total_e_eps,
+                tipo_instalacao=req.tipo_instalacao or "monofasico",
+            )
+            kit_selecionado, alternativas = _kits_to_response(kits)
+
+            # Build per-row results for frontend table
+            backup_rows = [
+                BackupRowResult(
+                    nome=req.cargas_backup[i].nome,
+                    pn_kva=r.pn_kva,
+                    dmn_kva=r.dmn_kva,
+                    pp_kva=r.pp_kva,
+                    dmp_kva=r.dmp_kva,
+                    e_eps_kwh=r.e_eps_kwh,
+                )
+                for i, r in enumerate(backup_result.rows)
+            ]
+
+            if kit_selecionado:
+                payback_meses = None  # payback for backup not calculated here
 
         elif req.tipo_calculo == "peak_shaving":
             result: PeakShavingResult = calculate_peak_shaving(PeakShavingInput(
@@ -117,41 +155,46 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             potencia_kw = result.potencia_necessaria_kw
             economia_mensal = result.economia_mensal_estimada_rs
 
-        elif req.tipo_calculo == "arbitragem":
-            arb_input = ArbitrageInput(
-                modalidade=req.modalidade_tarifaria or "verde",
-                tarifa_ponta_kwh=req.tarifa_ponta_rs_kwh or 0.0,
-                tarifa_fora_ponta_kwh=req.tarifa_fora_ponta_rs_kwh or 0.0,
-                demanda_medida_ponta_kw=req.demanda_medida_ponta_kw or 0.0,
-                demanda_medida_fora_ponta_kw=req.demanda_medida_fora_ponta_kw or 0.0,
-                demanda_contratada_ponta_kw=req.demanda_contratada_ponta_kw or 0.0,
-                demanda_contratada_fora_ponta_kw=req.demanda_contratada_fora_ponta_kw or 0.0,
-                tarifa_demanda_ponta_kw=req.tarifa_demanda_ponta_rs_kw,
-                tarifa_demanda_fora_ponta_kw=req.tarifa_demanda_fora_ponta_rs_kw,
-                tarifa_demanda_unica_kw=req.tarifa_demanda_unica_rs_kw,
-                dod_percent=req.dod_percent or 80.0,
-                tensao_instalacao_v=req.tensao_instalacao_v or 220.0,
-            )
-
-            # Kit finder específico para arbitragem (ordena por menor payback)
-            kits = find_arbitrage_kits(
+            kits = find_compatible_kits(
                 baterias=baterias,
                 inversores=inversores,
-                data=arb_input,
+                total_pp_kva=potencia_kw,
+                total_e_eps_kwh=capacidade_kwh,
+                tipo_instalacao="monofasico",
             )
-
             kit_selecionado, alternativas = _kits_to_response(kits)
 
-            if kits:
-                capacidade_kwh = kits[0].capacidade_total_kwh
-                potencia_kw = kits[0].potencia_total_kw
-                economia_mensal = kits[0].economia_mensal
-                payback_meses = round(kits[0].payback_anos * 12, 1) if kits[0].payback_anos else None
-            else:
-                capacidade_kwh = 0.0
-                potencia_kw = 0.0
-                economia_mensal = None
-                payback_meses = None
+            if kit_selecionado and economia_mensal:
+                payback = kit_selecionado.preco_total / economia_mensal
+                payback_meses = round(payback, 1)
+
+        elif req.tipo_calculo == "arbitragem":
+            if not req.consumo_ponta_kwh or not req.demanda_ponta_kw:
+                raise ValueError("consumo_ponta_kwh e demanda_ponta_kw são obrigatórios")
+
+            bess_com = await get_bess_comercial(db)
+            if not bess_com:
+                raise ValueError("Produto BESS Comercial não encontrado no catálogo")
+
+            arb_result = calculate_arbitrage_v2(ArbitrageInputV2(
+                consumo_ponta_kwh=req.consumo_ponta_kwh,
+                demanda_ponta_kw=req.demanda_ponta_kw,
+                tarifa_ponta_kwh=req.tarifa_ponta_rs_kwh or 0.0,
+                tarifa_fora_ponta_kwh=req.tarifa_fora_ponta_rs_kwh or 0.0,
+                bess_capacidade_kwh=float(bess_com.capacidade_kwh),
+                bess_dod=float(bess_com.dod_percent),
+                bess_preco=float(bess_com.preco),
+            ))
+
+            capacidade_kwh = round(
+                arb_result.qty_bess * float(bess_com.capacidade_kwh) * (float(bess_com.dod_percent) / 100.0), 2
+            )
+            potencia_kw = 0.0
+            economia_mensal = arb_result.economia_mensal
+            payback_meses = arb_result.payback_meses
+            # No hardware kit for arbitragem — custo is in arb_result.custo_total
+            kit_selecionado = None
+            alternativas = []
 
         elif req.tipo_calculo in ("solar", "solar_storage"):
             from app.engines.solar import calculate_solar
@@ -170,30 +213,17 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 baterias = []
                 inversores = []
 
-        # Para arbitragem, kits e payback já calculados acima; para demais tipos, usar finder genérico
-        if req.tipo_calculo != "arbitragem":
             kits = find_compatible_kits(
                 baterias=baterias,
                 inversores=inversores,
-                capacidade_necessaria_kwh=capacidade_kwh,
-                potencia_necessaria_kw=potencia_kw,
+                total_pp_kva=potencia_kw,
+                total_e_eps_kwh=capacidade_kwh,
+                tipo_instalacao="monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
-            if kit_selecionado:
-                if economia_mensal:
-                    payback = kit_selecionado.preco_total / economia_mensal
-                elif economia_anual:
-                    payback = (kit_selecionado.preco_total / economia_anual) * 12
-                else:
-                    payback = None
-            else:
-                payback = None
-            payback_meses = round(payback, 1) if payback else None
-
         calculado_em = datetime.now(timezone.utc)
 
-        # Atualizar parâmetros com os RESULTADOS para persistência e exibição no front
         results_data = {
             "capacidade_kwh": capacidade_kwh,
             "potencia_kw": potencia_kw,
@@ -204,7 +234,6 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             "economia_anual_rs": economia_anual,
         }
 
-        # Merge results into parameters
         current_params = project.parametros or {}
         project.parametros = {**current_params, **results_data}
 
@@ -214,7 +243,6 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         if req.origem_info.origem == "ploomes" and req.origem_info.negocio_id:
             from app.shared.ploomes import create_ploomes_interaction
 
-            # Montar mensagem de resumo
             resumo = (
                 f"📊 Dimensionamento BESS concluído ({req.tipo_calculo.upper()})\n"
                 f"- Capacidade: {capacidade_kwh} kWh\n"
@@ -223,13 +251,11 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             if kit_selecionado:
                 resumo += f"- Kit Sugerido: {kit_selecionado.marca} {kit_selecionado.bateria_modelo}\n"
                 resumo += f"- Investimento: R$ {kit_selecionado.preco_total:,.2f}\n"
-
             if payback_meses:
                 resumo += f"- Payback estimado: {payback_meses} meses\n"
 
             resumo += f"\n👉 Ver detalhes: https://calculadora-meu-bess.vercel.app/projects/{project.id}"
 
-            # Executar em background (não travar a resposta da API)
             import asyncio
             asyncio.create_task(create_ploomes_interaction(req.origem_info.negocio_id, resumo))
 
@@ -242,6 +268,16 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             calculado_em=calculado_em,
             capacidade_kwh=capacidade_kwh,
             potencia_kw=potencia_kw,
+            backup_rows=backup_rows,
+            total_pn_kva=backup_result.total_pn if backup_result else None,
+            total_dmn_kva=backup_result.total_dmn if backup_result else None,
+            total_pp_kva=backup_result.total_pp if backup_result else None,
+            total_dmp_kva=backup_result.total_dmp if backup_result else None,
+            qty_bess=arb_result.qty_bess if arb_result else None,
+            qty_consumo=arb_result.qty_consumo if arb_result else None,
+            qty_potencia=arb_result.qty_potencia if arb_result else None,
+            avg_consumo_ponta=arb_result.avg_consumo_ponta if arb_result else None,
+            max_demanda_ponta=arb_result.max_demanda_ponta if arb_result else None,
             kit_selecionado=kit_selecionado,
             economia_mensal_rs=economia_mensal,
             economia_anual_rs=economia_anual,

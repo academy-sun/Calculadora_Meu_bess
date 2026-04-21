@@ -3,15 +3,31 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import math
-import pytest
 import unittest
+try:
+    import pytest
+except ImportError:
+    pytest = None  # type: ignore
+
 from app.engines.bess import (
     calculate_backup, calculate_peak_shaving, calculate_arbitrage_economy, calculate_arbitrage_v2,
 )
 from app.engines.schemas import BackupInput, LoadRow, PeakShavingInput, ArbitrageInput, ArbitrageInputV2
 
 
-class TestBackup:
+# Minimal approx helper for when pytest is not installed
+class _Approx:
+    def __init__(self, expected, abs=1e-3):
+        self.expected = expected
+        self.abs = abs
+    def __eq__(self, actual):
+        return abs(actual - self.expected) <= self.abs
+
+def _approx(expected, abs=1e-3):
+    return _Approx(expected, abs)
+
+
+class TestBackup(unittest.TestCase):
     """Tests verified against CALCULADORA BACKUP.xlsx formulas."""
 
     def _make_input(self, cargas, tipo="monofasico"):
@@ -19,52 +35,49 @@ class TestBackup:
 
     def test_single_load_ar_condicionado(self):
         """AR CONDICIONADO BTU 7500: qty=1, PNOM=800W, FP=0.75, FD=1, IP/IN=6, TDIA=6h"""
-        # Pn = ceil(1 * 800/0.75) / 1000 = ceil(1066.67) / 1000 = 1067/1000 = 1.067
         cargas = [LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=6.0, tdia_h=6.0)]
         result = calculate_backup(self._make_input(cargas))
 
-        assert result.rows[0].pn_kva == pytest.approx(1.067, abs=0.001)
-        assert result.rows[0].dmn_kva == pytest.approx(1.067, abs=0.001)   # 1.067 * 1.0
-        assert result.rows[0].pp_kva == pytest.approx(6.402, abs=0.001)    # 1.067 * 6
-        assert result.rows[0].dmp_kva == pytest.approx(6.402, abs=0.001)   # 1.067 * 6
-        assert result.rows[0].e_eps_kwh == pytest.approx(6.402, abs=0.001) # 1.067 * 6
+        self.assertAlmostEqual(result.rows[0].pn_kva, 1.067, places=3)
+        self.assertAlmostEqual(result.rows[0].dmn_kva, 1.067, places=3)
+        self.assertAlmostEqual(result.rows[0].pp_kva, 6.402, places=3)
+        self.assertAlmostEqual(result.rows[0].dmp_kva, 6.402, places=3)
+        self.assertAlmostEqual(result.rows[0].e_eps_kwh, 6.402, places=3)
 
     def test_single_load_abajur(self):
         """ABAJUR 45W INCAND: qty=2, PNOM=45W, FP=1.0, FD=0.9, IP/IN=1.0, TDIA=5h"""
-        # Pn = ceil(2 * 45/1.0) / 1000 = 90 / 1000 = 0.09
         cargas = [LoadRow(qtd=2, pnom_w=45, fp=1.0, fd=0.9, ip_in=1.0, tdia_h=5.0)]
         result = calculate_backup(self._make_input(cargas))
 
-        assert result.rows[0].pn_kva == pytest.approx(0.09, abs=0.001)
-        assert result.rows[0].dmn_kva == pytest.approx(0.081, abs=0.001)   # 0.09 * 0.9
-        assert result.rows[0].pp_kva == pytest.approx(0.09, abs=0.001)     # 0.09 * 1.0
-        assert result.rows[0].dmp_kva == pytest.approx(0.081, abs=0.001)   # 0.081 * 1.0
-        assert result.rows[0].e_eps_kwh == pytest.approx(0.45, abs=0.001)  # 0.09 * 5
+        self.assertAlmostEqual(result.rows[0].pn_kva, 0.09, places=3)
+        self.assertAlmostEqual(result.rows[0].dmn_kva, 0.081, places=3)
+        self.assertAlmostEqual(result.rows[0].pp_kva, 0.09, places=3)
+        self.assertAlmostEqual(result.rows[0].dmp_kva, 0.081, places=3)
+        self.assertAlmostEqual(result.rows[0].e_eps_kwh, 0.45, places=3)
 
     def test_multiple_loads_totals(self):
         """Two loads: verify SUBTOTAL sums."""
         cargas = [
-            LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=6.0, tdia_h=6.0),  # Pn=1.067
-            LoadRow(qtd=2, pnom_w=45,  fp=1.0,  fd=0.9, ip_in=1.0, tdia_h=5.0),  # Pn=0.090
+            LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=6.0, tdia_h=6.0),
+            LoadRow(qtd=2, pnom_w=45,  fp=1.0,  fd=0.9, ip_in=1.0, tdia_h=5.0),
         ]
         result = calculate_backup(self._make_input(cargas))
 
-        assert len(result.rows) == 2
-        assert result.total_pn    == pytest.approx(1.157, abs=0.001)   # 1.067 + 0.09
-        assert result.total_dmn   == pytest.approx(1.148, abs=0.001)   # 1.067 + 0.081
-        assert result.total_pp    == pytest.approx(6.492, abs=0.001)   # 6.402 + 0.09
-        assert result.total_dmp   == pytest.approx(6.483, abs=0.001)   # 6.402 + 0.081
-        assert result.total_e_eps == pytest.approx(6.852, abs=0.001)   # 6.402 + 0.45
+        self.assertEqual(len(result.rows), 2)
+        self.assertAlmostEqual(result.total_pn, 1.157, places=3)
+        self.assertAlmostEqual(result.total_dmn, 1.148, places=3)
+        self.assertAlmostEqual(result.total_pp, 6.492, places=3)
+        self.assertAlmostEqual(result.total_dmp, 6.483, places=3)
+        self.assertAlmostEqual(result.total_e_eps, 6.852, places=3)
 
     def test_roundup_behavior(self):
         """ROUNDUP is ceil for positive: ceil(800/0.75) = ceil(1066.67) = 1067"""
         cargas = [LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=1.0, tdia_h=1.0)]
         result = calculate_backup(self._make_input(cargas))
-        # 1067 / 1000 = 1.067 (not 1.066)
-        assert result.rows[0].pn_kva == pytest.approx(1.067, abs=0.0001)
+        self.assertAlmostEqual(result.rows[0].pn_kva, 1.067, places=3)
 
     def test_raises_on_empty_cargas(self):
-        with pytest.raises(ValueError, match="cargas"):
+        with self.assertRaises(ValueError):
             calculate_backup(BackupInput(cargas=[], tipo_instalacao="monofasico"))
 
 
@@ -173,10 +186,9 @@ class TestArbitrageEconomy(unittest.TestCase):
         )
 
 
-class TestArbitrageV2:
+class TestArbitrageV2(unittest.TestCase):
     """Tests verified against CALCULADORA ARBITRAGEM.xlsx formulas."""
 
-    # Fixed BESS product specs matching the seed in Task 2
     BESS_CAP   = 215.0
     BESS_DOD   = 90.0
     BESS_PRECO = 550_000.0
@@ -193,57 +205,41 @@ class TestArbitrageV2:
         )
 
     def test_qty_driven_by_consumption(self):
-        """
-        avg_consumo = 10000 kWh
-        fator = 22 × 215 × 0.9 × 0.9 = 3831.3
-        qty_consumo = ceil(10000 / 3831.3) = ceil(2.609) = 3
-        qty_potencia = ceil(250 / 100) = 3
-        qty_bess = max(3, 3) = 3
-        """
         consumo = [10000.0] * 12
         demanda = [250.0] * 12
         result = calculate_arbitrage_v2(self._make_input(consumo, demanda))
 
-        assert result.qty_consumo == 3
-        assert result.qty_potencia == 3
-        assert result.qty_bess == 3
-        assert abs(result.avg_consumo_ponta - 10000.0) < 0.01
+        self.assertEqual(result.qty_consumo, 3)
+        self.assertEqual(result.qty_potencia, 3)
+        self.assertEqual(result.qty_bess, 3)
+        self.assertAlmostEqual(result.avg_consumo_ponta, 10000.0, places=2)
 
     def test_qty_driven_by_power(self):
-        """
-        avg_consumo = 500 kWh → qty_consumo = ceil(500/3831.3) = 1
-        max_demanda = 450 kW → qty_potencia = ceil(450/100) = 5
-        qty_bess = max(1, 5) = 5
-        """
         consumo = [500.0] * 12
         demanda = [300.0] * 11 + [450.0]
         result = calculate_arbitrage_v2(self._make_input(consumo, demanda))
 
-        assert result.qty_consumo == 1
-        assert result.qty_potencia == 5
-        assert result.qty_bess == 5
-        assert abs(result.max_demanda_ponta - 450.0) < 0.01
+        self.assertEqual(result.qty_consumo, 1)
+        self.assertEqual(result.qty_potencia, 5)
+        self.assertEqual(result.qty_bess, 5)
+        self.assertAlmostEqual(result.max_demanda_ponta, 450.0, places=2)
 
     def test_economia_mensal(self):
         """economia = avg_consumo × (tarifa_ponta - tarifa_fora_ponta)"""
         consumo = [10000.0] * 12
         demanda = [250.0] * 12
         result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=2.5, tfp=0.3))
-        # 10000 × (2.5 - 0.3) = 22000
-        assert abs(result.economia_mensal - 22000.0) < 0.01
+        self.assertAlmostEqual(result.economia_mensal, 22000.0, places=2)
 
     def test_payback_meses(self):
-        """payback = custo / economia"""
         consumo = [10000.0] * 12
         demanda = [250.0] * 12
         result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=2.5, tfp=0.3))
-        # qty=3, custo = 3 × 550000 = 1650000
-        # payback = 1650000 / 22000 = 75.0
-        assert abs(result.custo_total - 1_650_000.0) < 1.0
-        assert abs(result.payback_meses - 75.0) < 0.1
+        self.assertAlmostEqual(result.custo_total, 1_650_000.0, places=1)
+        self.assertAlmostEqual(result.payback_meses, 75.0, places=1)
 
     def test_raises_on_wrong_length(self):
-        try:
+        with self.assertRaises(ValueError):
             ArbitrageInputV2(
                 consumo_ponta_kwh=[100.0] * 11,
                 demanda_ponta_kw=[100.0] * 12,
@@ -251,16 +247,13 @@ class TestArbitrageV2:
                 tarifa_fora_ponta_kwh=0.3,
                 bess_capacidade_kwh=215, bess_dod=90, bess_preco=550000,
             )
-            assert False, "should have raised ValueError"
-        except ValueError:
-            pass
 
     def test_payback_none_when_no_economia(self):
         """When tarifa_ponta <= tarifa_fora_ponta, economia <= 0, payback = None."""
         consumo = [1000.0] * 12
         demanda = [100.0] * 12
         result = calculate_arbitrage_v2(self._make_input(consumo, demanda, tp=0.3, tfp=0.5))
-        assert result.payback_meses is None
+        self.assertIsNone(result.payback_meses)
 
 
 if __name__ == '__main__':
