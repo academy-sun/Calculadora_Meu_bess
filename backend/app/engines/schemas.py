@@ -31,25 +31,56 @@ class ProductBESSRead:
         self.max_baterias = max_baterias
 
 
-class CargaItem:
-    """Uma carga crítica com potência (kW) e tempo de uso diário (h/dia)."""
-    def __init__(self, potencia_kw: float, tdia_horas: float):
-        self.potencia_kw = potencia_kw
-        self.tdia_horas = tdia_horas
+class LoadRow:
+    """Uma linha da tabela de cargas do formulário Backup."""
+    def __init__(
+        self,
+        qtd: int,
+        pnom_w: float,
+        fp: float,     # fator de potência
+        fd: float,     # fator de demanda
+        ip_in: float,  # relação corrente de partida / nominal
+        tdia_h: float, # horas de uso por dia (Backup scenario)
+    ):
+        self.qtd = qtd
+        self.pnom_w = pnom_w
+        self.fp = fp
+        self.fd = fd
+        self.ip_in = ip_in
+        self.tdia_h = tdia_h
+
+
+class LoadRowResult:
+    """Resultado calculado para uma linha da tabela de cargas."""
+    def __init__(
+        self,
+        pn_kva: float,
+        dmn_kva: float,
+        pp_kva: float,
+        dmp_kva: float,
+        e_eps_kwh: float,
+    ):
+        self.pn_kva = pn_kva
+        self.dmn_kva = dmn_kva
+        self.pp_kva = pp_kva
+        self.dmp_kva = dmp_kva
+        self.e_eps_kwh = e_eps_kwh
 
 
 class BackupInput:
     def __init__(
         self,
-        cargas: list,             # list[CargaItem]
-        autonomia_horas: float,   # duração do backup desejada (h)
-        dod_percent: float,       # ex: 80 → usado como 0.80
-        tensao_instalacao_v: float,
+        cargas: list,               # list[LoadRow]
+        tipo_instalacao: str,       # "monofasico" | "trifasico"
+        autonomia_h: float = 4.0,   # for record; not used in E_EPS formula
+        dod_percent: float = 90.0,  # 0-100; used in kit selection
+        eficiencia_roundtrip: float = 90.0,  # for record
     ):
         self.cargas = cargas
-        self.autonomia_horas = autonomia_horas
+        self.tipo_instalacao = tipo_instalacao
+        self.autonomia_h = autonomia_h
         self.dod_percent = dod_percent
-        self.tensao_instalacao_v = tensao_instalacao_v
+        self.eficiencia_roundtrip = eficiencia_roundtrip
 
 
 class PeakShavingInput:
@@ -99,11 +130,21 @@ class SolarInput:
 # ── Outputs ──────────────────────────────────────────────────────────────────
 
 class BackupResult:
-    def __init__(self, capacidade_kwh: float, energia_necessaria_kwh: float):
-        # capacidade_kwh     = Σ(Pp_i × TDIA_i)
-        # energia_necessaria = capacidade × (autonomia/24) / DoD / 0.9
-        self.capacidade_kwh = capacidade_kwh
-        self.energia_necessaria_kwh = energia_necessaria_kwh
+    def __init__(
+        self,
+        rows: list,           # list[LoadRowResult]
+        total_pn: float,
+        total_dmn: float,
+        total_pp: float,
+        total_dmp: float,
+        total_e_eps: float,
+    ):
+        self.rows = rows
+        self.total_pn = total_pn
+        self.total_dmn = total_dmn
+        self.total_pp = total_pp
+        self.total_dmp = total_dmp
+        self.total_e_eps = total_e_eps
 
 
 class PeakShavingResult:

@@ -2,78 +2,68 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import math
+import pytest
 import unittest
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_economy
-from app.engines.schemas import BackupInput, PeakShavingInput, ArbitrageInput, CargaItem
+from app.engines.schemas import BackupInput, LoadRow, PeakShavingInput, ArbitrageInput
 
 
-class TestBackup(unittest.TestCase):
+class TestBackup:
+    """Tests verified against CALCULADORA BACKUP.xlsx formulas."""
 
-    def test_single_load_capacidade(self):
-        """1 carga 5 kW × 4 h/dia → Capacidade = 20 kWh"""
-        inp = BackupInput(
-            cargas=[CargaItem(potencia_kw=5.0, tdia_horas=4.0)],
-            autonomia_horas=12.0,
-            dod_percent=80.0,
-            tensao_instalacao_v=220.0,
-        )
-        result = calculate_backup(inp)
-        self.assertAlmostEqual(result.capacidade_kwh, 20.0, places=2)
+    def _make_input(self, cargas, tipo="monofasico"):
+        return BackupInput(cargas=cargas, tipo_instalacao=tipo, dod_percent=90)
 
-    def test_single_load_energia_necessaria(self):
-        """Energia = 20 × (12/24) / 0.8 / 0.9 ≈ 13.89 kWh"""
-        inp = BackupInput(
-            cargas=[CargaItem(potencia_kw=5.0, tdia_horas=4.0)],
-            autonomia_horas=12.0,
-            dod_percent=80.0,
-            tensao_instalacao_v=220.0,
-        )
-        result = calculate_backup(inp)
-        expected = 20.0 * (12.0 / 24.0) / 0.80 / 0.9
-        self.assertAlmostEqual(result.energia_necessaria_kwh, expected, places=2)
+    def test_single_load_ar_condicionado(self):
+        """AR CONDICIONADO BTU 7500: qty=1, PNOM=800W, FP=0.75, FD=1, IP/IN=6, TDIA=6h"""
+        # Pn = ceil(1 * 800/0.75) / 1000 = ceil(1066.67) / 1000 = 1067/1000 = 1.067
+        cargas = [LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=6.0, tdia_h=6.0)]
+        result = calculate_backup(self._make_input(cargas))
 
-    def test_multi_load_sum(self):
-        """2 cargas: 3 kW×2 h + 2 kW×6 h = 6 + 12 = 18 kWh capacidade"""
-        inp = BackupInput(
-            cargas=[
-                CargaItem(potencia_kw=3.0, tdia_horas=2.0),
-                CargaItem(potencia_kw=2.0, tdia_horas=6.0),
-            ],
-            autonomia_horas=24.0,
-            dod_percent=100.0,
-            tensao_instalacao_v=220.0,
-        )
-        result = calculate_backup(inp)
-        self.assertAlmostEqual(result.capacidade_kwh, 18.0, places=2)
+        assert result.rows[0].pn_kva == pytest.approx(1.067, abs=0.001)
+        assert result.rows[0].dmn_kva == pytest.approx(1.067, abs=0.001)   # 1.067 * 1.0
+        assert result.rows[0].pp_kva == pytest.approx(6.402, abs=0.001)    # 1.067 * 6
+        assert result.rows[0].dmp_kva == pytest.approx(6.402, abs=0.001)   # 1.067 * 6
+        assert result.rows[0].e_eps_kwh == pytest.approx(6.402, abs=0.001) # 1.067 * 6
 
-    def test_dod_100_energia_equals_capacidade_over_efficiency(self):
-        """DoD 100%, autonomia 24h → Energia = Capacidade / 0.9"""
-        inp = BackupInput(
-            cargas=[CargaItem(potencia_kw=10.0, tdia_horas=3.0)],
-            autonomia_horas=24.0,
-            dod_percent=100.0,
-            tensao_instalacao_v=220.0,
-        )
-        result = calculate_backup(inp)
-        self.assertAlmostEqual(result.energia_necessaria_kwh, 30.0 / 0.9, places=2)
+    def test_single_load_abajur(self):
+        """ABAJUR 45W INCAND: qty=2, PNOM=45W, FP=1.0, FD=0.9, IP/IN=1.0, TDIA=5h"""
+        # Pn = ceil(2 * 45/1.0) / 1000 = 90 / 1000 = 0.09
+        cargas = [LoadRow(qtd=2, pnom_w=45, fp=1.0, fd=0.9, ip_in=1.0, tdia_h=5.0)]
+        result = calculate_backup(self._make_input(cargas))
 
-    def test_zero_dod_raises(self):
-        with self.assertRaises(ValueError):
-            calculate_backup(BackupInput(
-                cargas=[CargaItem(potencia_kw=5.0, tdia_horas=4.0)],
-                autonomia_horas=4.0,
-                dod_percent=0.0,
-                tensao_instalacao_v=220.0,
-            ))
+        assert result.rows[0].pn_kva == pytest.approx(0.09, abs=0.001)
+        assert result.rows[0].dmn_kva == pytest.approx(0.081, abs=0.001)   # 0.09 * 0.9
+        assert result.rows[0].pp_kva == pytest.approx(0.09, abs=0.001)     # 0.09 * 1.0
+        assert result.rows[0].dmp_kva == pytest.approx(0.081, abs=0.001)   # 0.081 * 1.0
+        assert result.rows[0].e_eps_kwh == pytest.approx(0.45, abs=0.001)  # 0.09 * 5
 
-    def test_empty_cargas_raises(self):
-        with self.assertRaises(ValueError):
-            calculate_backup(BackupInput(
-                cargas=[],
-                autonomia_horas=4.0,
-                dod_percent=80.0,
-                tensao_instalacao_v=220.0,
-            ))
+    def test_multiple_loads_totals(self):
+        """Two loads: verify SUBTOTAL sums."""
+        cargas = [
+            LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=6.0, tdia_h=6.0),  # Pn=1.067
+            LoadRow(qtd=2, pnom_w=45,  fp=1.0,  fd=0.9, ip_in=1.0, tdia_h=5.0),  # Pn=0.090
+        ]
+        result = calculate_backup(self._make_input(cargas))
+
+        assert len(result.rows) == 2
+        assert result.total_pn    == pytest.approx(1.157, abs=0.001)   # 1.067 + 0.09
+        assert result.total_dmn   == pytest.approx(1.148, abs=0.001)   # 1.067 + 0.081
+        assert result.total_pp    == pytest.approx(6.492, abs=0.001)   # 6.402 + 0.09
+        assert result.total_dmp   == pytest.approx(6.483, abs=0.001)   # 6.402 + 0.081
+        assert result.total_e_eps == pytest.approx(6.852, abs=0.001)   # 6.402 + 0.45
+
+    def test_roundup_behavior(self):
+        """ROUNDUP is ceil for positive: ceil(800/0.75) = ceil(1066.67) = 1067"""
+        cargas = [LoadRow(qtd=1, pnom_w=800, fp=0.75, fd=1.0, ip_in=1.0, tdia_h=1.0)]
+        result = calculate_backup(self._make_input(cargas))
+        # 1067 / 1000 = 1.067 (not 1.066)
+        assert result.rows[0].pn_kva == pytest.approx(1.067, abs=0.0001)
+
+    def test_raises_on_empty_cargas(self):
+        with pytest.raises(ValueError, match="cargas"):
+            calculate_backup(BackupInput(cargas=[], tipo_instalacao="monofasico"))
 
 
 class TestPeakShaving(unittest.TestCase):

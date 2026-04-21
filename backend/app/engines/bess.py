@@ -1,8 +1,11 @@
+import math
+from statistics import mean as _mean
+
 import numpy as np
 
 from app.engines.schemas import (
     ArbitrageInput, ArbitrageKitEconomy,
-    BackupInput, BackupResult,
+    BackupInput, BackupResult, LoadRowResult,
     PeakShavingInput, PeakShavingResult,
 )
 
@@ -13,23 +16,41 @@ _DIAS_UTEIS_MES = 22
 
 def calculate_backup(data: BackupInput) -> BackupResult:
     """
-    Capacidade (kWh)      = Σ(Pp_i × TDIA_i)
-    Energia Necessária    = Capacidade × (Autonomia / 24) / DoD / 0.9
+    Replicates CALCULADORA BACKUP.xlsx formulas exactly:
+      Pn (kVA)  = ROUNDUP(qtd × (PNOM / FP), 0) / 1000
+      Dmn (kVA) = Pn × FD
+      Pp (kVA)  = Pn × IP/IN
+      DMp (kVA) = Dmn × IP/IN
+      E_EPS (kWh) = Pn × TDIA
+    Totals via SUBTOTAL (= SUM of non-zero rows).
     """
-    if data.dod_percent <= 0:
-        raise ValueError("dod_percent deve ser maior que zero")
     if not data.cargas:
         raise ValueError("cargas não pode ser vazia")
 
-    dod = data.dod_percent / 100.0
-    capacidade_kwh = sum(c.potencia_kw * c.tdia_horas for c in data.cargas)
-    energia_necessaria_kwh = (
-        capacidade_kwh * (data.autonomia_horas / 24.0) / dod / _EFICIENCIA_SISTEMA
-    )
+    row_results = []
+    for row in data.cargas:
+        if row.fp <= 0:
+            raise ValueError(f"FP inválido para carga: {row.fp}")
+        pn_kva   = math.ceil(row.qtd * (row.pnom_w / row.fp)) / 1000
+        dmn_kva  = round(pn_kva * row.fd, 4)
+        pp_kva   = round(pn_kva * row.ip_in, 4)
+        dmp_kva  = round(dmn_kva * row.ip_in, 4)
+        e_eps_kwh = round(pn_kva * row.tdia_h, 4)
+        row_results.append(LoadRowResult(
+            pn_kva=round(pn_kva, 3),
+            dmn_kva=round(dmn_kva, 3),
+            pp_kva=round(pp_kva, 3),
+            dmp_kva=round(dmp_kva, 3),
+            e_eps_kwh=round(e_eps_kwh, 3),
+        ))
 
     return BackupResult(
-        capacidade_kwh=round(capacidade_kwh, 2),
-        energia_necessaria_kwh=round(energia_necessaria_kwh, 2),
+        rows=row_results,
+        total_pn=round(sum(r.pn_kva for r in row_results), 3),
+        total_dmn=round(sum(r.dmn_kva for r in row_results), 3),
+        total_pp=round(sum(r.pp_kva for r in row_results), 3),
+        total_dmp=round(sum(r.dmp_kva for r in row_results), 3),
+        total_e_eps=round(sum(r.e_eps_kwh for r in row_results), 3),
     )
 
 
