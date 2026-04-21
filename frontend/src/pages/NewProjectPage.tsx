@@ -36,7 +36,7 @@ export function NewProjectPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { mutateAsync: calcular, isPending } = useCalculate()
-  const { data: loads } = useStandardLoads()
+  const { data: loads, isLoading: loadsLoading, isError: loadsError } = useStandardLoads()
 
   const [step, setStep] = useState<Step>('tipo')
   const [tipo, setTipo] = useState<TipoCalculo>('backup')
@@ -214,7 +214,19 @@ export function NewProjectPage() {
               {/* Tabela de cargas */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
-                {loads && loads.length > 0 && (
+                {loadsLoading ? (
+                  <p className="mb-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                    Carregando catálogo de cargas...
+                  </p>
+                ) : loadsError ? (
+                  <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                    ⚠ Erro ao carregar catálogo — verifique se as migrações do banco foram aplicadas (<code>003_standard_loads_new_fields.sql</code>).
+                  </p>
+                ) : !loads || loads.length === 0 ? (
+                  <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Catálogo vazio — importe as cargas via script (<code>import_cargas_excel.py</code>) ou adicione manualmente na página <strong>Catálogo de Cargas</strong>.
+                  </p>
+                ) : (
                   <select
                     className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                     onChange={e => {
