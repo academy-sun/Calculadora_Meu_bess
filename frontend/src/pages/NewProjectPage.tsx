@@ -1,16 +1,14 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
-import type { TipoCalculo, CalculateResponse, StandardLoad } from '@/types'
+import type { CalculateResponse, StandardLoad } from '@/types'
+
+type TipoCalculo = 'backup' | 'arbitragem'
 
 const TIPOS: { value: TipoCalculo; label: string; desc: string }[] = [
-  { value: 'backup', label: 'Backup de Energia', desc: 'Garante autonomia em caso de falta de energia' },
-  { value: 'peak_shaving', label: 'Peak Shaving', desc: 'Reduz a demanda de ponta para cortar tarifa' },
+  { value: 'backup',    label: 'Backup de Energia',   desc: 'Garante autonomia em caso de falta de energia' },
   { value: 'arbitragem', label: 'Arbitragem Tarifária', desc: 'Carrega no off-peak, descarrega no peak' },
-  { value: 'solar', label: 'Solar FV', desc: 'Dimensiona sistema fotovoltaico' },
-  { value: 'solar_storage', label: 'Solar + Storage', desc: 'Sistema híbrido solar com armazenamento' },
 ]
 
 const MONTHS = [
@@ -20,7 +18,6 @@ const MONTHS = [
 
 type Step = 'tipo' | 'dados' | 'resultado'
 
-// ── Backup row type ───────────────────────────────────────────────────────────
 type BackupRow = {
   id: string
   nome: string
@@ -33,7 +30,6 @@ type BackupRow = {
 }
 
 export function NewProjectPage() {
-  const navigate = useNavigate()
   const { user } = useAuth()
   const { mutateAsync: calcular, isPending } = useCalculate()
   const { data: loads, isLoading: loadsLoading, isError: loadsError } = useStandardLoads()
@@ -43,16 +39,15 @@ export function NewProjectPage() {
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Backup ────────────────────────────────────────────────────────────────
+  // ── Backup ──────────────────────────────────────────────────────────────────
   const [tipoInstalacao, setTipoInstalacao] = useState<'monofasico' | 'trifasico'>('monofasico')
   const [autonomia, setAutonomia] = useState('4')
   const [dod, setDod] = useState('90')
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
 
   function addBackupRow(load: StandardLoad) {
-    const id = crypto.randomUUID()
     setBackupRows(prev => [...prev, {
-      id,
+      id: crypto.randomUUID(),
       nome: load.nome,
       qtd: 1,
       pnom_w: load.potencia_w,
@@ -71,22 +66,13 @@ export function NewProjectPage() {
     setBackupRows(prev => prev.filter(r => r.id !== id))
   }
 
-  // ── Arbitragem ────────────────────────────────────────────────────────────
+  // ── Arbitragem ──────────────────────────────────────────────────────────────
   const [arbConsumoPonta, setArbConsumoPonta] = useState<string[]>(Array(12).fill(''))
   const [arbDemandaPonta, setArbDemandaPonta] = useState<string[]>(Array(12).fill(''))
   const [arbTarifaPonta, setArbTarifaPonta] = useState('2.50')
   const [arbTarifaForaPonta, setArbTarifaForaPonta] = useState('0.30')
 
-  // ── Peak Shaving ──────────────────────────────────────────────────────────
-  const [demandaAlvo, setDemandaAlvo] = useState('')
-  const [tarifaDemanda, setTarifaDemanda] = useState('')
-  const [curvaInput, setCurvaInput] = useState('')
-
-  // ── Solar ─────────────────────────────────────────────────────────────────
-  const [irradiacao, setIrradiacao] = useState('5.0')
-  const [area, setArea] = useState('')
-  const [consumoSolar, setConsumoSolar] = useState('')
-
+  // ── Submit ──────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -110,24 +96,11 @@ export function NewProjectPage() {
       payload.autonomia_horas = parseFloat(autonomia)
       payload.dod_percent = parseFloat(dod)
       payload.eficiencia_roundtrip = 90
-    } else if (tipo === 'peak_shaving') {
-      const curva = curvaInput
-        ? curvaInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v))
-        : undefined
-      payload.curva_carga_kw = curva
-      payload.demanda_alvo_kw = parseFloat(demandaAlvo)
-      payload.tarifa_demanda_rs_kw = parseFloat(tarifaDemanda)
-    } else if (tipo === 'arbitragem') {
+    } else {
       payload.consumo_ponta_kwh = arbConsumoPonta.map(v => parseFloat(v) || 0)
       payload.demanda_ponta_kw  = arbDemandaPonta.map(v => parseFloat(v) || 0)
       payload.tarifa_ponta_rs_kwh = parseFloat(arbTarifaPonta)
       payload.tarifa_fora_ponta_rs_kwh = parseFloat(arbTarifaForaPonta)
-    } else if (tipo === 'solar' || tipo === 'solar_storage') {
-      payload.irradiacao_kwh_m2_dia = parseFloat(irradiacao)
-      payload.area_disponivel_m2 = parseFloat(area)
-      if (consumoSolar) {
-        payload.curva_carga_kw = Array(24).fill(parseFloat(consumoSolar) / 24 / 30)
-      }
     }
 
     try {
@@ -179,7 +152,9 @@ export function NewProjectPage() {
     return (
       <div className="p-6 max-w-2xl">
         <button onClick={() => setStep('tipo')} className="mb-4 text-sm text-gray-500 hover:text-primary">← Voltar</button>
-        <h1 className="mb-1 text-2xl font-bold capitalize">{tipo.replace(/_/g, ' ')}</h1>
+        <h1 className="mb-1 text-2xl font-bold">
+          {tipo === 'backup' ? 'Backup de Energia' : 'Arbitragem Tarifária'}
+        </h1>
         <p className="mb-6 text-gray-500">Preencha os parâmetros do dimensionamento</p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -187,7 +162,6 @@ export function NewProjectPage() {
           {/* ── BACKUP ──────────────────────────────────────────────────────── */}
           {tipo === 'backup' && (
             <>
-              {/* Tipo de instalação */}
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de Instalação</label>
                 <div className="flex gap-3">
@@ -205,41 +179,43 @@ export function NewProjectPage() {
                 </div>
               </div>
 
-              {/* Parâmetros */}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Autonomia (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
                 <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="90" required />
               </div>
 
-              {/* Tabela de cargas */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
+
                 {loadsLoading ? (
                   <p className="mb-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                    Carregando catálogo de cargas...
+                    Carregando catálogo...
                   </p>
                 ) : loadsError ? (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-                    ⚠ Erro ao carregar catálogo — verifique se as migrações do banco foram aplicadas (<code>003_standard_loads_new_fields.sql</code>).
+                    ⚠ Erro ao carregar catálogo — verifique se as migrações foram aplicadas no Supabase.
                   </p>
                 ) : !loads || loads.length === 0 ? (
                   <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Catálogo vazio — importe as cargas via script (<code>import_cargas_excel.py</code>) ou adicione manualmente na página <strong>Catálogo de Cargas</strong>.
+                    Catálogo vazio — importe as cargas via script ou adicione manualmente em{' '}
+                    <strong>Catálogo de Cargas</strong>.
                   </p>
                 ) : (
                   <select
-                    className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    defaultValue=""
                     onChange={e => {
                       const load = loads.find(l => l.id === e.target.value)
-                      if (load) { addBackupRow(load); e.target.value = '' }
+                      if (load) { addBackupRow(load); e.currentTarget.value = '' }
                     }}
                   >
-                    <option value="">+ Adicionar carga do catálogo...</option>
-                    {loads.map(l => (
-                      <option key={l.id} value={l.id}>{l.nome} ({l.potencia_w}W)</option>
+                    <option value="" disabled>+ Adicionar carga do catálogo...</option>
+                    {loads.filter(l => l.ativo).map(l => (
+                      <option key={l.id} value={l.id}>{l.nome} ({l.potencia_w} W)</option>
                     ))}
                   </select>
                 )}
+
                 {backupRows.length > 0 && (
                   <div className="overflow-x-auto rounded-lg border border-gray-200">
                     <table className="w-full text-xs">
@@ -254,7 +230,7 @@ export function NewProjectPage() {
                         {backupRows.map(row => (
                           <tr key={row.id} className="border-t border-gray-100">
                             <td className="px-2 py-1 text-gray-700 min-w-[100px]">{row.nome}</td>
-                            {(['qtd', 'pnom_w', 'tdia_h', 'fp', 'fd', 'ip_in'] as const).map(f => (
+                            {(['qtd','pnom_w','tdia_h','fp','fd','ip_in'] as const).map(f => (
                               <td key={f} className="px-1 py-1">
                                 <input type="number" value={row[f]} step="any" min={0}
                                   onChange={e => updateBackupRow(row.id, f, parseFloat(e.target.value))}
@@ -263,7 +239,7 @@ export function NewProjectPage() {
                             ))}
                             <td className="px-1 py-1">
                               <button type="button" onClick={() => removeBackupRow(row.id)}
-                                className="text-red-400 hover:text-red-600">✕</button>
+                                className="text-red-400 hover:text-red-600 text-sm">✕</button>
                             </td>
                           </tr>
                         ))}
@@ -272,29 +248,9 @@ export function NewProjectPage() {
                   </div>
                 )}
                 {backupRows.length === 0 && (
-                  <p className="text-xs text-gray-400">Adicione ao menos uma carga do catálogo.</p>
+                  <p className="mt-1 text-xs text-gray-400">Adicione ao menos uma carga do catálogo.</p>
                 )}
               </div>
-            </>
-          )}
-
-          {/* ── PEAK SHAVING ─────────────────────────────────────────────────── */}
-          {tipo === 'peak_shaving' && (
-            <>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Curva de Carga (kW separados por vírgula, hora a hora)
-                </label>
-                <textarea
-                  value={curvaInput}
-                  onChange={e => setCurvaInput(e.target.value)}
-                  rows={3}
-                  placeholder="10.5, 9.8, 8.2, ..., 15.3"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                />
-              </div>
-              <Field label="Demanda-Alvo (kW)" value={demandaAlvo} onChange={setDemandaAlvo} placeholder="ex: 80" required />
-              <Field label="Tarifa de Demanda (R$/kW/mês)" value={tarifaDemanda} onChange={setTarifaDemanda} placeholder="ex: 45.00" required />
             </>
           )}
 
@@ -316,31 +272,25 @@ export function NewProjectPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-3 py-2 text-left text-gray-500 font-medium w-28">Mês</th>
-                        <th className="px-3 py-2 text-left text-gray-500 font-medium">Consumo Ponta (kWh)</th>
-                        <th className="px-3 py-2 text-left text-gray-500 font-medium">Demanda Ponta (kW)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-28">Mês</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Consumo Ponta (kWh)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Demanda Ponta (kW)</th>
                       </tr>
                     </thead>
                     <tbody>
                       {MONTHS.map((mes, i) => (
                         <tr key={mes} className="border-t border-gray-100">
-                          <td className="px-3 py-1 text-gray-500">{mes}</td>
+                          <td className="px-3 py-1 text-sm text-gray-500">{mes}</td>
                           <td className="px-2 py-1">
                             <input type="number" step="any" min={0}
-                              value={arbConsumoPonta[i]}
-                              placeholder="0"
-                              onChange={e => setArbConsumoPonta(prev => {
-                                const next = [...prev]; next[i] = e.target.value; return next
-                              })}
+                              value={arbConsumoPonta[i]} placeholder="0"
+                              onChange={e => setArbConsumoPonta(prev => { const n = [...prev]; n[i] = e.target.value; return n })}
                               className="w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-primary focus:outline-none" />
                           </td>
                           <td className="px-2 py-1">
                             <input type="number" step="any" min={0}
-                              value={arbDemandaPonta[i]}
-                              placeholder="0"
-                              onChange={e => setArbDemandaPonta(prev => {
-                                const next = [...prev]; next[i] = e.target.value; return next
-                              })}
+                              value={arbDemandaPonta[i]} placeholder="0"
+                              onChange={e => setArbDemandaPonta(prev => { const n = [...prev]; n[i] = e.target.value; return n })}
                               className="w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-primary focus:outline-none" />
                           </td>
                         </tr>
@@ -352,20 +302,11 @@ export function NewProjectPage() {
             </>
           )}
 
-          {/* ── SOLAR / SOLAR + STORAGE ──────────────────────────────────────── */}
-          {(tipo === 'solar' || tipo === 'solar_storage') && (
-            <>
-              <Field label="Irradiação Solar (kWh/m²/dia)" value={irradiacao} onChange={setIrradiacao} placeholder="ex: 5.0" required />
-              <Field label="Área Disponível (m²)" value={area} onChange={setArea} placeholder="ex: 100" required />
-              <Field label="Consumo Médio Mensal (kWh)" value={consumoSolar} onChange={setConsumoSolar} placeholder="ex: 500" />
-            </>
-          )}
-
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || (tipo === 'backup' && backupRows.length === 0)}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
           >
             {isPending ? 'Calculando...' : 'Calcular Dimensionamento'}
@@ -379,17 +320,19 @@ export function NewProjectPage() {
   return (
     <div className="p-6 max-w-3xl">
       <h1 className="mb-1 text-2xl font-bold text-green-700">✅ Dimensionamento Concluído</h1>
-      <p className="mb-6 text-gray-500">Tipo: <span className="font-medium capitalize">{tipo.replace(/_/g, ' ')}</span></p>
+      <p className="mb-6 text-gray-500">
+        {tipo === 'backup' ? 'Backup de Energia' : 'Arbitragem Tarifária'}
+      </p>
 
       {/* Summary cards */}
       <div className="mb-6 grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-400 uppercase">Capacidade</p>
-          <p className="text-2xl font-bold">{result?.capacidade_kwh} kWh</p>
+          <p className="text-2xl font-bold">{result?.capacidade_kwh ?? '—'} kWh</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-400 uppercase">Potência</p>
-          <p className="text-2xl font-bold">{result?.potencia_kw} kW</p>
+          <p className="text-2xl font-bold">{result?.potencia_kw ?? '—'} kW</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-400 uppercase">Payback</p>
@@ -397,7 +340,7 @@ export function NewProjectPage() {
         </div>
       </div>
 
-      {/* Backup: per-row results table */}
+      {/* Backup: per-row results */}
       {result?.backup_rows && result.backup_rows.length > 0 && (
         <div className="mb-4 overflow-x-auto rounded-lg border border-gray-200">
           <table className="w-full text-xs">
@@ -419,7 +362,7 @@ export function NewProjectPage() {
                   <td className="px-3 py-1 font-medium">{r.e_eps_kwh}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-xs">
+              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
                 <td className="px-3 py-1">TOTAL</td>
                 <td className="px-3 py-1">{result.total_pn_kva}</td>
                 <td className="px-3 py-1">{result.total_dmn_kva}</td>
@@ -432,7 +375,7 @@ export function NewProjectPage() {
         </div>
       )}
 
-      {/* Arbitragem: dimensionamento stats */}
+      {/* Arbitragem: dimensionamento */}
       {result?.qty_bess !== undefined && (
         <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
           <p className="mb-3 text-xs font-bold uppercase text-gray-500">Dimensionamento Arbitragem</p>
@@ -478,14 +421,12 @@ export function NewProjectPage() {
           <p className="mt-2 text-xs text-gray-500">
             {result.kit_selecionado.qtd_baterias}× baterias
             {result.kit_selecionado.qtd_inversores && result.kit_selecionado.qtd_inversores > 1
-              ? ` · ${result.kit_selecionado.qtd_inversores}× inversores`
-              : ''}
+              ? ` · ${result.kit_selecionado.qtd_inversores}× inversores` : ''}
             {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
           </p>
         </div>
       )}
 
-      {/* Alternativas */}
       {result?.alternativas && result.alternativas.length > 0 && (
         <div className="mb-4">
           <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Alternativas</p>
@@ -500,23 +441,12 @@ export function NewProjectPage() {
         </div>
       )}
 
-      {(result?.economia_mensal_rs || result?.economia_anual_rs) && !result?.qty_bess && (
-        <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
-          {result?.economia_mensal_rs && <>Economia mensal: <strong>R$ {result.economia_mensal_rs.toLocaleString('pt-BR')}</strong></>}
-          {result?.economia_anual_rs && <> · Anual: <strong>R$ {result.economia_anual_rs.toLocaleString('pt-BR')}</strong></>}
-        </div>
-      )}
-
-      <div className="mt-6 flex gap-3">
-        <button onClick={() => { setStep('tipo'); setResult(null); setError(null) }}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
-          Novo Cálculo
-        </button>
-        <button onClick={() => navigate(`/projects/${result?.projeto_id}`)}
-          className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
-          Ver Projeto
-        </button>
-      </div>
+      <button
+        onClick={() => { setStep('tipo'); setResult(null); setBackupRows([]) }}
+        className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+      >
+        ← Novo Cálculo
+      </button>
     </div>
   )
 }
@@ -527,8 +457,8 @@ function Field({ label, value, onChange, placeholder, required }: {
   return (
     <div>
       <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
-      <input type="number" value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder} required={required} step="any"
+      <input type="text" value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder} required={required}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
     </div>
   )

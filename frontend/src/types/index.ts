@@ -55,7 +55,7 @@ export interface StandardLoad {
 
 // ── Projetos ──────────────────────────────────────────────────────────────────
 
-export type TipoCalculo = 'backup' | 'peak_shaving' | 'arbitragem' | 'solar' | 'solar_storage'
+export type TipoCalculo = 'backup' | 'arbitragem'
 
 export interface Project {
   id: string
