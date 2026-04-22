@@ -1,6 +1,11 @@
 -- backend/migrations/004_products_bess_eps_comercial.sql
 -- Adds P_máx EPS field to inverters; seeds the commercial BESS unit for Arbitragem
 
+-- Expand tipo CHECK constraint to accept bess_comercial
+ALTER TABLE products_bess DROP CONSTRAINT IF EXISTS products_bess_tipo_check;
+ALTER TABLE products_bess ADD CONSTRAINT products_bess_tipo_check
+  CHECK (tipo IN ('bateria', 'inversor_hibrido', 'bess_comercial'));
+
 ALTER TABLE products_bess
   ADD COLUMN IF NOT EXISTS pot_ca_max_eps_kva FLOAT;
 
