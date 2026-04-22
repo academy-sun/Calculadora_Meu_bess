@@ -376,7 +376,7 @@ export function NewProjectPage() {
       )}
 
       {/* Arbitragem: dimensionamento */}
-      {result?.qty_bess !== undefined && (
+      {result?.qty_bess != null && (
         <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
           <p className="mb-3 text-xs font-bold uppercase text-gray-500">Dimensionamento Arbitragem</p>
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

@@ -109,22 +109,27 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 for c in req.cargas_backup
             ]
 
+            autonomia_h = req.autonomia_horas or 4.0
+
             backup_result = calculate_backup(BackupInput(
                 cargas=cargas_engine,
                 tipo_instalacao=req.tipo_instalacao or "monofasico",
                 dod_percent=req.dod_percent or 90.0,
-                autonomia_h=req.autonomia_horas or 4.0,
+                autonomia_h=autonomia_h,
                 eficiencia_roundtrip=req.eficiencia_roundtrip or 90.0,
             ))
 
-            capacidade_kwh = backup_result.total_e_eps
+            # E_BAT = soma(E_EPS_i) × autonomia / 24
+            # total_e_eps é energia diária total das cargas; escala para a janela de autonomia
+            energy_backup_kwh = round(backup_result.total_e_eps * autonomia_h / 24.0, 3)
+            capacidade_kwh = energy_backup_kwh
             potencia_kw = backup_result.total_pp
 
             kits = find_compatible_kits(
                 baterias=baterias,
                 inversores=inversores,
                 total_pp_kva=backup_result.total_pp,
-                total_e_eps_kwh=backup_result.total_e_eps,
+                total_e_eps_kwh=energy_backup_kwh,   # capacidade correta para backup
                 tipo_instalacao=req.tipo_instalacao or "monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
