@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useBESSProducts, useCreateBESS, useUpdateBESS } from '@/hooks/useCatalog'
+import { useBESSProducts, useCreateBESS, useUpdateBESS, useDeleteBESS } from '@/hooks/useCatalog'
 import type { ProductBESS } from '@/types'
-import { PlusCircle } from 'lucide-react'
+import { PlusCircle, Trash2 } from 'lucide-react'
 
 type BESSForm = Omit<ProductBESS, 'id' | 'atualizado_em'>
 
@@ -14,11 +14,13 @@ export function CatalogBESSPage() {
   const { data: products, isLoading } = useBESSProducts()
   const createMutation = useCreateBESS()
   const updateMutation = useUpdateBESS()
+  const deleteMutation = useDeleteBESS()
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<ProductBESS | null>(null)
   const [form, setForm] = useState<BESSForm>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<ProductBESS | null>(null)
 
   function openCreate() { setForm(EMPTY_FORM); setEditing(null); setShowForm(true) }
   function openEdit(p: ProductBESS) {
@@ -41,6 +43,17 @@ export function CatalogBESSPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!confirmDelete) return
+    try {
+      await deleteMutation.mutateAsync(confirmDelete.id)
+      setConfirmDelete(null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir')
+      setConfirmDelete(null)
+    }
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -53,6 +66,10 @@ export function CatalogBESSPage() {
           <PlusCircle size={16} /> Novo Produto
         </button>
       </div>
+
+      {error && !showForm && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>
+      )}
 
       {isLoading && <p className="text-gray-500">Carregando...</p>}
 
@@ -84,7 +101,13 @@ export function CatalogBESSPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={() => openEdit(p)} className="text-xs text-primary hover:underline">Editar</button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button onClick={() => openEdit(p)} className="text-xs text-primary hover:underline">Editar</button>
+                      <button onClick={() => setConfirmDelete(p)}
+                        className="text-gray-400 hover:text-red-600 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -93,6 +116,7 @@ export function CatalogBESSPage() {
         </div>
       )}
 
+      {/* Edit / Create Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
@@ -138,6 +162,30 @@ export function CatalogBESSPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-bold text-gray-800">Excluir produto?</h2>
+            <p className="mb-5 text-sm text-gray-600">
+              Tem certeza que deseja excluir <strong>{confirmDelete.marca} {confirmDelete.modelo}</strong>?
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
           </div>
         </div>
       )}

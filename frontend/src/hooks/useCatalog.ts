@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPut } from '@/lib/api'
+import { apiDelete, apiGet, apiPost, apiPut } from '@/lib/api'
 import type { ProductBESS, ProductSolar, StandardLoad } from '@/types'
 
 // ── BESS ─────────────────────────────────────────────────────────────────────
@@ -29,6 +29,14 @@ export function useUpdateBESS() {
   })
 }
 
+export function useDeleteBESS() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/catalog/bess/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'bess'] }),
+  })
+}
+
 // ── Solar ─────────────────────────────────────────────────────────────────────
 
 export function useSolarProducts() {
@@ -43,6 +51,23 @@ export function useCreateSolar() {
   return useMutation({
     mutationFn: (data: Omit<ProductSolar, 'id'>) =>
       apiPost<ProductSolar>('/catalog/solar', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'solar'] }),
+  })
+}
+
+export function useUpdateSolar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: ProductSolar) =>
+      apiPut<ProductSolar>(`/catalog/solar/${id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'solar'] }),
+  })
+}
+
+export function useDeleteSolar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/catalog/solar/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'solar'] }),
   })
 }
@@ -70,6 +95,14 @@ export function useUpdateLoad() {
   return useMutation({
     mutationFn: ({ id, ...data }: StandardLoad) =>
       apiPut<StandardLoad>(`/catalog/loads/${id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'loads'] }),
+  })
+}
+
+export function useDeleteLoad() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/catalog/loads/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'loads'] }),
   })
 }

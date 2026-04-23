@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useSolarProducts, useCreateSolar } from '@/hooks/useCatalog'
+import { useSolarProducts, useCreateSolar, useUpdateSolar, useDeleteSolar } from '@/hooks/useCatalog'
 import type { ProductSolar } from '@/types'
-import { PlusCircle } from 'lucide-react'
+import { PlusCircle, Trash2 } from 'lucide-react'
 
 type SolarForm = Omit<ProductSolar, 'id'>
 
@@ -12,16 +12,42 @@ const EMPTY_FORM: SolarForm = {
 export function CatalogSolarPage() {
   const { data: products, isLoading } = useSolarProducts()
   const createMutation = useCreateSolar()
+  const updateMutation = useUpdateSolar()
+  const deleteMutation = useDeleteSolar()
+
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<ProductSolar | null>(null)
   const [form, setForm] = useState<SolarForm>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<ProductSolar | null>(null)
 
   function set(field: keyof SolarForm, value: unknown) { setForm(prev => ({ ...prev, [field]: value })) }
 
+  function openCreate() { setForm(EMPTY_FORM); setEditing(null); setShowForm(true) }
+  function openEdit(p: ProductSolar) {
+    const { id: _id, ...rest } = p
+    setForm(rest as SolarForm); setEditing(p); setShowForm(true)
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setError(null)
-    try { await createMutation.mutateAsync(form); setShowForm(false); setForm(EMPTY_FORM) }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Erro ao salvar') }
+    try {
+      if (editing) await updateMutation.mutateAsync({ id: editing.id, ...form })
+      else await createMutation.mutateAsync(form)
+      setShowForm(false)
+      setForm(EMPTY_FORM)
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Erro ao salvar') }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) return
+    try {
+      await deleteMutation.mutateAsync(confirmDelete.id)
+      setConfirmDelete(null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir')
+      setConfirmDelete(null)
+    }
   }
 
   return (
@@ -31,11 +57,15 @@ export function CatalogSolarPage() {
           <h1 className="text-2xl font-bold">Catálogo Solar</h1>
           <p className="text-sm text-gray-500">Módulos FV e Inversores Solares</p>
         </div>
-        <button onClick={() => setShowForm(true)}
+        <button onClick={openCreate}
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
           <PlusCircle size={16} /> Novo Produto
         </button>
       </div>
+
+      {error && !showForm && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>
+      )}
 
       {isLoading && <p className="text-gray-500">Carregando...</p>}
 
@@ -49,13 +79,14 @@ export function CatalogSolarPage() {
                 <th className="px-4 py-3 text-right">Potência</th>
                 <th className="px-4 py-3 text-right">Preço (R$)</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {products.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3"><p className="font-medium">{p.marca}</p><p className="text-xs text-gray-500">{p.modelo}</p></td>
-                  <td className="px-4 py-3 capitalize">{p.tipo.replace('_', ' ')}</td>
+                  <td className="px-4 py-3 capitalize">{p.tipo.replace(/_/g, ' ')}</td>
                   <td className="px-4 py-3 text-right">
                     {p.potencia_pico_wp ? `${p.potencia_pico_wp} Wp` : p.potencia_nominal_kw ? `${p.potencia_nominal_kw} kW` : '—'}
                   </td>
@@ -65,17 +96,30 @@ export function CatalogSolarPage() {
                       {p.disponivel ? 'Disponível' : 'Inativo'}
                     </span>
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-3">
+                      <button onClick={() => openEdit(p)} className="text-xs text-primary hover:underline">Editar</button>
+                      <button onClick={() => setConfirmDelete(p)}
+                        className="text-gray-400 hover:text-red-600 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {products.length === 0 && (
+            <p className="py-8 text-center text-sm text-gray-400">Nenhum produto solar cadastrado.</p>
+          )}
         </div>
       )}
 
+      {/* Edit / Create Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-lg font-bold">Novo Produto Solar</h2>
+            <h2 className="mb-4 text-lg font-bold">{editing ? 'Editar' : 'Novo'} Produto Solar</h2>
             <form onSubmit={handleSave} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="mb-1 block text-xs font-medium text-gray-700">Marca</label>
@@ -143,9 +187,35 @@ export function CatalogSolarPage() {
                 <button type="button" onClick={() => setShowForm(false)}
                   className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">Cancelar</button>
                 <button type="submit"
-                  className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">Criar</button>
+                  className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
+                  {editing ? 'Salvar' : 'Criar'}
+                </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-bold text-gray-800">Excluir produto?</h2>
+            <p className="mb-5 text-sm text-gray-600">
+              Tem certeza que deseja excluir <strong>{confirmDelete.marca} {confirmDelete.modelo}</strong>?
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
           </div>
         </div>
       )}

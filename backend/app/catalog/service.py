@@ -57,6 +57,18 @@ async def create_solar(db: AsyncSession, data: ProductSolarCreate) -> ProductSol
     return product
 
 
+async def update_solar(db: AsyncSession, product_id: uuid.UUID, data: ProductSolarCreate) -> ProductSolar | None:
+    result = await db.execute(select(ProductSolar).where(ProductSolar.id == product_id))
+    product = result.scalar_one_or_none()
+    if not product:
+        return None
+    for key, value in data.model_dump().items():
+        setattr(product, key, value)
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
 async def list_loads(db: AsyncSession, ativo_only: bool = True) -> list[StandardLoad]:
     stmt = select(StandardLoad)
     if ativo_only:
@@ -83,6 +95,35 @@ async def update_load(db: AsyncSession, load_id: uuid.UUID, data: StandardLoadCr
     await db.commit()
     await db.refresh(load)
     return load
+
+
+async def delete_bess(db: AsyncSession, product_id: uuid.UUID) -> bool:
+    product = await get_bess_by_id(db, product_id)
+    if not product:
+        return False
+    await db.delete(product)
+    await db.commit()
+    return True
+
+
+async def delete_solar(db: AsyncSession, product_id: uuid.UUID) -> bool:
+    result = await db.execute(select(ProductSolar).where(ProductSolar.id == product_id))
+    product = result.scalar_one_or_none()
+    if not product:
+        return False
+    await db.delete(product)
+    await db.commit()
+    return True
+
+
+async def delete_load(db: AsyncSession, load_id: uuid.UUID) -> bool:
+    result = await db.execute(select(StandardLoad).where(StandardLoad.id == load_id))
+    load = result.scalar_one_or_none()
+    if not load:
+        return False
+    await db.delete(load)
+    await db.commit()
+    return True
 
 
 async def get_bess_comercial(db: AsyncSession) -> ProductBESS | None:

@@ -45,6 +45,17 @@ async def update_bess(
     return product
 
 
+@router.delete("/bess/{product_id}", status_code=204)
+async def delete_bess(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    deleted = await service.delete_bess(db, product_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+
 @router.get("/solar", response_model=list[ProductSolarRead])
 async def get_solar(
     db: AsyncSession = Depends(get_db),
@@ -60,6 +71,30 @@ async def add_solar(
     _=Depends(require_admin),
 ):
     return await service.create_solar(db, data)
+
+
+@router.put("/solar/{product_id}", response_model=ProductSolarRead)
+async def update_solar(
+    product_id: uuid.UUID,
+    data: ProductSolarCreate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    product = await service.update_solar(db, product_id, data)
+    if not product:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    return product
+
+
+@router.delete("/solar/{product_id}", status_code=204)
+async def delete_solar(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    deleted = await service.delete_solar(db, product_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
 
 
 @router.get("/loads", response_model=list[StandardLoadRead])
@@ -90,3 +125,14 @@ async def update_load(
     if not load:
         raise HTTPException(status_code=404, detail="Carga não encontrada")
     return load
+
+
+@router.delete("/loads/{load_id}", status_code=204)
+async def delete_load(
+    load_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    deleted = await service.delete_load(db, load_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Carga não encontrada")

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useStandardLoads, useCreateLoad, useUpdateLoad } from '@/hooks/useCatalog'
+import { useStandardLoads, useCreateLoad, useUpdateLoad, useDeleteLoad } from '@/hooks/useCatalog'
 import type { StandardLoad } from '@/types'
+import { Trash2 } from 'lucide-react'
 
 type LoadForm = Omit<StandardLoad, 'id'>
 
@@ -14,12 +15,14 @@ export function CatalogLoadsPage() {
   const { data: loads, isLoading } = useStandardLoads()
   const createMutation = useCreateLoad()
   const updateMutation = useUpdateLoad()
+  const deleteMutation = useDeleteLoad()
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<StandardLoad | null>(null)
   const [form, setForm] = useState<LoadForm>(EMPTY_FORM)
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<StandardLoad | null>(null)
 
   function set(field: keyof LoadForm, value: unknown) {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -42,6 +45,17 @@ export function CatalogLoadsPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!confirmDelete) return
+    try {
+      await deleteMutation.mutateAsync(confirmDelete.id)
+      setConfirmDelete(null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir')
+      setConfirmDelete(null)
+    }
+  }
+
   const filtered = (loads ?? []).filter(l =>
     l.nome.toLowerCase().includes(search.toLowerCase()) ||
     l.categoria.toLowerCase().includes(search.toLowerCase())
@@ -59,6 +73,10 @@ export function CatalogLoadsPage() {
           + Nova Carga
         </button>
       </div>
+
+      {error && !showForm && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>
+      )}
 
       <input
         type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -95,7 +113,13 @@ export function CatalogLoadsPage() {
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <button onClick={() => openEdit(l)} className="text-xs text-primary hover:underline">Editar</button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => openEdit(l)} className="text-xs text-primary hover:underline">Editar</button>
+                      <button onClick={() => setConfirmDelete(l)}
+                        className="text-gray-400 hover:text-red-600 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -107,6 +131,7 @@ export function CatalogLoadsPage() {
         </div>
       )}
 
+      {/* Edit / Create Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
@@ -165,6 +190,30 @@ export function CatalogLoadsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-bold text-gray-800">Excluir carga?</h2>
+            <p className="mb-5 text-sm text-gray-600">
+              Tem certeza que deseja excluir <strong>{confirmDelete.nome}</strong>?
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
           </div>
         </div>
       )}
