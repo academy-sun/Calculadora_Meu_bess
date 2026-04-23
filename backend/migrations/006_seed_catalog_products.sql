@@ -1,37 +1,41 @@
 -- backend/migrations/006_seed_catalog_products.sql
--- Inserts Intelbras BESS batteries and hybrid inverters from
--- "Catalogo de inversores e baterias.xlsx"
+-- Inserts WEG BESS batteries and hybrid inverters from
+-- "Dados de Equipamentos.xlsx" (marca = WEG, preços reais)
 --
--- IMPORTANT: Update the preco values below before going to production.
--- The values here are placeholders.
--- "Energia Utilizável" from the catalog is stored directly as capacidade_kwh
--- with dod_percent = 100 (usable energy already factored in).
+-- "Energia Utilizável" do catálogo é armazenada diretamente como capacidade_kwh
+-- com dod_percent = 100 (energia já usável, sem desconto de DoD adicional).
+-- O motor de seleção de kits usa: usable = capacidade_kwh × dod_percent/100
 
 -- ── Baterias ─────────────────────────────────────────────────────────────────
-INSERT INTO products_bess (marca, modelo, sku, tipo, capacidade_kwh, dod_percent, tensao_nominal_v, corrente_max_descarga_a, preco, disponivel)
+INSERT INTO products_bess
+  (marca, modelo, sku, tipo, capacidade_kwh, dod_percent,
+   tensao_nominal_v, corrente_max_descarga_a, preco, disponivel)
 VALUES
-  ('Intelbras', 'SBW CB050 W00', 'SBW-CB050-W00', 'bateria', 5.02,  100, 192, 27, 15000, true),
-  ('Intelbras', 'SBW CB100 W00', 'SBW-CB100-W00', 'bateria', 10.07, 100, 384, 27, 28000, true)
+  ('WEG', 'SBW CB050 W00', 'SBW-CB050-W00', 'bateria',  5.02, 100, 192, 27,  6532.72, true),
+  ('WEG', 'SBW CB100 W00', 'SBW-CB100-W00', 'bateria', 10.07, 100, 384, 27, 12799.27, true)
 ON CONFLICT (sku) DO UPDATE SET
-  capacidade_kwh         = EXCLUDED.capacidade_kwh,
-  dod_percent            = EXCLUDED.dod_percent,
-  tensao_nominal_v       = EXCLUDED.tensao_nominal_v,
+  marca                   = EXCLUDED.marca,
+  capacidade_kwh          = EXCLUDED.capacidade_kwh,
+  dod_percent             = EXCLUDED.dod_percent,
+  tensao_nominal_v        = EXCLUDED.tensao_nominal_v,
   corrente_max_descarga_a = EXCLUDED.corrente_max_descarga_a,
-  preco                  = EXCLUDED.preco,
-  disponivel             = EXCLUDED.disponivel;
+  preco                   = EXCLUDED.preco,
+  disponivel              = EXCLUDED.disponivel;
 
 -- ── Inversores Híbridos ───────────────────────────────────────────────────────
--- fase: 'monofasico' or 'trifasico'
--- pot_ca_max_eps_kva: potência CA máxima no modo EPS (off-grid backup)
--- potencia_continua_kw: potência nominal (PNOM da planilha)
-INSERT INTO products_bess (marca, modelo, sku, tipo, fase, potencia_continua_kw, pot_ca_max_eps_kva, preco, disponivel)
+-- pot_ca_max_eps_kva = coluna "POT. CA MÁX (EPS)" do catálogo
+-- potencia_continua_kw = coluna PNOM
+INSERT INTO products_bess
+  (marca, modelo, sku, tipo, fase, potencia_continua_kw,
+   pot_ca_max_eps_kva, preco, disponivel)
 VALUES
-  ('Intelbras', 'SIW200H M050 W00', 'SIW200H-M050-W00', 'inversor_hibrido', 'monofasico',  5.0,  6,  12000, true),
-  ('Intelbras', 'SIW200H M075 W00', 'SIW200H-M075-W00', 'inversor_hibrido', 'monofasico',  7.5,  10, 16000, true),
-  ('Intelbras', 'SIW200H M105 W00', 'SIW200H-M105-W00', 'inversor_hibrido', 'monofasico', 10.5,  12, 20000, true),
-  ('Intelbras', 'SIW400H T015 W00', 'SIW400H-T015-W00', 'inversor_hibrido', 'trifasico',  15.0,  18, 35000, true),
-  ('Intelbras', 'SIW400H T030 W00', 'SIW400H-T030-W00', 'inversor_hibrido', 'trifasico',  30.0,  36, 50000, true)
+  ('WEG', 'SIW200H M050 W00', 'SIW200H-M050-W00', 'inversor_hibrido', 'monofasico',  5.0,  6, 7547.40,  true),
+  ('WEG', 'SIW200H M075 W00', 'SIW200H-M075-W00', 'inversor_hibrido', 'monofasico',  7.5, 10, 8967.40,  true),
+  ('WEG', 'SIW200H M105 W00', 'SIW200H-M105-W00', 'inversor_hibrido', 'monofasico', 10.5, 12, 11436.13, true),
+  ('WEG', 'SIW400H T015 W00', 'SIW400H-T015-W00', 'inversor_hibrido', 'trifasico',  15.0, 18, 20057.52, true),
+  ('WEG', 'SIW400H T030 W00', 'SIW400H-T030-W00', 'inversor_hibrido', 'trifasico',  30.0, 36, 16050.59, true)
 ON CONFLICT (sku) DO UPDATE SET
+  marca                = EXCLUDED.marca,
   fase                 = EXCLUDED.fase,
   potencia_continua_kw = EXCLUDED.potencia_continua_kw,
   pot_ca_max_eps_kva   = EXCLUDED.pot_ca_max_eps_kva,
