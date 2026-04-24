@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.calculate.schemas import (
     BackupLoadRow, BackupRowResult,
     CalculateRequest, CalculateResponse, KitInfo, LoadItem,
+    SolarDimensionamento,
 )
-from app.catalog.service import list_bess, get_bess_comercial
+from app.catalog.service import list_bess, get_bess_comercial, list_solar
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.compatibility import find_compatible_kits
 from app.engines.schemas import (
@@ -14,7 +15,9 @@ from app.engines.schemas import (
     ArbitrageInputV2,
     PeakShavingInput, SolarInput,
     PeakShavingResult, SolarResult,
+    SolarStringsInput,
 )
+from app.engines.solar_strings import size_solar_strings
 from app.projects.models import Project
 from app.projects.service import create_project, mark_project_done, mark_project_error
 
@@ -78,6 +81,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         baterias = [p for p in todos_bess if p.tipo == "bateria"]
         inversores = [p for p in todos_bess if p.tipo == "inversor_hibrido"]
 
+        modulos_fv = await list_solar(db, disponivel_only=True)
+        modulos_fv = [m for m in modulos_fv if m.tipo == "modulo_fv"]
+
         capacidade_kwh = 0.0
         potencia_kw = 0.0
         economia_mensal = None
@@ -89,6 +95,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         # Backup-specific extras
         backup_rows = None
         backup_result = None
+        solar_dim_result = None
 
         # Arbitragem-specific extras
         arb_result = None
@@ -133,6 +140,23 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 tipo_instalacao=req.tipo_instalacao or "monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
+
+            # ── Solar dimensioning (optional) ────────────────────────────────
+            solar_dim_result = None
+            if (
+                req.consumo_medio_mensal_kwh
+                and req.hsp_media
+                and kits
+            ):
+                best_kit = kits[0]  # already sorted by price ascending
+                solar_dim_result = size_solar_strings(
+                    inversor=best_kit.inversor,
+                    modulos=modulos_fv,
+                    solar_input=SolarStringsInput(
+                        consumo_medio_mensal_kwh=req.consumo_medio_mensal_kwh,
+                        hsp_media=req.hsp_media,
+                    ),
+                )
 
             # Build per-row results for frontend table
             backup_rows = [
@@ -288,6 +312,20 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             economia_anual_rs=economia_anual,
             payback_meses=payback_meses,
             alternativas=alternativas,
+            solar_dimensionamento=(
+                SolarDimensionamento(
+                    modulo_marca=solar_dim_result.modulo_marca,
+                    modulo_modelo=solar_dim_result.modulo_modelo,
+                    modulo_wp=solar_dim_result.modulo_wp,
+                    qty_modulos=solar_dim_result.qty_modulos,
+                    n_serie=solar_dim_result.n_serie,
+                    n_paralelo=solar_dim_result.n_paralelo,
+                    mppt_qty=solar_dim_result.mppt_qty,
+                    kwp_instalado=solar_dim_result.kwp_instalado,
+                    cobertura_pct=solar_dim_result.cobertura_pct,
+                )
+                if solar_dim_result else None
+            ),
         )
 
     except Exception as e:
