@@ -57,6 +57,10 @@ class CalculateRequest(BaseModel):
     eficiencia_roundtrip: Optional[float] = None
     tensao_instalacao_v: Optional[float] = None
 
+    # ── Solar (opcional, dentro do backup) ───────────────────────────────────
+    consumo_medio_mensal_kwh: Optional[float] = None
+    hsp_media: Optional[float] = None
+
     # ── Arbitragem ────────────────────────────────────────────────────────────
     consumo_ponta_kwh: Optional[list[float]] = None   # 12 values
     demanda_ponta_kw: Optional[list[float]] = None    # 12 values
@@ -87,6 +91,18 @@ class KitInfo(BaseModel):
     preco_total: float
     economia_mensal_rs: Optional[float] = None
     payback_anos: Optional[float] = None
+
+
+class SolarDimensionamento(BaseModel):
+    modulo_marca: str
+    modulo_modelo: str
+    modulo_wp: float
+    qty_modulos: int
+    n_serie: int
+    n_paralelo: int
+    mppt_qty: int
+    kwp_instalado: float
+    cobertura_pct: float
 
 
 # ── Response ─────────────────────────────────────────────────────────────────
@@ -121,3 +137,5 @@ class CalculateResponse(BaseModel):
     economia_anual_rs: Optional[float] = None
     payback_meses: Optional[float] = None
     alternativas: list[KitInfo] = []
+
+    solar_dimensionamento: Optional[SolarDimensionamento] = None
