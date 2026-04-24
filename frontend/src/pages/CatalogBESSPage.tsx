@@ -6,7 +6,7 @@ import { PlusCircle, Trash2 } from 'lucide-react'
 type BESSForm = Omit<ProductBESS, 'id' | 'atualizado_em'>
 
 const EMPTY_FORM: BESSForm = {
-  marca: '', modelo: '', sku: '', tipo: 'bateria', disponivel: true, preco: 0,
+  marca: '', modelo: '', sku: '', tipo: 'bateria', fase: undefined, disponivel: true, preco: 0,
   pot_ca_max_eps_kva: undefined,
 }
 
@@ -81,6 +81,7 @@ export function CatalogBESSPage() {
                 <th className="px-4 py-3 text-left">Marca / Modelo</th>
                 <th className="px-4 py-3 text-left">SKU</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
+                <th className="px-4 py-3 text-left">Fase</th>
                 <th className="px-4 py-3 text-right">P_EPS (kVA)</th>
                 <th className="px-4 py-3 text-right">Preço (R$)</th>
                 <th className="px-4 py-3 text-left">Status</th>
@@ -93,6 +94,7 @@ export function CatalogBESSPage() {
                   <td className="px-4 py-3"><p className="font-medium">{p.marca}</p><p className="text-xs text-gray-500">{p.modelo}</p></td>
                   <td className="px-4 py-3 font-mono text-xs">{p.sku}</td>
                   <td className="px-4 py-3 capitalize">{p.tipo.replace(/_/g, ' ')}</td>
+                  <td className="px-4 py-3 capitalize">{p.fase ? p.fase.replace('fasico', 'fásico') : '—'}</td>
                   <td className="px-4 py-3 text-right">{p.pot_ca_max_eps_kva ? `${p.pot_ca_max_eps_kva} kVA` : '—'}</td>
                   <td className="px-4 py-3 text-right">{p.preco.toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3">
@@ -127,14 +129,25 @@ export function CatalogBESSPage() {
                 <FField label="Modelo" value={form.modelo} onChange={v => set('modelo', v)} required />
               </div>
               <FField label="SKU" value={form.sku} onChange={v => set('sku', v)} required />
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">Tipo</label>
-                <select value={form.tipo} onChange={e => set('tipo', e.target.value as ProductBESS['tipo'])}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="bateria">Bateria</option>
-                  <option value="inversor_hibrido">Inversor Híbrido</option>
-                  <option value="bess_comercial">BESS Comercial</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">Tipo</label>
+                  <select value={form.tipo} onChange={e => set('tipo', e.target.value as ProductBESS['tipo'])}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                    <option value="bateria">Bateria</option>
+                    <option value="inversor_hibrido">Inversor Híbrido</option>
+                    <option value="bess_comercial">BESS Comercial</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">Fase</label>
+                  <select value={form.fase ?? ''} onChange={e => set('fase', e.target.value || undefined)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                    <option value="">—</option>
+                    <option value="monofasico">Monofásico</option>
+                    <option value="trifasico">Trifásico</option>
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <NField label="Tensão Nominal (V)" value={form.tensao_nominal_v} onChange={v => set('tensao_nominal_v', v)} />
