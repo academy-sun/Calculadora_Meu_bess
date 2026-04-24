@@ -231,3 +231,39 @@ class ArbitrageResult:
         self.economia_mensal = economia_mensal
         self.custo_total = custo_total
         self.payback_meses = payback_meses
+
+
+class SolarStringsInput:
+    """Input para o dimensionamento de strings FV no backup."""
+    def __init__(
+        self,
+        consumo_medio_mensal_kwh: float,
+        hsp_media: float,
+    ):
+        self.consumo_medio_mensal_kwh = consumo_medio_mensal_kwh
+        self.hsp_media = hsp_media
+
+
+class SolarStringsResult:
+    """Resultado do dimensionamento de strings FV."""
+    def __init__(
+        self,
+        modulo_marca: str,
+        modulo_modelo: str,
+        modulo_wp: float,
+        qty_modulos: int,
+        n_serie: int,
+        n_paralelo: int,
+        mppt_qty: int,
+        kwp_instalado: float,
+        cobertura_pct: float,
+    ):
+        self.modulo_marca = modulo_marca
+        self.modulo_modelo = modulo_modelo
+        self.modulo_wp = modulo_wp
+        self.qty_modulos = qty_modulos
+        self.n_serie = n_serie
+        self.n_paralelo = n_paralelo
+        self.mppt_qty = mppt_qty
+        self.kwp_instalado = kwp_instalado
+        self.cobertura_pct = cobertura_pct
