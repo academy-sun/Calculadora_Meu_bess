@@ -20,6 +20,10 @@ class ProductBESSCreate(BaseModel):
     dod_percent: Optional[float] = None
     potencia_continua_kw: Optional[float] = None
     pot_ca_max_eps_kva: Optional[float] = None
+    mppt_v_min: Optional[float] = None
+    mppt_v_max: Optional[float] = None
+    mppt_i_max_a: Optional[float] = None
+    mppt_qty: Optional[int] = None
     max_baterias: Optional[int] = None
     preco: float
     disponivel: bool = True
@@ -39,6 +43,10 @@ class ProductSolarCreate(BaseModel):
     tipo: str
     potencia_pico_wp: Optional[float] = None
     eficiencia_pct: Optional[float] = None
+    voc_v: Optional[float] = None
+    vmp_v: Optional[float] = None
+    isc_a: Optional[float] = None
+    imp_a: Optional[float] = None
     potencia_nominal_kw: Optional[float] = None
     mppt_min_v: Optional[float] = None
     mppt_max_v: Optional[float] = None
