@@ -17,6 +17,10 @@ export interface ProductBESS {
   dod_percent?: number
   potencia_continua_kw?: number
   pot_ca_max_eps_kva?: number
+  mppt_v_min?: number
+  mppt_v_max?: number
+  mppt_i_max_a?: number
+  mppt_qty?: number
   max_baterias?: number
   preco: number
   disponivel: boolean
@@ -31,6 +35,10 @@ export interface ProductSolar {
   tipo: 'modulo_fv' | 'inversor_solar'
   potencia_pico_wp?: number
   eficiencia_pct?: number
+  voc_v?: number
+  vmp_v?: number
+  isc_a?: number
+  imp_a?: number
   potencia_nominal_kw?: number
   mppt_min_v?: number
   mppt_max_v?: number
@@ -113,6 +121,18 @@ export interface KitInfo {
   payback_anos?: number
 }
 
+export interface SolarDimensionamento {
+  modulo_marca: string
+  modulo_modelo: string
+  modulo_wp: number
+  qty_modulos: number
+  n_serie: number
+  n_paralelo: number
+  mppt_qty: number
+  kwp_instalado: number
+  cobertura_pct: number
+}
+
 export interface CalculateResponse {
   projeto_id: string
   tipo_calculo: TipoCalculo
@@ -142,4 +162,5 @@ export interface CalculateResponse {
   economia_anual_rs?: number
   payback_meses?: number
   alternativas: KitInfo[]
+  solar_dimensionamento?: SolarDimensionamento | null
 }
