@@ -22,11 +22,11 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
     imp_a = getattr(modulo, 'imp_a', None)
     wp = getattr(modulo, 'potencia_pico_wp', None)
 
-    if any(v is None for v in [mppt_v_min, mppt_v_max, mppt_i_max_a, mppt_qty,
+    # mppt_v_min é opcional — se ausente, não aplica restrição de tensão mínima
+    if any(v is None for v in [mppt_v_max, mppt_i_max_a, mppt_qty,
                                 voc_v, vmp_v, imp_a, wp]):
         return None
 
-    mppt_v_min = float(mppt_v_min)
     mppt_v_max = float(mppt_v_max)
     mppt_i_max_a = float(mppt_i_max_a)
     mppt_qty = int(mppt_qty)
@@ -38,10 +38,13 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
     if vmp_v <= 0 or voc_v <= 0 or imp_a <= 0 or wp <= 0:
         return None
 
-    n_serie_min = math.ceil(mppt_v_min / vmp_v)
     n_serie_max = math.floor(mppt_v_max / voc_v)
+    if n_serie_max < 1:
+        return None
 
-    if n_serie_min > n_serie_max or n_serie_max < 1:
+    # Se mppt_v_min não informado, assume 1 como mínimo (sem restrição de tensão mínima)
+    n_serie_min = math.ceil(float(mppt_v_min) / vmp_v) if mppt_v_min is not None else 1
+    if n_serie_min > n_serie_max:
         return None
 
     n_serie = n_serie_max
