@@ -8,6 +8,10 @@ type BESSForm = Omit<ProductBESS, 'id' | 'atualizado_em'>
 const EMPTY_FORM: BESSForm = {
   marca: '', modelo: '', sku: '', tipo: 'bateria', fase: undefined, disponivel: true, preco: 0,
   pot_ca_max_eps_kva: undefined,
+  mppt_v_min: undefined,
+  mppt_v_max: undefined,
+  mppt_i_max_a: undefined,
+  mppt_qty: undefined,
 }
 
 export function CatalogBESSPage() {
@@ -159,6 +163,10 @@ export function CatalogBESSPage() {
                 <NField label="Corrente Máx DC (A)" value={form.corrente_max_dc_a} onChange={v => set('corrente_max_dc_a', v)} />
                 <NField label="Potência Contínua (kW)" value={form.potencia_continua_kw} onChange={v => set('potencia_continua_kw', v)} />
                 <NField label="P_máx EPS (kVA)" value={form.pot_ca_max_eps_kva} onChange={v => set('pot_ca_max_eps_kva', v)} />
+                <NField label="MPPT V Mín (V)" value={form.mppt_v_min} onChange={v => set('mppt_v_min', v)} />
+                <NField label="MPPT V Máx (V)" value={form.mppt_v_max} onChange={v => set('mppt_v_max', v)} />
+                <NField label="MPPT I Máx (A)" value={form.mppt_i_max_a} onChange={v => set('mppt_i_max_a', v)} />
+                <NField label="Qtd. Entradas MPPT" value={form.mppt_qty} onChange={v => set('mppt_qty', v)} />
               </div>
               <NField label="Preço (R$)" value={form.preco} onChange={v => set('preco', v ?? 0)} required />
               <label className="flex items-center gap-2 text-sm">

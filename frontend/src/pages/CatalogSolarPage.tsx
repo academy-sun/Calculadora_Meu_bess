@@ -7,6 +7,10 @@ type SolarForm = Omit<ProductSolar, 'id'>
 
 const EMPTY_FORM: SolarForm = {
   marca: '', modelo: '', sku: '', tipo: 'modulo_fv', preco: 0, disponivel: true,
+  voc_v: undefined,
+  vmp_v: undefined,
+  isc_a: undefined,
+  imp_a: undefined,
 }
 
 export function CatalogSolarPage() {
@@ -149,6 +153,30 @@ export function CatalogSolarPage() {
                     <input type="number" step="any" value={form.eficiencia_pct ?? ''}
                       onChange={e => set('eficiencia_pct', e.target.value ? parseFloat(e.target.value) : undefined)}
                       className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" /></div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">Voc (V)</label>
+                    <input type="number" step="any" value={form.voc_v ?? ''}
+                      onChange={e => set('voc_v', e.target.value ? parseFloat(e.target.value) : undefined)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">Vmp (V)</label>
+                    <input type="number" step="any" value={form.vmp_v ?? ''}
+                      onChange={e => set('vmp_v', e.target.value ? parseFloat(e.target.value) : undefined)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">Isc (A)</label>
+                    <input type="number" step="any" value={form.isc_a ?? ''}
+                      onChange={e => set('isc_a', e.target.value ? parseFloat(e.target.value) : undefined)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">Imp (A)</label>
+                    <input type="number" step="any" value={form.imp_a ?? ''}
+                      onChange={e => set('imp_a', e.target.value ? parseFloat(e.target.value) : undefined)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  </div>
                 </div>
               )}
               {form.tipo === 'inversor_solar' && (
