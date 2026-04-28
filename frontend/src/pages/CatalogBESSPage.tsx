@@ -86,7 +86,7 @@ export function CatalogBESSPage() {
                 <th className="px-4 py-3 text-left">SKU</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
                 <th className="px-4 py-3 text-left">Fase</th>
-                <th className="px-4 py-3 text-right">P_EPS (kVA)</th>
+                <th className="px-4 py-3 text-right">Especificação</th>
                 <th className="px-4 py-3 text-right">Preço (R$)</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3" />
@@ -99,7 +99,13 @@ export function CatalogBESSPage() {
                   <td className="px-4 py-3 font-mono text-xs">{p.sku}</td>
                   <td className="px-4 py-3 capitalize">{p.tipo.replace(/_/g, ' ')}</td>
                   <td className="px-4 py-3 capitalize">{p.fase ? p.fase.replace('fasico', 'fásico') : '—'}</td>
-                  <td className="px-4 py-3 text-right">{p.pot_ca_max_eps_kva ? `${p.pot_ca_max_eps_kva} kVA` : '—'}</td>
+                  <td className="px-4 py-3 text-right">
+                    {p.tipo === 'bateria'
+                      ? (p.capacidade_kwh ? `${p.capacidade_kwh} kWh` : '—')
+                      : p.tipo === 'inversor_hibrido'
+                        ? (p.mppt_qty ? `${p.mppt_qty}x MPPT` : '—')
+                        : (p.pot_ca_max_eps_kva ? `${p.pot_ca_max_eps_kva} kVA` : '—')}
+                  </td>
                   <td className="px-4 py-3 text-right">{p.preco.toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs ${p.disponivel ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -153,21 +159,32 @@ export function CatalogBESSPage() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <NField label="Tensão Nominal (V)" value={form.tensao_nominal_v} onChange={v => set('tensao_nominal_v', v)} />
-                <NField label="Capacidade (kWh)" value={form.capacidade_kwh} onChange={v => set('capacidade_kwh', v)} />
-                <NField label="DoD (%)" value={form.dod_percent} onChange={v => set('dod_percent', v)} />
-                <NField label="Corrente Máx Desc. (A)" value={form.corrente_max_descarga_a} onChange={v => set('corrente_max_descarga_a', v)} />
-                <NField label="Tensão Mín DC (V)" value={form.tensao_min_dc_v} onChange={v => set('tensao_min_dc_v', v)} />
-                <NField label="Tensão Máx DC (V)" value={form.tensao_max_dc_v} onChange={v => set('tensao_max_dc_v', v)} />
-                <NField label="Corrente Máx DC (A)" value={form.corrente_max_dc_a} onChange={v => set('corrente_max_dc_a', v)} />
-                <NField label="Potência Contínua (kW)" value={form.potencia_continua_kw} onChange={v => set('potencia_continua_kw', v)} />
-                <NField label="P_máx EPS (kVA)" value={form.pot_ca_max_eps_kva} onChange={v => set('pot_ca_max_eps_kva', v)} />
-                <NField label="MPPT V Mín (V)" value={form.mppt_v_min} onChange={v => set('mppt_v_min', v)} />
-                <NField label="MPPT V Máx (V)" value={form.mppt_v_max} onChange={v => set('mppt_v_max', v)} />
-                <NField label="MPPT I Máx (A)" value={form.mppt_i_max_a} onChange={v => set('mppt_i_max_a', v)} />
-                <NField label="Qtd. Entradas MPPT" value={form.mppt_qty} onChange={v => set('mppt_qty', v)} />
-              </div>
+              {/* Bateria fields */}
+              {(form.tipo === 'bateria' || form.tipo === 'bess_comercial') && (
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase text-blue-600">Especificações da Bateria</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <NField label="Tensão Nominal (V)" value={form.tensao_nominal_v} onChange={v => set('tensao_nominal_v', v)} />
+                    <NField label="Capacidade (kWh)" value={form.capacidade_kwh} onChange={v => set('capacidade_kwh', v)} />
+                    <NField label="DoD (%)" value={form.dod_percent} onChange={v => set('dod_percent', v)} />
+                    <NField label="Corrente Máx. Descarga (A)" value={form.corrente_max_descarga_a} onChange={v => set('corrente_max_descarga_a', v)} />
+                  </div>
+                </div>
+              )}
+
+              {/* Inversor fields */}
+              {(form.tipo === 'inversor_hibrido' || form.tipo === 'bess_comercial') && (
+                <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase text-amber-600">Especificações do Inversor</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <NField label="Tensão Máx. Entrada (V)" value={form.mppt_v_max} onChange={v => set('mppt_v_max', v)} />
+                    <NField label="Corrente Máx. Entrada (A)" value={form.mppt_i_max_a} onChange={v => set('mppt_i_max_a', v)} />
+                    <NField label="Corrente Curto Circuito (A)" value={form.corrente_max_dc_a} onChange={v => set('corrente_max_dc_a', v)} />
+                    <NField label="Entradas MPPT" value={form.mppt_qty} onChange={v => set('mppt_qty', v)} />
+                    <NField label="P_máx EPS (kVA)" value={form.pot_ca_max_eps_kva} onChange={v => set('pot_ca_max_eps_kva', v)} />
+                  </div>
+                </div>
+              )}
               <NField label="Preço (R$)" value={form.preco} onChange={v => set('preco', v ?? 0)} required />
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.disponivel} onChange={e => set('disponivel', e.target.checked)} />
