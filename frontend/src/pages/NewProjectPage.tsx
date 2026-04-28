@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { CityCombobox } from '@/components/CityCombobox'
 import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
 import type { CalculateResponse, StandardLoad } from '@/types'
@@ -44,6 +45,9 @@ export function NewProjectPage() {
   const [autonomia, setAutonomia] = useState('4')
   const [dod, setDod] = useState('90')
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
+  const [consumoMensal, setConsumoMensal] = useState('')
+  const [hspMedia, setHspMedia] = useState<number | null>(null)
+  const [cidadeLabel, setCidadeLabel] = useState('')
 
   function addBackupRow(load: StandardLoad) {
     setBackupRows(prev => [...prev, {
@@ -96,6 +100,11 @@ export function NewProjectPage() {
       payload.autonomia_horas = parseFloat(autonomia)
       payload.dod_percent = parseFloat(dod)
       payload.eficiencia_roundtrip = 90
+      const consumoNum = parseFloat(consumoMensal)
+      if (consumoNum > 0 && hspMedia) {
+        payload.consumo_medio_mensal_kwh = consumoNum
+        payload.hsp_media = hspMedia
+      }
     } else {
       payload.consumo_ponta_kwh = arbConsumoPonta.map(v => parseFloat(v) || 0)
       payload.demanda_ponta_kw  = arbDemandaPonta.map(v => parseFloat(v) || 0)
@@ -182,6 +191,43 @@ export function NewProjectPage() {
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Autonomia (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
                 <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="90" required />
+              </div>
+
+              {/* ── Solar (opcional) ───────────────────────────────────────── */}
+              <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 space-y-3">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                  ☀️ Dimensionamento Solar (opcional)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Consumo Médio Mensal (kWh)
+                    </label>
+                    <input
+                      type="number" step="any" min={0}
+                      value={consumoMensal}
+                      onChange={e => setConsumoMensal(e.target.value)}
+                      placeholder="ex: 1200"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Cidade (HSP)
+                    </label>
+                    <CityCombobox
+                      value={cidadeLabel}
+                      onSelect={city => {
+                        setHspMedia(city.hsp)
+                        setCidadeLabel(`${city.nome} - ${city.sigla}`)
+                      }}
+                      placeholder="Buscar cidade..."
+                    />
+                    {hspMedia && (
+                      <p className="mt-1 text-xs text-gray-400">HSP média: {hspMedia} kWh/m²/dia</p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -424,6 +470,46 @@ export function NewProjectPage() {
               ? ` · ${result.kit_selecionado.qtd_inversores}× inversores` : ''}
             {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
           </p>
+        </div>
+      )}
+
+      {/* Solar dimensioning result */}
+      {result?.solar_dimensionamento && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-800 uppercase tracking-wide">
+            ☀️ Dimensionamento Solar
+          </h3>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <div>
+              <span className="text-gray-500">Módulo selecionado</span>
+              <p className="font-medium">
+                {result.solar_dimensionamento.modulo_marca} {result.solar_dimensionamento.modulo_modelo}
+                {' '}— {result.solar_dimensionamento.modulo_wp} Wp
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-500">Configuração</span>
+              <p className="font-medium font-mono">
+                {result.solar_dimensionamento.n_serie}S ×{' '}
+                {result.solar_dimensionamento.n_paralelo}P ×{' '}
+                {result.solar_dimensionamento.mppt_qty} MPPT
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-500">Total de módulos</span>
+              <p className="font-medium">{result.solar_dimensionamento.qty_modulos} unidades</p>
+            </div>
+            <div>
+              <span className="text-gray-500">Potência instalada</span>
+              <p className="font-medium">{result.solar_dimensionamento.kwp_instalado} kWp</p>
+            </div>
+            <div className="col-span-2">
+              <span className="text-gray-500">Cobertura estimada</span>
+              <p className="font-medium text-amber-700">
+                {result.solar_dimensionamento.cobertura_pct}% do consumo mensal
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
