@@ -131,6 +131,7 @@ export interface SolarDimensionamento {
   mppt_qty: number
   kwp_instalado: number
   cobertura_pct: number
+  preco_modulos_total: number
 }
 
 export interface CalculateResponse {

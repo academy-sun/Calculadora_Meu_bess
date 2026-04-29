@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost, apiBulkDelete } from '@/lib/api'
 import type { Project, CalculateResponse } from '@/types'
 
 export function useProjects(params?: { origem?: string; negocio_id?: string }) {
@@ -27,6 +27,22 @@ export function useCalculate() {
   return useMutation({
     mutationFn: (payload: unknown) =>
       apiPost<CalculateResponse>('/calculate', payload, true),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+interface BulkDeleteResponse {
+  deleted: string[]
+  forbidden: string[]
+}
+
+export function useDeleteProjects() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiBulkDelete<BulkDeleteResponse>('/projects', { ids }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
     },

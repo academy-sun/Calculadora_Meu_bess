@@ -60,3 +60,17 @@ export async function apiDelete(path: string): Promise<void> {
     throw new Error(err.detail ?? `DELETE ${path} falhou: ${res.status}`)
   }
 }
+
+export async function apiBulkDelete<T>(path: string, body: unknown): Promise<T> {
+  const headers = await getAuthHeaders()
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'DELETE',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail ?? `Erro ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
