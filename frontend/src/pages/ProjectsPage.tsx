@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useProjects } from '@/hooks/useProjects'
-import { PlusCircle } from 'lucide-react'
+import { PlusCircle, Trash2 } from 'lucide-react'
+import { useProjects, useDeleteProjects } from '@/hooks/useProjects'
 
 const TIPO_LABEL: Record<string, string> = {
   backup: 'Backup',
@@ -18,6 +19,44 @@ const ESTADO_COLOR: Record<string, string> = {
 
 export function ProjectsPage() {
   const { data: projects, isLoading, error } = useProjects()
+  const deleteMutation = useDeleteProjects()
+
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const allIds = projects?.map(p => p.id) ?? []
+  const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id))
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(allIds))
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleDelete() {
+    setDeleteError(null)
+    try {
+      await deleteMutation.mutateAsync(Array.from(selected))
+      setSelected(new Set())
+      setShowConfirm(false)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Erro ao excluir')
+    }
+  }
+
+  const selectedCount = selected.size
 
   return (
     <div className="p-6">
@@ -31,6 +70,26 @@ export function ProjectsPage() {
         </Link>
       </div>
 
+      {deleteError && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{deleteError}</div>
+      )}
+
+      {/* Action bar — appears when items selected */}
+      {selectedCount > 0 && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+          <span className="text-sm font-medium text-red-700">
+            {selectedCount} projeto{selectedCount > 1 ? 's' : ''} selecionado{selectedCount > 1 ? 's' : ''}
+          </span>
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700"
+          >
+            <Trash2 size={14} />
+            Excluir selecionados
+          </button>
+        </div>
+      )}
+
       {isLoading && <p className="text-gray-500">Carregando...</p>}
       {error && <p className="text-red-600">Erro ao carregar projetos.</p>}
 
@@ -39,6 +98,14 @@ export function ProjectsPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-xs font-semibold uppercase text-gray-500">
               <tr>
+                <th className="w-10 px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="rounded border-gray-300"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left">Tipo</th>
                 <th className="px-4 py-3 text-left">Solicitante</th>
                 <th className="px-4 py-3 text-left">Origem</th>
@@ -49,7 +116,15 @@ export function ProjectsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {projects.map(p => (
-                <tr key={p.id} className="hover:bg-gray-50">
+                <tr key={p.id} className={`hover:bg-gray-50 ${selected.has(p.id) ? 'bg-red-50/40' : ''}`}>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={() => toggleOne(p.id)}
+                      className="rounded border-gray-300"
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium">
                     {TIPO_LABEL[p.tipo_calculo] ?? p.tipo_calculo}
                   </td>
@@ -76,7 +151,7 @@ export function ProjectsPage() {
               ))}
               {projects.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                     Nenhum projeto ainda.{' '}
                     <Link to="/projects/new" className="text-primary">Criar o primeiro</Link>
                   </td>
@@ -84,6 +159,38 @@ export function ProjectsPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Confirm delete modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-lg font-bold text-gray-800">Excluir projetos?</h2>
+            <p className="mb-5 text-sm text-gray-600">
+              Tem certeza que deseja excluir{' '}
+              <strong>{selectedCount} projeto{selectedCount > 1 ? 's' : ''}</strong>?
+              Esta ação não pode ser desfeita.
+            </p>
+            {deleteError && (
+              <p className="mb-3 text-sm text-red-600">{deleteError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowConfirm(false); setDeleteError(null) }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
