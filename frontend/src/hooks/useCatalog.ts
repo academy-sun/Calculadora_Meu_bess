@@ -91,6 +91,8 @@ export interface SyncError {
 export interface SyncResult {
   synced: SyncedProduct[]
   errors: SyncError[]
+  total_synced: number
+  total_errors: number
 }
 
 export function useSyncCatalog() {
