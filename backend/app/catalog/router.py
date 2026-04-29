@@ -19,6 +19,18 @@ router = APIRouter(prefix="/catalog", tags=["catalog"])
 # ── Sync from supplier platform ──────────────────────────────────────────────
 
 
+@router.get("/sync/status", tags=["catalog"])
+async def sync_status(_=Depends(require_admin)) -> dict:
+    """Admin-only: check sync configuration without making external requests."""
+    from app.config import settings
+    key = settings.meubess_api_key
+    return {
+        "api_key_configured": bool(key),
+        "api_key_preview": f"{key[:8]}…" if key else None,
+        "api_url": settings.meubess_api_url,
+    }
+
+
 @router.post("/sync", tags=["catalog"])
 async def sync_catalog(
     db: AsyncSession = Depends(get_db),

@@ -275,6 +275,18 @@ async def sync_all_products(db: AsyncSession) -> dict:
                 f"Falha ao listar produtos: HTTP {exc.response.status_code} — "
                 f"{exc.response.text[:300]}"
             ) from exc
+        except httpx.ConnectError as exc:
+            raise ValueError(
+                f"Não foi possível conectar à plataforma meubess.com.br: {exc}"
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise ValueError(
+                f"Timeout ao conectar com a plataforma meubess.com.br: {exc}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(
+                f"Erro de rede ao acessar plataforma meubess.com.br: {exc}"
+            ) from exc
 
         for product in products:
             await _process_product(db, product, result)
