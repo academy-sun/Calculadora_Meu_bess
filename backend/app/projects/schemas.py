@@ -19,3 +19,12 @@ class ProjectRead(BaseModel):
     parametros: Optional[dict]
 
     model_config = {"from_attributes": True}
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[uuid.UUID]
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: list[uuid.UUID]
+    forbidden: list[uuid.UUID]
