@@ -120,36 +120,54 @@ async def _upsert_solar(db: AsyncSession, data: dict) -> None:
 
 async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
     """
-    Fetch every product from the supplier API, handling Laravel-style pagination.
+    Fetch every product from GET /api/v1/products/all, iterating pages.
 
-    Supports three response shapes:
-      • JSON array:               [{ ... }, ...]
-      • Paginated (links.next):   { "data": [...], "links": { "next": "..." } }
-      • Single page with data:    { "data": [...] }
+    Uses per_page=100 (API max) and page=N.
+    Stops when: empty page, meta.current_page >= meta.last_page, or links.next is null.
+    Also handles plain array responses (no pagination).
     """
     products: list[dict] = []
-    url: str | None = f"{settings.meubess_api_url}/products"
+    base_url = f"{settings.meubess_api_url}/products/all"
+    page = 1
 
-    while url:
-        resp = await client.get(url, headers=_auth_headers())
+    while True:
+        resp = await client.get(
+            base_url,
+            headers=_auth_headers(),
+            params={"per_page": 100, "page": page},
+        )
         resp.raise_for_status()
         body = resp.json()
 
+        # Plain array — entire result in one shot
         if isinstance(body, list):
-            # Plain array — no pagination
             products.extend(body)
-            url = None
+            break
 
-        elif isinstance(body, dict) and "data" in body:
-            products.extend(body["data"])
-            # Follow Laravel's links.next if present and non-null
-            url = (body.get("links") or {}).get("next") or None
+        # Paginated envelope: { "data": [...], "links": {...}, "meta": {...} }
+        if isinstance(body, dict) and "data" in body:
+            page_data: list[dict] = body["data"]
+            products.extend(page_data)
 
-        else:
-            # Unknown shape — treat as single product or ignore
-            if "id" in body:
-                products.append(body)
-            url = None
+            if not page_data:
+                break  # empty page → done
+
+            meta = body.get("meta") or {}
+            last_page = meta.get("last_page")
+            next_url = (body.get("links") or {}).get("next")
+
+            if last_page is not None and page >= last_page:
+                break  # reached last page per meta
+            if next_url is None and last_page is None:
+                break  # no pagination info → single page
+
+            page += 1
+            continue
+
+        # Fallback: treat whole body as a single product
+        if isinstance(body, dict) and "id" in body:
+            products.append(body)
+        break
 
     return products
 
