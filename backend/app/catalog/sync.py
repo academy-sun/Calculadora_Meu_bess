@@ -36,6 +36,33 @@ def _auth_headers() -> dict[str, str]:
     }
 
 
+def _safe_float(val: object) -> float | None:
+    """Convert to float, returning None on null/empty/invalid."""
+    if val is None or val == "":
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_price(product: dict) -> float:
+    """Return best available price (price → price_sale → 0). Never raises."""
+    for key in ("price", "price_sale"):
+        f = _safe_float(product.get(key))
+        if f is not None and f > 0:
+            return f
+    return 0.0
+
+
+def _safe_brand(product: dict) -> str:
+    """Extract brand title safely; returns 'Desconhecida' if missing/null."""
+    brand = product.get("brand")
+    if isinstance(brand, dict):
+        return brand.get("title") or "Desconhecida"
+    return str(brand) if brand else "Desconhecida"
+
+
 def _extract_modelo(title: str) -> str:
     """
     Input:  "W - WEG - 15,0KW 380V - SIW400G T015 W1 - Inversor Trifásico"
@@ -51,46 +78,55 @@ def _extract_modelo(title: str) -> str:
 
 def _classify(product: dict) -> tuple[str, str]:
     """Returns (table: 'bess' | 'solar', tipo: str)."""
-    groups = (product.get("groups") or "").lower()
-    app = (product.get("app") or "").lower()
+    groups = (product.get("groups") or "").lower().strip()
+    app    = (product.get("app")    or "").lower().strip()
 
-    if groups == "battery":
+    # ── batteries ────────────────────────────────────────────────────────────
+    if groups in ("battery", "battery_storage", "storage", "bateria"):
         return "bess", "bateria"
-    if groups in ("panel", "solar_panel", "module"):
+
+    # ── solar panels ─────────────────────────────────────────────────────────
+    if groups in ("panel", "solar_panel", "module", "modulo", "painel", "placa"):
         return "solar", "modulo_fotovoltaico"
-    if groups == "string_inverter":
+
+    # ── string / on-grid inverters ────────────────────────────────────────────
+    if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid"):
         return "solar", "inversor_string"
+
+    # ── app-level fallback for solar ──────────────────────────────────────────
     if app == "solar":
         return "solar", "modulo_fotovoltaico"
-    return "bess", "inversor_hibrido"  # default
+
+    # ── default: hybrid / off-grid inverter in BESS catalog ──────────────────
+    return "bess", "inversor_hibrido"
 
 
 def _map_to_bess(product: dict, tipo: str) -> dict:
-    power = float(product["power"]) if product.get("power") else None
+    power = _safe_float(product.get("power"))
     return {
         "sku": str(product["id"]),
-        "marca": product["brand"]["title"],
-        "modelo": _extract_modelo(product["title"]),
+        "marca": _safe_brand(product),
+        "modelo": _extract_modelo(product.get("title") or str(product["id"])),
         "tipo": tipo,
-        "fase": product.get("phase"),
+        "fase": product.get("phase") or None,
         "potencia_continua_kw": power if tipo != "bateria" else None,
-        "capacidade_kwh": power if tipo == "bateria" else None,
-        "preco": float(product["price"]),
+        "capacidade_kwh":       power if tipo == "bateria" else None,
+        "preco": _safe_price(product),
         "disponivel": bool(product.get("active", True)),
     }
 
 
 def _map_to_solar(product: dict, tipo: str = "modulo_fotovoltaico") -> dict:
-    power = float(product["power"]) if product.get("power") else None
+    power = _safe_float(product.get("power"))
     return {
         "sku": str(product["id"]),
-        "marca": product["brand"]["title"],
-        "modelo": _extract_modelo(product["title"]),
+        "marca": _safe_brand(product),
+        "modelo": _extract_modelo(product.get("title") or str(product["id"])),
         "tipo": tipo,
-        "potencia_pico_wp": power,
+        "potencia_pico_wp":   power,
         "potencia_nominal_kw": power / 1000 if power and tipo == "inversor_string" else None,
-        "fase": product.get("phase"),
-        "preco": float(product["price"]),
+        "fase": product.get("phase") or None,
+        "preco": _safe_price(product),
         "disponivel": bool(product.get("active", True)),
     }
 
