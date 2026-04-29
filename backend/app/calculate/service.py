@@ -323,6 +323,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                     mppt_qty=solar_dim_result.mppt_qty,
                     kwp_instalado=solar_dim_result.kwp_instalado,
                     cobertura_pct=solar_dim_result.cobertura_pct,
+                    preco_modulos_total=solar_dim_result.preco_modulos_total,
                 )
                 if solar_dim_result else None
             ),

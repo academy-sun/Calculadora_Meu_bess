@@ -103,6 +103,7 @@ class SolarDimensionamento(BaseModel):
     mppt_qty: int
     kwp_instalado: float
     cobertura_pct: float
+    preco_modulos_total: float
 
 
 # ── Response ─────────────────────────────────────────────────────────────────
