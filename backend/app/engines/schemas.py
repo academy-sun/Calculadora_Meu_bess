@@ -257,6 +257,7 @@ class SolarStringsResult:
         mppt_qty: int,
         kwp_instalado: float,
         cobertura_pct: float,
+        preco_modulos_total: float,
     ):
         self.modulo_marca = modulo_marca
         self.modulo_modelo = modulo_modelo
@@ -267,3 +268,4 @@ class SolarStringsResult:
         self.mppt_qty = mppt_qty
         self.kwp_instalado = kwp_instalado
         self.cobertura_pct = cobertura_pct
+        self.preco_modulos_total = preco_modulos_total

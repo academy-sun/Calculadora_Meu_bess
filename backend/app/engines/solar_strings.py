@@ -60,6 +60,8 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
     kwp_instalado = round(qty_modulos * wp / 1000, 3)
     cobertura_pct = round(min(kwp_instalado / kwp_necessario * 100, 999.9), 1)
 
+    preco_modulos_total = round(float(modulo.preco) * qty_modulos, 2) if modulo.preco else 0.0
+
     return SolarStringsResult(
         modulo_marca=str(modulo.marca),
         modulo_modelo=str(modulo.modelo),
@@ -70,6 +72,7 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
         mppt_qty=mppt_qty,
         kwp_instalado=kwp_instalado,
         cobertura_pct=cobertura_pct,
+        preco_modulos_total=preco_modulos_total,
     )
 
 
