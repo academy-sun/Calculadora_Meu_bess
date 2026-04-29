@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useSolarProducts, useCreateSolar, useUpdateSolar, useDeleteSolar } from '@/hooks/useCatalog'
+import { useSolarProducts, useCreateSolar, useUpdateSolar, useDeleteSolar, useSyncCatalog } from '@/hooks/useCatalog'
+import type { SyncResult } from '@/hooks/useCatalog'
 import type { ProductSolar } from '@/types'
-import { PlusCircle, Trash2 } from 'lucide-react'
+import { PlusCircle, RefreshCw, Trash2 } from 'lucide-react'
 
 type SolarForm = Omit<ProductSolar, 'id'>
 
@@ -19,11 +20,31 @@ export function CatalogSolarPage() {
   const updateMutation = useUpdateSolar()
   const deleteMutation = useDeleteSolar()
 
+  const syncMutation = useSyncCatalog()
+
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<ProductSolar | null>(null)
   const [form, setForm] = useState<SolarForm>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<ProductSolar | null>(null)
+
+  // Sync modal state
+  const [showSync, setShowSync] = useState(false)
+  const [syncIds, setSyncIds] = useState('')
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
+  async function handleSync() {
+    setSyncError(null); setSyncResult(null)
+    const ids = syncIds.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+    if (!ids.length) { setSyncError('Cole ao menos um ID de produto.'); return }
+    try {
+      const result = await syncMutation.mutateAsync(ids)
+      setSyncResult(result)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Erro na sincronização')
+    }
+  }
 
   function set(field: keyof SolarForm, value: unknown) { setForm(prev => ({ ...prev, [field]: value })) }
 
@@ -61,10 +82,16 @@ export function CatalogSolarPage() {
           <h1 className="text-2xl font-bold">Catálogo Solar</h1>
           <p className="text-sm text-gray-500">Módulos FV e Inversores Solares</p>
         </div>
-        <button onClick={openCreate}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
-          <PlusCircle size={16} /> Novo Produto
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setShowSync(true); setSyncResult(null); setSyncError(null) }}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            <RefreshCw size={16} /> Sincronizar da Plataforma
+          </button>
+          <button onClick={openCreate}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
+            <PlusCircle size={16} /> Novo Produto
+          </button>
+        </div>
       </div>
 
       {error && !showForm && (
@@ -243,6 +270,65 @@ export function CatalogSolarPage() {
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50">
                 {deleteMutation.isPending ? 'Excluindo...' : 'Excluir'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sync modal ─────────────────────────────────────────────────── */}
+      {showSync && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-lg font-bold text-gray-800">Sincronizar da Plataforma</h2>
+            <p className="mb-4 text-sm text-gray-500">
+              Cole os IDs dos produtos da plataforma meubess.com.br (um por linha ou separados por vírgula).
+              Painéis e inversores string vão para o catálogo Solar; baterias e inversores híbridos para o catálogo BESS.
+            </p>
+            <textarea
+              rows={6}
+              value={syncIds}
+              onChange={e => setSyncIds(e.target.value)}
+              placeholder={"10212433\n10212434\n10212435"}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none"
+            />
+            {syncError && (
+              <p className="mt-2 text-sm text-red-600">{syncError}</p>
+            )}
+            {syncResult && (
+              <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs space-y-1">
+                <p className="font-semibold text-green-700">✅ {syncResult.synced.length} produto(s) sincronizado(s)</p>
+                {syncResult.synced.map(p => (
+                  <p key={p.id} className="text-gray-600">
+                    [{p.table.toUpperCase()}] {p.marca} {p.modelo} — R$ {p.preco.toLocaleString('pt-BR')}
+                  </p>
+                ))}
+                {syncResult.errors.length > 0 && (
+                  <>
+                    <p className="mt-2 font-semibold text-red-600">⚠ {syncResult.errors.length} erro(s)</p>
+                    {syncResult.errors.map(e => (
+                      <p key={e.id} className="text-red-500">ID {e.id}: {e.error}</p>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setShowSync(false); setSyncIds(''); setSyncResult(null); setSyncError(null) }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                {syncResult ? 'Fechar' : 'Cancelar'}
+              </button>
+              {!syncResult && (
+                <button
+                  onClick={handleSync}
+                  disabled={syncMutation.isPending}
+                  className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
+                  {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
+                </button>
+              )}
             </div>
           </div>
         </div>

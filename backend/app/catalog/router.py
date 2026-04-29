@@ -1,10 +1,12 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.catalog import service
+from app.catalog import sync as sync_service
 from app.catalog.schemas import (
     ProductBESSCreate, ProductBESSRead,
     ProductSolarCreate, ProductSolarRead,
@@ -13,6 +15,28 @@ from app.catalog.schemas import (
 from app.database import get_db
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+# ── Sync from supplier platform ──────────────────────────────────────────────
+
+class SyncRequest(BaseModel):
+    product_ids: list[str]
+
+
+@router.post("/sync", tags=["catalog"])
+async def sync_catalog(
+    body: SyncRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    """
+    Admin-only: fetch products from plataforma.meubess.com.br by ID and
+    upsert them into products_bess or products_solar based on their type.
+    """
+    try:
+        return await sync_service.sync_products(db, body.product_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/bess", response_model=list[ProductBESSRead])

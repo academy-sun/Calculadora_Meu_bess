@@ -72,6 +72,39 @@ export function useDeleteSolar() {
   })
 }
 
+// ── Sync from supplier platform ──────────────────────────────────────────────
+
+export interface SyncedProduct {
+  id: string
+  table: 'bess' | 'solar'
+  tipo: string
+  marca: string
+  modelo: string
+  preco: number
+}
+
+export interface SyncError {
+  id: string
+  error: string
+}
+
+export interface SyncResult {
+  synced: SyncedProduct[]
+  errors: SyncError[]
+}
+
+export function useSyncCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (productIds: string[]) =>
+      apiPost<SyncResult>('/catalog/sync', { product_ids: productIds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['catalog', 'bess'] })
+      qc.invalidateQueries({ queryKey: ['catalog', 'solar'] })
+    },
+  })
+}
+
 // ── Standard Loads ────────────────────────────────────────────────────────────
 
 export function useStandardLoads() {
