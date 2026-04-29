@@ -464,6 +464,15 @@ export function NewProjectPage() {
               <p className="font-bold text-green-700">R$ {result.kit_selecionado.preco_total.toLocaleString('pt-BR')}</p>
             </div>
           </div>
+          {result.solar_dimensionamento && (
+            <div className="mt-2 border-t border-amber-200 pt-2">
+              <span className="text-xs text-gray-500">Total com Solar</span>
+              <p className="text-lg font-bold text-amber-700">
+                {(result.kit_selecionado.preco_total + result.solar_dimensionamento.preco_modulos_total)
+                  .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </p>
+            </div>
+          )}
           <p className="mt-2 text-xs text-gray-500">
             {result.kit_selecionado.qtd_baterias}× baterias
             {result.kit_selecionado.qtd_inversores && result.kit_selecionado.qtd_inversores > 1
@@ -507,6 +516,14 @@ export function NewProjectPage() {
               <span className="text-gray-500">Cobertura estimada</span>
               <p className="font-medium text-amber-700">
                 {result.solar_dimensionamento.cobertura_pct}% do consumo mensal
+              </p>
+            </div>
+            <div className="col-span-2 border-t border-amber-200 pt-2">
+              <span className="text-gray-500">Custo estimado dos módulos</span>
+              <p className="font-semibold text-amber-800">
+                {result.solar_dimensionamento.preco_modulos_total.toLocaleString('pt-BR', {
+                  style: 'currency', currency: 'BRL',
+                })}
               </p>
             </div>
           </div>
