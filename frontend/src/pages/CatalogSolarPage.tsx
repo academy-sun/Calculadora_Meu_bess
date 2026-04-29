@@ -28,18 +28,14 @@ export function CatalogSolarPage() {
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<ProductSolar | null>(null)
 
-  // Sync modal state
-  const [showSync, setShowSync] = useState(false)
-  const [syncIds, setSyncIds] = useState('')
+  // Sync state
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
 
   async function handleSync() {
     setSyncError(null); setSyncResult(null)
-    const ids = syncIds.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
-    if (!ids.length) { setSyncError('Cole ao menos um ID de produto.'); return }
     try {
-      const result = await syncMutation.mutateAsync(ids)
+      const result = await syncMutation.mutateAsync()
       setSyncResult(result)
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : 'Erro na sincronização')
@@ -83,9 +79,13 @@ export function CatalogSolarPage() {
           <p className="text-sm text-gray-500">Módulos FV e Inversores Solares</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => { setShowSync(true); setSyncResult(null); setSyncError(null) }}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            <RefreshCw size={16} /> Sincronizar da Plataforma
+          <button
+            onClick={handleSync}
+            disabled={syncMutation.isPending}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={syncMutation.isPending ? 'animate-spin' : ''} />
+            {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar Plataforma'}
           </button>
           <button onClick={openCreate}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">
@@ -93,6 +93,36 @@ export function CatalogSolarPage() {
           </button>
         </div>
       </div>
+
+      {/* Sync result banner */}
+      {(syncResult || syncError) && (
+        <div className={`mb-4 rounded-lg px-4 py-3 text-sm ${syncError ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-800'}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              {syncError && <p className="font-medium">Erro na sincronização: {syncError}</p>}
+              {syncResult && (
+                <>
+                  <p className="font-medium">
+                    ✅ {syncResult.total_synced} produto(s) sincronizado(s)
+                    {syncResult.total_errors > 0 && ` · ⚠ ${syncResult.total_errors} erro(s)`}
+                  </p>
+                  {syncResult.synced.length > 0 && (
+                    <p className="mt-1 text-xs text-green-700">
+                      {syncResult.synced.map(p => `${p.marca} ${p.modelo}`).join(' · ')}
+                    </p>
+                  )}
+                  {syncResult.errors.length > 0 && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {syncResult.errors.map(e => `ID ${e.id}: ${e.error}`).join(' · ')}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+            <button onClick={() => { setSyncResult(null); setSyncError(null) }} className="text-gray-400 hover:text-gray-600 flex-shrink-0">✕</button>
+          </div>
+        </div>
+      )}
 
       {error && !showForm && (
         <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{error}</div>
@@ -275,64 +305,6 @@ export function CatalogSolarPage() {
         </div>
       )}
 
-      {/* ── Sync modal ─────────────────────────────────────────────────── */}
-      {showSync && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-lg font-bold text-gray-800">Sincronizar da Plataforma</h2>
-            <p className="mb-4 text-sm text-gray-500">
-              Cole os IDs dos produtos da plataforma meubess.com.br (um por linha ou separados por vírgula).
-              Painéis e inversores string vão para o catálogo Solar; baterias e inversores híbridos para o catálogo BESS.
-            </p>
-            <textarea
-              rows={6}
-              value={syncIds}
-              onChange={e => setSyncIds(e.target.value)}
-              placeholder={"10212433\n10212434\n10212435"}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none"
-            />
-            {syncError && (
-              <p className="mt-2 text-sm text-red-600">{syncError}</p>
-            )}
-            {syncResult && (
-              <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs space-y-1">
-                <p className="font-semibold text-green-700">✅ {syncResult.synced.length} produto(s) sincronizado(s)</p>
-                {syncResult.synced.map(p => (
-                  <p key={p.id} className="text-gray-600">
-                    [{p.table.toUpperCase()}] {p.marca} {p.modelo} — R$ {p.preco.toLocaleString('pt-BR')}
-                  </p>
-                ))}
-                {syncResult.errors.length > 0 && (
-                  <>
-                    <p className="mt-2 font-semibold text-red-600">⚠ {syncResult.errors.length} erro(s)</p>
-                    {syncResult.errors.map(e => (
-                      <p key={e.id} className="text-red-500">ID {e.id}: {e.error}</p>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => { setShowSync(false); setSyncIds(''); setSyncResult(null); setSyncError(null) }}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-              >
-                {syncResult ? 'Fechar' : 'Cancelar'}
-              </button>
-              {!syncResult && (
-                <button
-                  onClick={handleSync}
-                  disabled={syncMutation.isPending}
-                  className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
-                  {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

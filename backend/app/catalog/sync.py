@@ -1,7 +1,7 @@
 """
 Synchronisation with plataforma.meubess.com.br supplier API.
 
-Rules for routing API products to our catalog tables:
+Routing rules (by `groups` / `app` fields):
 
   groups == "inverter"                    → products_bess  /  tipo = "inversor_hibrido"
   groups == "battery"                     → products_bess  /  tipo = "bateria"
@@ -9,10 +9,10 @@ Rules for routing API products to our catalog tables:
   groups == "string_inverter"             → products_solar /  tipo = "inversor_string"
   anything else                           → products_bess  /  tipo = "inversor_hibrido"
 
-Notes on unit assumptions:
+Unit assumptions:
   • power for inverters  → potencia_continua_kw (kW)
   • power for batteries  → capacidade_kwh (kWh)
-  • power for panels     → potencia_pico_wp (Wp — assumes the API sends Wp, e.g. 550.0)
+  • power for panels     → potencia_pico_wp (Wp, e.g. 550.0)
 """
 
 import uuid
@@ -29,50 +29,24 @@ from app.config import settings
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
+def _auth_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.meubess_api_key}",
+        "Accept": "application/json",
+    }
+
+
 def _extract_modelo(title: str) -> str:
     """
-    Extracts the model string from a supplier title.
-
     Input:  "W - WEG - 15,0KW 380V - SIW400G T015 W1 - Inversor Trifásico"
     Output: "15,0KW 380V - SIW400G T015 W1"
     """
     parts = [p.strip() for p in title.split(" - ")]
     if len(parts) >= 4:
-        # keep everything between brand (index 1) and category (last index)
         return " - ".join(parts[2:-1])
-    elif len(parts) == 3:
+    if len(parts) == 3:
         return parts[1]
     return title
-
-
-def _map_to_bess(product: dict, tipo: str) -> dict:
-    power = float(product["power"]) if product.get("power") else None
-    return {
-        "sku": str(product["id"]),
-        "marca": product["brand"]["title"],
-        "modelo": _extract_modelo(product["title"]),
-        "tipo": tipo,
-        "fase": product.get("phase"),        # "monofasico" | "trifasico" | None
-        "potencia_continua_kw": power if tipo != "bateria" else None,
-        "capacidade_kwh": power if tipo == "bateria" else None,
-        "preco": float(product["price"]),
-        "disponivel": bool(product.get("active", True)),
-    }
-
-
-def _map_to_solar(product: dict, tipo: str = "modulo_fotovoltaico") -> dict:
-    power = float(product["power"]) if product.get("power") else None
-    return {
-        "sku": str(product["id"]),
-        "marca": product["brand"]["title"],
-        "modelo": _extract_modelo(product["title"]),
-        "tipo": tipo,
-        "potencia_pico_wp": power,      # API sends Wp for panels (e.g. 550.0)
-        "potencia_nominal_kw": power / 1000 if power and tipo == "inversor_string" else None,
-        "fase": product.get("phase"),
-        "preco": float(product["price"]),
-        "disponivel": bool(product.get("active", True)),
-    }
 
 
 def _classify(product: dict) -> tuple[str, str]:
@@ -88,8 +62,37 @@ def _classify(product: dict) -> tuple[str, str]:
         return "solar", "inversor_string"
     if app == "solar":
         return "solar", "modulo_fotovoltaico"
-    # default: inverter
-    return "bess", "inversor_hibrido"
+    return "bess", "inversor_hibrido"  # default
+
+
+def _map_to_bess(product: dict, tipo: str) -> dict:
+    power = float(product["power"]) if product.get("power") else None
+    return {
+        "sku": str(product["id"]),
+        "marca": product["brand"]["title"],
+        "modelo": _extract_modelo(product["title"]),
+        "tipo": tipo,
+        "fase": product.get("phase"),
+        "potencia_continua_kw": power if tipo != "bateria" else None,
+        "capacidade_kwh": power if tipo == "bateria" else None,
+        "preco": float(product["price"]),
+        "disponivel": bool(product.get("active", True)),
+    }
+
+
+def _map_to_solar(product: dict, tipo: str = "modulo_fotovoltaico") -> dict:
+    power = float(product["power"]) if product.get("power") else None
+    return {
+        "sku": str(product["id"]),
+        "marca": product["brand"]["title"],
+        "modelo": _extract_modelo(product["title"]),
+        "tipo": tipo,
+        "potencia_pico_wp": power,
+        "potencia_nominal_kw": power / 1000 if power and tipo == "inversor_string" else None,
+        "fase": product.get("phase"),
+        "preco": float(product["price"]),
+        "disponivel": bool(product.get("active", True)),
+    }
 
 
 # ── upsert ───────────────────────────────────────────────────────────────────
@@ -97,9 +100,7 @@ def _classify(product: dict) -> tuple[str, str]:
 
 async def _upsert_bess(db: AsyncSession, data: dict) -> None:
     stmt = pg_insert(ProductBESS).values(
-        id=uuid.uuid4(),
-        atualizado_em=datetime.utcnow(),
-        **data,
+        id=uuid.uuid4(), atualizado_em=datetime.utcnow(), **data
     )
     update_set = {k: stmt.excluded[k] for k in data if k != "sku"}
     update_set["atualizado_em"] = datetime.utcnow()
@@ -114,7 +115,46 @@ async def _upsert_solar(db: AsyncSession, data: dict) -> None:
     await db.execute(stmt)
 
 
-# ── public API ───────────────────────────────────────────────────────────────
+# ── fetch all (with pagination) ───────────────────────────────────────────────
+
+
+async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
+    """
+    Fetch every product from the supplier API, handling Laravel-style pagination.
+
+    Supports three response shapes:
+      • JSON array:               [{ ... }, ...]
+      • Paginated (links.next):   { "data": [...], "links": { "next": "..." } }
+      • Single page with data:    { "data": [...] }
+    """
+    products: list[dict] = []
+    url: str | None = f"{settings.meubess_api_url}/products"
+
+    while url:
+        resp = await client.get(url, headers=_auth_headers())
+        resp.raise_for_status()
+        body = resp.json()
+
+        if isinstance(body, list):
+            # Plain array — no pagination
+            products.extend(body)
+            url = None
+
+        elif isinstance(body, dict) and "data" in body:
+            products.extend(body["data"])
+            # Follow Laravel's links.next if present and non-null
+            url = (body.get("links") or {}).get("next") or None
+
+        else:
+            # Unknown shape — treat as single product or ignore
+            if "id" in body:
+                products.append(body)
+            url = None
+
+    return products
+
+
+# ── per-product processing ────────────────────────────────────────────────────
 
 
 class SyncResult:
@@ -123,20 +163,78 @@ class SyncResult:
         self.errors: list[dict] = []
 
     def to_dict(self) -> dict:
-        return {"synced": self.synced, "errors": self.errors}
+        return {
+            "synced": self.synced,
+            "errors": self.errors,
+            "total_synced": len(self.synced),
+            "total_errors": len(self.errors),
+        }
 
 
-async def sync_products(db: AsyncSession, product_ids: list[str]) -> dict:
-    """
-    Fetch each product ID from the supplier API, map it, and upsert into
-    products_bess or products_solar. Returns a summary dict.
-    """
+async def _process_product(db: AsyncSession, product: dict, result: SyncResult) -> None:
+    pid = str(product.get("id", "?"))
+    try:
+        table, tipo = _classify(product)
+        if table == "bess":
+            data = _map_to_bess(product, tipo)
+            await _upsert_bess(db, data)
+        else:
+            data = _map_to_solar(product, tipo)
+            await _upsert_solar(db, data)
+
+        result.synced.append({
+            "id": pid,
+            "table": table,
+            "tipo": tipo,
+            "marca": data["marca"],
+            "modelo": data["modelo"],
+            "preco": data["preco"],
+        })
+    except Exception as exc:  # noqa: BLE001
+        result.errors.append({"id": pid, "error": str(exc)})
+
+
+# ── public API ────────────────────────────────────────────────────────────────
+
+
+def _check_api_key() -> None:
     if not settings.meubess_api_key:
         raise ValueError(
             "MEUBESS_API_KEY não configurada. "
             "Adicione a variável de ambiente no Railway."
         )
 
+
+async def sync_all_products(db: AsyncSession) -> dict:
+    """
+    Fetch ALL products from the supplier API (paginated) and upsert into
+    products_bess / products_solar based on their type.
+    """
+    _check_api_key()
+    result = SyncResult()
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            products = await _fetch_all_products(client)
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"Falha ao listar produtos: HTTP {exc.response.status_code} — "
+                f"{exc.response.text[:300]}"
+            ) from exc
+
+        for product in products:
+            await _process_product(db, product, result)
+
+    await db.commit()
+    return result.to_dict()
+
+
+async def sync_products_by_ids(db: AsyncSession, product_ids: list[str]) -> dict:
+    """
+    Fetch specific product IDs from the supplier API and upsert them.
+    Kept for potential future use (e.g. webhook-triggered single-product refresh).
+    """
+    _check_api_key()
     result = SyncResult()
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -147,32 +245,11 @@ async def sync_products(db: AsyncSession, product_ids: list[str]) -> dict:
             try:
                 resp = await client.get(
                     f"{settings.meubess_api_url}/products/{pid}",
-                    headers={
-                        "Authorization": f"Bearer {settings.meubess_api_key}",
-                        "Accept": "application/json",
-                    },
+                    headers=_auth_headers(),
                 )
                 resp.raise_for_status()
                 product = resp.json()
-
-                table, tipo = _classify(product)
-
-                if table == "bess":
-                    data = _map_to_bess(product, tipo)
-                    await _upsert_bess(db, data)
-                else:
-                    data = _map_to_solar(product, tipo)
-                    await _upsert_solar(db, data)
-
-                result.synced.append({
-                    "id": pid,
-                    "table": table,
-                    "tipo": tipo,
-                    "marca": data["marca"],
-                    "modelo": data["modelo"],
-                    "preco": data["preco"],
-                })
-
+                await _process_product(db, product, result)
             except httpx.HTTPStatusError as exc:
                 result.errors.append({
                     "id": pid,

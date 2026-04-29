@@ -96,8 +96,7 @@ export interface SyncResult {
 export function useSyncCatalog() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (productIds: string[]) =>
-      apiPost<SyncResult>('/catalog/sync', { product_ids: productIds }),
+    mutationFn: () => apiPost<SyncResult>('/catalog/sync', {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['catalog', 'bess'] })
       qc.invalidateQueries({ queryKey: ['catalog', 'solar'] })
