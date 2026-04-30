@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   FolderOpen,
   PlusCircle,
-  Battery,
   Sun,
   Zap,
   LogOut,
@@ -69,8 +68,7 @@ export function Layout() {
               <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Catálogos
               </p>
-              <NavItem to="/catalog/bess" icon={Battery} label="BESS" />
-              <NavItem to="/catalog/solar" icon={Sun} label="Solar" />
+              <NavItem to="/catalog" icon={Sun} label="Solar e BESS" />
               <NavItem to="/catalog/loads" icon={Zap} label="Cargas Padrão" />
             </>
           )}

@@ -9,8 +9,7 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
 import { NewProjectPage } from '@/pages/NewProjectPage'
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
-import { CatalogBESSPage } from '@/pages/CatalogBESSPage'
-import { CatalogSolarPage } from '@/pages/CatalogSolarPage'
+import { CatalogPage } from '@/pages/CatalogPage'
 import { CatalogLoadsPage } from '@/pages/CatalogLoadsPage'
 
 export function App() {
@@ -26,8 +25,7 @@ export function App() {
               <Route path="projects/new" element={<NewProjectPage />} />
               <Route path="projects/:id" element={<ProjectDetailPage />} />
               <Route element={<AdminRoute />}>
-                <Route path="catalog/bess" element={<CatalogBESSPage />} />
-                <Route path="catalog/solar" element={<CatalogSolarPage />} />
+                <Route path="catalog" element={<CatalogPage />} />
                 <Route path="catalog/loads" element={<CatalogLoadsPage />} />
               </Route>
             </Route>

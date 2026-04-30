@@ -93,6 +93,7 @@ export interface SyncResult {
   errors: SyncError[]
   total_synced: number
   total_errors: number
+  total_skipped?: number
 }
 
 export function useSyncCatalog() {
