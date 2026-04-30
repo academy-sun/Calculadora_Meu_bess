@@ -267,7 +267,9 @@ async def sync_all_products(db: AsyncSession) -> dict:
     _check_api_key()
     result = SyncResult()
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    # connect=10s evita travar quando Railway não alcança a API do fornecedor
+    _timeout = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=_timeout) as client:
         try:
             products = await _fetch_all_products(client)
         except httpx.HTTPStatusError as exc:
