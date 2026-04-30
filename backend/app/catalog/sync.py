@@ -190,7 +190,12 @@ async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
 
             meta = body.get("meta") or {}
             last_page = meta.get("last_page")
-            next_url = (body.get("links") or {}).get("next")
+            # links pode ser dict {"next": "..."} ou lista [] dependendo da página
+            links = body.get("links")
+            if isinstance(links, dict):
+                next_url = links.get("next")
+            else:
+                next_url = None  # lista vazia ou formato inesperado → sem próxima página
 
             if last_page is not None and page >= last_page:
                 break  # reached last page per meta
