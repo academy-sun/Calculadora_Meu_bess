@@ -5,7 +5,7 @@ Routing rules (by `groups` / `app` fields):
 
   groups == "inverter"                    → products_bess  /  tipo = "inversor_hibrido"
   groups == "battery"                     → products_bess  /  tipo = "bateria"
-  groups == "panel" | app == "solar"      → products_solar /  tipo = "modulo_fotovoltaico"
+  groups == "panel" | app == "solar"      → products_solar /  tipo = "modulo_fv"
   groups == "string_inverter"             → products_solar /  tipo = "inversor_string"
   anything else                           → products_bess  /  tipo = "inversor_hibrido"
 
@@ -87,7 +87,7 @@ def _classify(product: dict) -> tuple[str, str]:
 
     # ── solar panels ─────────────────────────────────────────────────────────
     if groups in ("panel", "solar_panel", "module", "modulo", "painel", "placa"):
-        return "solar", "modulo_fotovoltaico"
+        return "solar", "modulo_fv"
 
     # ── string / on-grid inverters ────────────────────────────────────────────
     if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid"):
@@ -95,7 +95,7 @@ def _classify(product: dict) -> tuple[str, str]:
 
     # ── app-level fallback for solar ──────────────────────────────────────────
     if app == "solar":
-        return "solar", "modulo_fotovoltaico"
+        return "solar", "modulo_fv"
 
     # ── default: hybrid / off-grid inverter in BESS catalog ──────────────────
     return "bess", "inversor_hibrido"
@@ -116,15 +116,20 @@ def _map_to_bess(product: dict, tipo: str) -> dict:
     }
 
 
-def _map_to_solar(product: dict, tipo: str = "modulo_fotovoltaico") -> dict:
+def _map_to_solar(product: dict, tipo: str = "modulo_fv") -> dict:
     power = _safe_float(product.get("power"))
+    # API sends power in kW for all products.
+    # Solar panels: field expects Wp  → multiply by 1000  (e.g. 0.55 kW → 550 Wp)
+    # String inverters: field expects kW → keep as-is
+    potencia_pico_wp   = power * 1000 if power and tipo == "modulo_fv" else None
+    potencia_nominal_kw = power        if power and tipo == "inversor_string" else None
     return {
         "sku": str(product["id"]),
         "marca": _safe_brand(product),
         "modelo": _extract_modelo(product.get("title") or str(product["id"])),
         "tipo": tipo,
-        "potencia_pico_wp":   power,
-        "potencia_nominal_kw": power / 1000 if power and tipo == "inversor_string" else None,
+        "potencia_pico_wp":   potencia_pico_wp,
+        "potencia_nominal_kw": potencia_nominal_kw,
         "fase": product.get("phase") or None,
         "preco": _safe_price(product),
         "disponivel": bool(product.get("active", True)),
@@ -250,6 +255,11 @@ async def _process_product(db: AsyncSession, product: dict, result: SyncResult) 
             "preco": data["preco"],
         })
     except Exception as exc:  # noqa: BLE001
+        # Roll back the aborted transaction so the next product can proceed normally.
+        # Without this, a CheckViolationError (or any DB error) leaves the SQLAlchemy
+        # session in a failed-transaction state and every subsequent execute() raises
+        # InFailedSQLTransactionError.
+        await db.rollback()
         result.errors.append({"id": pid, "error": str(exc)})
 
 
