@@ -4,15 +4,21 @@ Synchronisation with plataforma.meubess.com.br supplier API.
 Routing rules (by `groups` / `app` fields):
 
   groups == "inverter"                    → products_bess  /  tipo = "inversor_hibrido"
-  groups == "battery"                     → products_bess  /  tipo = "bateria"
-  groups == "panel" | app == "solar"      → products_solar /  tipo = "modulo_fv"
-  groups == "string_inverter"             → products_solar /  tipo = "inversor_string"
-  anything else                           → products_bess  /  tipo = "inversor_hibrido"
+  groups == "battery" (variants)          → products_bess  /  tipo = "bateria"
+  groups == "panel" (variants)            → products_solar /  tipo = "modulo_fv"
+  groups == "string_inverter" (variants)  → products_solar /  tipo = "inversor_solar"
+  app == "solar"                          → products_solar /  tipo = "modulo_fv"
+  anything else (cables, structures…)    → SKIPPED (not inserted)
+
+Valid DB values:
+  products_bess.tipo  ∈ { 'bateria', 'inversor_hibrido' }
+  products_solar.tipo ∈ { 'modulo_fv', 'inversor_solar' }
 
 Unit assumptions:
   • power for inverters  → potencia_continua_kw (kW)
   • power for batteries  → capacidade_kwh (kWh)
-  • power for panels     → potencia_pico_wp (Wp, e.g. 550.0)
+  • power for panels     → potencia_pico_wp (Wp) — API sends kW, multiply × 1 000
+  • power for inversor_solar → potencia_nominal_kw (kW)
 """
 
 import uuid
@@ -76,8 +82,14 @@ def _extract_modelo(title: str) -> str:
     return title
 
 
-def _classify(product: dict) -> tuple[str, str]:
-    """Returns (table: 'bess' | 'solar', tipo: str)."""
+def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
+    """
+    Returns (table: 'bess' | 'solar', tipo: str) or (None, None) to skip.
+
+    Only products with a recognised groups/app value are inserted.
+    Accessories (cables, connectors, structures, hardware, etc.) fall through
+    to the skip path so they never pollute the catalog.
+    """
     groups = (product.get("groups") or "").lower().strip()
     app    = (product.get("app")    or "").lower().strip()
 
@@ -85,20 +97,25 @@ def _classify(product: dict) -> tuple[str, str]:
     if groups in ("battery", "battery_storage", "storage", "bateria"):
         return "bess", "bateria"
 
+    # ── hybrid / off-grid inverters ───────────────────────────────────────────
+    if groups in ("inverter", "inversor", "hybrid", "hibrido", "off_grid", "offgrid"):
+        return "bess", "inversor_hibrido"
+
     # ── solar panels ─────────────────────────────────────────────────────────
     if groups in ("panel", "solar_panel", "module", "modulo", "painel", "placa"):
         return "solar", "modulo_fv"
 
-    # ── string / on-grid inverters ────────────────────────────────────────────
-    if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid"):
-        return "solar", "inversor_string"
+    # ── string / on-grid / solar inverters ───────────────────────────────────
+    if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid",
+                  "inversor_solar", "solar_inverter"):
+        return "solar", "inversor_solar"
 
     # ── app-level fallback for solar ──────────────────────────────────────────
     if app == "solar":
         return "solar", "modulo_fv"
 
-    # ── default: hybrid / off-grid inverter in BESS catalog ──────────────────
-    return "bess", "inversor_hibrido"
+    # ── skip everything else (cables, connectors, structures, hardware…) ──────
+    return None, None
 
 
 def _map_to_bess(product: dict, tipo: str) -> dict:
@@ -121,8 +138,8 @@ def _map_to_solar(product: dict, tipo: str = "modulo_fv") -> dict:
     # API sends power in kW for all products.
     # Solar panels: field expects Wp  → multiply by 1000  (e.g. 0.55 kW → 550 Wp)
     # String inverters: field expects kW → keep as-is
-    potencia_pico_wp   = power * 1000 if power and tipo == "modulo_fv" else None
-    potencia_nominal_kw = power        if power and tipo == "inversor_string" else None
+    potencia_pico_wp   = power * 1000 if power and tipo == "modulo_fv"      else None
+    potencia_nominal_kw = power        if power and tipo == "inversor_solar" else None
     return {
         "sku": str(product["id"]),
         "marca": _safe_brand(product),
@@ -225,6 +242,7 @@ class SyncResult:
     def __init__(self) -> None:
         self.synced: list[dict] = []
         self.errors: list[dict] = []
+        self.skipped: list[str] = []
 
     def to_dict(self) -> dict:
         return {
@@ -232,6 +250,7 @@ class SyncResult:
             "errors": self.errors,
             "total_synced": len(self.synced),
             "total_errors": len(self.errors),
+            "total_skipped": len(self.skipped),
         }
 
 
@@ -239,6 +258,10 @@ async def _process_product(db: AsyncSession, product: dict, result: SyncResult) 
     pid = str(product.get("id", "?"))
     try:
         table, tipo = _classify(product)
+        if table is None:
+            # Not a catalogable product (accessory, cable, structure, etc.) — skip silently
+            result.skipped.append(pid)
+            return
         if table == "bess":
             data = _map_to_bess(product, tipo)
             await _upsert_bess(db, data)
