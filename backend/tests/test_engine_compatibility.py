@@ -102,9 +102,10 @@ class TestKitSelectionV2(unittest.TestCase):
         self.assertGreaterEqual(len(kits), 2)
         self.assertLessEqual(kits[0].preco_total, kits[-1].preco_total)
 
-    def test_returns_empty_when_no_eligible_inverter(self):
+    def test_undersized_inverter_returned_as_fallback(self):
+        """Pass 2 relaxes eps_kva constraint, so undersized inverter is returned as fallback."""
         bat = _bat()
-        inv = _inv(eps_kva=4.0)   # 4 < 8 → excluded
+        inv = _inv(eps_kva=4.0)   # 4 < 8 kVA ideal, but returned via pass 2
 
         kits = find_compatible_kits(
             baterias=[bat], inversores=[inv],
@@ -112,16 +113,27 @@ class TestKitSelectionV2(unittest.TestCase):
             tipo_instalacao='monofasico',
         )
 
-        self.assertEqual(kits, [])
+        self.assertEqual(len(kits), 1)
 
-    def test_different_brands_excluded(self):
-        """WEG bat + Intelbras inverter → empty"""
+    def test_different_brands_returned_as_last_resort(self):
+        """Pass 4 accepts any brand combination as last resort."""
         bat = _bat(marca="WEG")
         inv = _inv(marca="Intelbras")
 
         kits = find_compatible_kits(
             baterias=[bat], inversores=[inv],
             total_pp_kva=5.0, total_e_eps_kwh=4.0,
+            tipo_instalacao='monofasico',
+        )
+        self.assertEqual(len(kits), 1)
+
+    def test_returns_empty_only_when_no_inverters_at_all(self):
+        """Empty list only when there are truly no inverters."""
+        bat = _bat()
+
+        kits = find_compatible_kits(
+            baterias=[bat], inversores=[],
+            total_pp_kva=8.0, total_e_eps_kwh=4.518,
             tipo_instalacao='monofasico',
         )
         self.assertEqual(kits, [])

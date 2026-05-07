@@ -27,9 +27,11 @@ def _build_kits(
     """Inner helper: build KitBESS objects for given constraints."""
     kits = []
     for bat in baterias:
-        if not bat.capacidade_kwh or not bat.dod_percent or not bat.preco:
+        if not bat.capacidade_kwh or not bat.preco:
             continue
-        usable_kwh = float(bat.capacidade_kwh) * (float(bat.dod_percent) / 100.0)
+        # dod_percent NULL means capacidade_kwh already represents usable energy (convention = 100%)
+        dod = float(bat.dod_percent) if bat.dod_percent else 100.0
+        usable_kwh = float(bat.capacidade_kwh) * (dod / 100.0)
         if usable_kwh <= 0:
             continue
         qtd_baterias = max(1, math.ceil(total_e_eps_kwh / usable_kwh))
