@@ -16,41 +16,36 @@ class KitBESS:
     payback_anos: Optional[float] = None
 
 
-def find_compatible_kits(
+def _build_kits(
     baterias: list,
     inversores: list,
-    total_pp_kva: float,
     total_e_eps_kwh: float,
-    tipo_instalacao: str,          # "monofasico" | "trifasico"
+    require_same_brand: bool = True,
+    require_fase: str | None = None,
+    min_eps_kva: float | None = None,
 ) -> list:
-    """
-    For each (bateria, inversor) pair of the same brand:
-    1. Filter by fase == tipo_instalacao
-    2. Filter by pot_ca_max_eps_kva >= total_pp_kva
-    3. Calculate battery qty = ceil(E_EPS / (cap × DoD/100))
-    4. Sort by total price ascending.
-    """
+    """Inner helper: build KitBESS objects for given constraints."""
     kits = []
-
     for bat in baterias:
         if not bat.capacidade_kwh or not bat.dod_percent or not bat.preco:
             continue
         usable_kwh = float(bat.capacidade_kwh) * (float(bat.dod_percent) / 100.0)
         if usable_kwh <= 0:
             continue
-        qtd_baterias = math.ceil(total_e_eps_kwh / usable_kwh)
+        qtd_baterias = max(1, math.ceil(total_e_eps_kwh / usable_kwh))
 
         for inv in inversores:
-            if bat.marca != inv.marca:
+            if require_same_brand and bat.marca != inv.marca:
                 continue
 
             inv_fase = getattr(inv, 'fase', None)
-            if inv_fase and inv_fase != tipo_instalacao:
+            if require_fase and inv_fase and inv_fase != require_fase:
                 continue
 
-            eps_kva = getattr(inv, 'pot_ca_max_eps_kva', None)
-            if eps_kva is not None and float(eps_kva) < total_pp_kva:
-                continue
+            if min_eps_kva is not None:
+                eps_kva = getattr(inv, 'pot_ca_max_eps_kva', None)
+                if eps_kva is not None and float(eps_kva) < min_eps_kva:
+                    continue
 
             pot_kw = float(inv.potencia_continua_kw) if inv.potencia_continua_kw else 0.0
             preco_total = float(bat.preco) * qtd_baterias + float(inv.preco)
@@ -67,3 +62,34 @@ def find_compatible_kits(
 
     kits.sort(key=lambda k: k.preco_total)
     return kits
+
+
+def find_compatible_kits(
+    baterias: list,
+    inversores: list,
+    total_pp_kva: float,
+    total_e_eps_kwh: float,
+    tipo_instalacao: str,          # "monofasico" | "trifasico"
+) -> list:
+    """
+    Return kits sorted by price. Tries progressively relaxed constraints so
+    that at least the smallest available kit is always returned:
+
+    Pass 1 – same brand, same phase, eps_kva >= total_pp_kva  (ideal)
+    Pass 2 – same brand, same phase, any eps_kva              (relax power)
+    Pass 3 – same brand, any phase, any eps_kva               (relax phase)
+    Pass 4 – any brand, any phase, any eps_kva                (last resort)
+    """
+    passes = [
+        dict(require_same_brand=True,  require_fase=tipo_instalacao, min_eps_kva=total_pp_kva),
+        dict(require_same_brand=True,  require_fase=tipo_instalacao, min_eps_kva=None),
+        dict(require_same_brand=True,  require_fase=None,            min_eps_kva=None),
+        dict(require_same_brand=False, require_fase=None,            min_eps_kva=None),
+    ]
+
+    for kwargs in passes:
+        kits = _build_kits(baterias, inversores, total_e_eps_kwh, **kwargs)
+        if kits:
+            return kits
+
+    return []
