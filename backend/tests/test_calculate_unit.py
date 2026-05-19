@@ -7,7 +7,8 @@ from app.calculate.service import _build_load_curve, _kits_to_response
 from app.engines.compatibility import KitBESS
 from app.catalog.schemas import ProductBESSRead
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+import pytest
 
 
 # ── _build_load_curve ─────────────────────────────────────────────────────────
@@ -62,8 +63,8 @@ def make_kit(marca="WEG", preco=30000.0) -> KitBESS:
     )
     return KitBESS(
         bateria=bat, inversor=inv,
-        qtd_baterias_serie=1, qtd_strings_paralelo=1,
-        qtd_baterias_total=1,
+        qtd_baterias=1,
+        qtd_inversores=1,
         capacidade_total_kwh=14.3, potencia_total_kw=5.0,
         preco_total=preco,
     )
@@ -90,3 +91,53 @@ def test_kits_to_response_multiple_kits():
     assert kit.preco_total == 25000.0
     assert len(alts) == 1
     assert alts[0].preco_total == 30000.0
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _make_origem_info(**kwargs):
+    defaults = dict(
+        origem="ploomes",
+        negocio_id="123",
+        negocio_nome="Empresa Teste",
+        solicitante_id="user-1",
+        solicitante_nome="João",
+        solicitado_em=datetime.now(timezone.utc),
+    )
+    return OrigemInfo(**{**defaults, **kwargs})
+
+
+# ── backup_direto schema ───────────────────────────────────────────────────────
+
+def test_backup_direto_schema_accepts_new_tipo():
+    """tipo_calculo='backup_direto' deve ser aceito pelo schema."""
+    req = CalculateRequest(
+        origem_info=_make_origem_info(),
+        tipo_calculo="backup_direto",
+        tipo_instalacao="monofasico",
+        total_pp_kva=28.8,
+        total_e_eps_kwh=4.8,
+    )
+    assert req.tipo_calculo == "backup_direto"
+    assert req.total_pp_kva == 28.8
+    assert req.total_e_eps_kwh == 4.8
+
+
+def test_backup_direto_schema_fields_optional_by_default():
+    """total_pp_kva e total_e_eps_kwh são None quando não fornecidos."""
+    req = CalculateRequest(
+        origem_info=_make_origem_info(),
+        tipo_calculo="backup",
+    )
+    assert req.total_pp_kva is None
+    assert req.total_e_eps_kwh is None
+
+
+def test_backup_direto_schema_rejects_unknown_tipo():
+    """tipo_calculo inválido deve lançar ValidationError."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        CalculateRequest(
+            origem_info=_make_origem_info(),
+            tipo_calculo="tipo_inexistente",
+        )

@@ -47,7 +47,7 @@ class LoadItem(BaseModel):
 
 class CalculateRequest(BaseModel):
     origem_info: OrigemInfo
-    tipo_calculo: Literal["backup", "peak_shaving", "arbitragem", "solar", "solar_storage"]
+    tipo_calculo: Literal["backup", "backup_direto", "peak_shaving", "arbitragem", "solar", "solar_storage"]
 
     # ── Backup ────────────────────────────────────────────────────────────────
     cargas_backup: Optional[list[BackupLoadRow]] = None
@@ -56,6 +56,10 @@ class CalculateRequest(BaseModel):
     dod_percent: Optional[float] = None
     eficiencia_roundtrip: Optional[float] = None
     tensao_instalacao_v: Optional[float] = None
+
+    # ── Backup Direto (totais pré-calculados pelo Ploomes) ────────────────────
+    total_pp_kva:    Optional[float] = None  # Potência de pico total (kVA)
+    total_e_eps_kwh: Optional[float] = None  # Energia necessária já escalada (kWh)
 
     # ── Solar (opcional, dentro do backup) ───────────────────────────────────
     consumo_medio_mensal_kwh: Optional[float] = None
