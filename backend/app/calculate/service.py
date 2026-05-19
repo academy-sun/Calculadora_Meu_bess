@@ -174,6 +174,26 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             if kit_selecionado:
                 payback_meses = None  # payback for backup not calculated here
 
+        elif req.tipo_calculo == "backup_direto":
+            if req.total_pp_kva is None or req.total_e_eps_kwh is None:
+                raise ValueError(
+                    "total_pp_kva e total_e_eps_kwh são obrigatórios para backup_direto"
+                )
+            if req.total_e_eps_kwh <= 0:
+                raise ValueError("total_e_eps_kwh deve ser maior que zero")
+
+            capacidade_kwh = req.total_e_eps_kwh
+            potencia_kw    = req.total_pp_kva
+
+            kits = find_compatible_kits(
+                baterias=baterias,
+                inversores=inversores,
+                total_pp_kva=req.total_pp_kva,
+                total_e_eps_kwh=req.total_e_eps_kwh,
+                tipo_instalacao=req.tipo_instalacao or "monofasico",
+            )
+            kit_selecionado, alternativas = _kits_to_response(kits)
+
         elif req.tipo_calculo == "peak_shaving":
             result: PeakShavingResult = calculate_peak_shaving(PeakShavingInput(
                 curva_carga_kw=curva,
