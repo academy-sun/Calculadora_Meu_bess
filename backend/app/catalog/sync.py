@@ -335,6 +335,18 @@ async def sync_all_products(db: AsyncSession) -> dict:
     return result.to_dict()
 
 
+async def preview_raw_products(limit: int = 5) -> list[dict]:
+    """
+    Fetch the first `limit` raw products from the supplier API without inserting anything.
+    Used for debugging field names / structure.
+    """
+    _check_api_key()
+    _timeout = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=_timeout) as client:
+        products = await _fetch_all_products(client)
+    return products[:limit]
+
+
 async def sync_products_by_ids(db: AsyncSession, product_ids: list[str]) -> dict:
     """
     Fetch specific product IDs from the supplier API and upsert them.
