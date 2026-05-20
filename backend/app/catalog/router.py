@@ -19,6 +19,18 @@ router = APIRouter(prefix="/catalog", tags=["catalog"])
 # ── Sync from supplier platform ──────────────────────────────────────────────
 
 
+@router.get("/sync/preview", tags=["catalog"])
+async def sync_preview(
+    limit: int = 5,
+    _=Depends(require_admin),
+) -> list[dict]:
+    """Admin-only: fetch first N raw products from supplier API (no DB insert). For debugging field structure."""
+    try:
+        return await sync_svc.preview_raw_products(limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/sync/status", tags=["catalog"])
 async def sync_status(_=Depends(require_admin)) -> dict:
     """Admin-only: check sync configuration without making external requests."""
