@@ -77,14 +77,14 @@ CREATE TABLE IF NOT EXISTS meubess_products (
     -- ── classificação automática (anotação, não filtro) ────────────────────
     tipo_auto               TEXT CHECK (tipo_auto IN (
                                 'bateria', 'inversor_hibrido', 'inversor_string',
-                                'modulo_fv', 'indefinido')),
+                                'modulo_fv', 'acessorio', 'indefinido')),
     classificacao_confianca TEXT CHECK (classificacao_confianca IN ('alta', 'media', 'baixa')),
     needs_review            BOOLEAN NOT NULL DEFAULT false,
 
     -- ── override manual (vence o automático; preservado no upsert) ──────────
     tipo_manual         TEXT CHECK (tipo_manual IN (
                             'bateria', 'inversor_hibrido', 'inversor_string',
-                            'modulo_fv', 'indefinido')),
+                            'modulo_fv', 'acessorio', 'indefinido')),
     overrides_tecnicos  JSONB,
     validado_por        TEXT,
     validado_em         TIMESTAMPTZ,

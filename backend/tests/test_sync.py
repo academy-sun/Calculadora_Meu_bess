@@ -108,6 +108,7 @@ class TestClassifyTecnico:
 class TestClassifySemTecnico:
     def test_trifasico_220v_e_string_nao_hibrido(self):
         # Caso real que estava errado: deve sair como STRING, não híbrido.
+        # Categoria clara de string, sem sinal de híbrido → não precisa revisão.
         tipo, conf, review = classify_product(
             raw(category_title="Inversor Trifásico 220 V", groups="Inversor",
                 title="WEG - 20,0KW 220V - SIW400G K020 W00 - Inversor Trifásico",
@@ -115,7 +116,7 @@ class TestClassifySemTecnico:
         )
         assert tipo == "inversor_string"
         assert conf == "media"
-        assert review is True  # faltou ground-truth técnico
+        assert review is False
 
     def test_categoria_hibrido_sem_tecnico(self):
         tipo, conf, review = classify_product(
@@ -146,9 +147,60 @@ class TestClassifySemTecnico:
         )
         assert tipo == "inversor_string"
 
-    def test_indefinido_quando_nenhum_sinal(self):
-        tipo, conf, review = classify_product(raw(title="Produto genérico", groups="Outros"))
-        assert tipo == "indefinido"
+    def test_string_por_categoria_clara_nao_revisa(self):
+        # "Inversor Trifásico 220V" sem nenhum sinal de híbrido → string, sem revisão.
+        tipo, conf, review = classify_product(
+            raw(category_title="Inversor Trifásico 220 V", groups="Inversor",
+                title="Huawei SUN2000 20KTL", phase="trifasico")
+        )
+        assert tipo == "inversor_string"
+        assert review is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b. classify_product — acessórios (não-inversor) e falsos positivos de "híbrido"
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestClassifyAcessorio:
+    def test_estrutura_nao_e_inversor(self):
+        tipo, _, review = classify_product(
+            raw(groups="structure", category_title="Estrutura para telhado",
+                title="Perfil Trilho Alumínio")
+        )
+        assert tipo == "acessorio"
+        assert review is False
+
+    def test_trilho_hibrido_no_titulo_nao_vira_inversor(self):
+        # Falso positivo real: tem "HIBRIDO" no título mas é estrutura.
+        tipo, _, review = classify_product(
+            raw(groups="structure", category_title="Estrutura para telhado",
+                title="P - PERFIL TRILHO HIBRIDO ALUMINIO 2,40 MTS - PRATYC")
+        )
+        assert tipo == "acessorio"
+        assert review is False
+
+    def test_multimedidor_compativel_hibrido_nao_vira_inversor(self):
+        # Falso positivo real: "Compatível para Híbrido" mas é medidor.
+        tipo, _, review = classify_product(
+            raw(groups="other", category_title="Multimedidor",
+                title="W - MULTIMEDIDOR DTSU666-F (Compatível para Híbrido)")
+        )
+        assert tipo == "acessorio"
+        assert review is False
+
+    def test_disjuntor_e_acessorio(self):
+        tipo, _, review = classify_product(
+            raw(groups="other", category_title="Disjuntor CA", title="Disjuntor 32A")
+        )
+        assert tipo == "acessorio"
+        assert review is False
+
+    def test_inversor_sem_categoria_assume_string_e_revisa(self):
+        # É inversor (groups) mas sem pista de híbrido/string → string + revisão.
+        tipo, conf, review = classify_product(
+            raw(groups="Inversor", category_title="", title="Inversor genérico 10kW")
+        )
+        assert tipo == "inversor_string"
         assert review is True
 
 

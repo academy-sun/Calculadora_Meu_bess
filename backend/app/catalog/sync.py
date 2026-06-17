@@ -93,27 +93,34 @@ _BATTERY    = "bateria"
 _HYBRID     = "inversor_hibrido"
 _STRING     = "inversor_string"
 _MODULE     = "modulo_fv"
+_ACESSORIO  = "acessorio"
 _UNKNOWN    = "indefinido"
 
 _HYBRID_TITLE_TOKENS = ("híbrido", "hibrido", "hybrid")
 _MODULE_TOKENS       = ("módulo", "modulo", "module", "painel", "fotovolt", "placa")
+_INVERTER_GROUPS     = ("inversor", "inverter", "inversores")
 
 
 def classify_product(raw: dict) -> tuple[str, str, bool]:
     """
     Classificação por cascata de sinais. Retorna (tipo_auto, confianca, needs_review).
 
-    Ordem (a primeira conclusiva define o tipo):
-      1. Bateria      — category_title contém "bateria"/"cabine de bateria" ou section "bat_litio".
-      2. Módulo FV    — groups "módulo" ou category/título indicam módulo fotovoltaico.
-      3. Técnico      — battery_inputs > 0 (ou max_eps_power > 0) → híbrido; battery_inputs == 0 → string.
-      4. Categoria    — "híbrido" → híbrido; "inversor/microinversor" → string.
-      5. Título       — contém "híbrido"/"hybrid" → híbrido.
-      6. Fase         — phase == "hibrido" → híbrido.
+    Ordem:
+      1. Bateria   — category contém "bateria"/"cabine de bateria" ou section "bat_litio".
+      2. Módulo FV — groups "módulo" ou category/título indicam módulo fotovoltaico.
+      3. É inversor? — só entra na lógica híbrido/string quem é de fato inversor
+         (groups inversor, OU tem battery_inputs/max_eps, OU category contém "inversor").
+         Caso contrário → acessório (estrutura, disjuntor, medidor, cabo…), sem revisão.
+         Isso evita falsos positivos como "Trilho Híbrido" ou "Medidor compatível com Híbrido".
+      4. Inversor → híbrido vs string, na sub-ordem técnico → categoria → título → fase.
 
-    confianca: 'alta' (sinal técnico), 'media' (bateria/módulo/categoria), 'baixa' (título/fase/indefinido).
-    needs_review: True quando um sinal posterior contradiz o técnico, OU quando a decisão de
-      híbrido-vs-string veio só de texto (sem o ground-truth técnico), OU quando indefinido.
+    confianca: 'alta' (sinal técnico), 'media' (bateria/módulo/acessório/categoria),
+               'baixa' (título/fase).
+    needs_review:
+      • técnico presente → revisa só se um sinal textual o contradiz (divergência);
+      • sem técnico e classificado HÍBRIDO → revisa (alto custo de erro, falta ground-truth);
+      • sem técnico e classificado STRING por categoria → revisa só se há sinal de híbrido divergente;
+      • bateria/módulo/acessório → não revisa.
     """
     title   = (raw.get("title") or "").lower()
     cat     = (raw.get("category_title") or "").lower()
@@ -121,57 +128,67 @@ def classify_product(raw: dict) -> tuple[str, str, bool]:
     groups  = (raw.get("groups") or "").lower()
     phase   = (raw.get("phase") or "").lower()
     battery_inputs = raw.get("battery_inputs")
-    max_eps        = raw.get("max_eps_power")
+    eps_val        = _safe_float(raw.get("max_eps_power"))
 
-    # 1. Bateria (categoria/section são confiáveis para bateria)
+    # 1. Bateria (categoria/section confiáveis)
     if "bateria" in cat or "cabine de bateria" in cat or section == "bat_litio":
         return _BATTERY, "media", False
 
-    # 2. Módulo FV (antes de inversor; "Módulo de Bateria" já foi tratado acima)
+    # 2. Módulo FV (antes de inversor; "Módulo de Bateria" já tratado acima)
     if groups in _MODULE_TOKENS or any(tok in cat for tok in _MODULE_TOKENS):
         return _MODULE, "media", False
 
-    # ── A partir daqui é inversor: distinguir híbrido vs string ──────────────
+    # 3. É realmente um inversor?
+    is_inverter = (
+        groups in _INVERTER_GROUPS
+        or battery_inputs is not None
+        or (eps_val is not None and eps_val > 0)
+        or "inversor" in cat
+        or phase == "hibrido"  # fase híbrida só existe em inversor
+    )
+    if not is_inverter:
+        # Acessório / estrutura / medidor / cabo — não é candidato a kit.
+        return _ACESSORIO, "media", False
 
-    # 3. Sinal técnico (ground-truth quando preenchido)
+    # ── 4. Inversor: distinguir híbrido vs string ────────────────────────────
+
+    # técnico (ground-truth quando preenchido)
     tecnico: str | None = None
     if battery_inputs is not None:
         tecnico = _HYBRID if battery_inputs > 0 else _STRING
-    elif max_eps is not None and _safe_float(max_eps) and float(max_eps) > 0:
+    elif eps_val is not None and eps_val > 0:
         tecnico = _HYBRID
 
-    # 4. Sinal de categoria
-    cat_sig: str | None = None
+    # categoria
     if any(tok in cat for tok in _HYBRID_TITLE_TOKENS):
-        cat_sig = _HYBRID
-    elif "inversor" in cat:  # inclui "microinversor", "inversor monofásico/trifásico"
+        cat_sig: str | None = _HYBRID
+    elif "inversor" in cat:  # inclui microinversor, monofásico/trifásico
         cat_sig = _STRING
+    else:
+        cat_sig = None
 
-    # 5. Sinal de título
-    tit_sig = _HYBRID if any(tok in title for tok in _HYBRID_TITLE_TOKENS) else None
-
-    # 6. Sinal de fase
+    # título / fase
+    tit_sig  = _HYBRID if any(tok in title for tok in _HYBRID_TITLE_TOKENS) else None
     fase_sig = _HYBRID if phase == "hibrido" else None
 
     # ── Decisão ──────────────────────────────────────────────────────────────
     if tecnico is not None:
-        # Técnico manda; marca revisão se algum sinal textual o contradiz.
-        contradiz = any(
-            sig is not None and sig != tecnico
-            for sig in (cat_sig, tit_sig, fase_sig)
-        )
+        contradiz = any(s is not None and s != tecnico for s in (cat_sig, tit_sig, fase_sig))
         return tecnico, "alta", contradiz
 
-    # Sem técnico: decide por texto, mas sempre pede revisão (faltou ground-truth).
-    if cat_sig is not None:
-        return cat_sig, "media", True
-    if tit_sig is not None:
-        return tit_sig, "baixa", True
-    if fase_sig is not None:
-        return fase_sig, "baixa", True
+    algum_sinal_hibrido = _HYBRID in (cat_sig, tit_sig, fase_sig)
 
-    # Nenhum sinal conclusivo
-    return _UNKNOWN, "baixa", True
+    # Sem técnico: decide por texto.
+    if cat_sig == _HYBRID:
+        return _HYBRID, "media", True
+    if cat_sig == _STRING:
+        # String por categoria clara — só revisa se outra fonte aponta híbrido.
+        return _STRING, "media", algum_sinal_hibrido
+    if tit_sig == _HYBRID or fase_sig == _HYBRID:
+        return _HYBRID, "baixa", True
+
+    # É inversor, mas sem pista de híbrido/string → assume string, pede revisão.
+    return _STRING, "baixa", True
 
 
 # ── mapeamento raw (espelha o produto MeuBESS em colunas) ─────────────────────
