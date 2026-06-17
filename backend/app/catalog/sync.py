@@ -1,14 +1,24 @@
 """
 Synchronisation with plataforma.meubess.com.br supplier API.
 
-Routing rules (by `groups` / `app` fields):
+Routing rules — uses `category.title` (Portuguese) as primary signal,
+falls back to `groups` for English-format catalogs:
 
-  groups == "inverter"                    → products_bess  /  tipo = "inversor_hibrido"
-  groups == "battery" (variants)          → products_bess  /  tipo = "bateria"
-  groups == "panel" (variants)            → products_solar /  tipo = "modulo_fv"
-  groups == "string_inverter" (variants)  → products_solar /  tipo = "inversor_solar"
+  category.title contains "Módulo de Bateria"/"Cabine de Baterias"
+                                           → products_bess  /  tipo = "bateria"
+  category.title contains "Híbrido"       → products_bess  /  tipo = "inversor_hibrido"
+  category.title contains "SplitPhase"
+    + app contains "bess"                 → products_bess  /  tipo = "inversor_hibrido"
+  category.title contains "Microinversor"
+    OR title keywords                     → products_solar /  tipo = "inversor_solar"
+  category.title contains "bomba"         → SKIPPED
+  groups == "Inversor" (other categories) → products_solar /  tipo = "inversor_solar"
+  groups == "Módulo" / "panel" variants   → products_solar /  tipo = "modulo_fv"
+  groups == "battery" variants (English)  → products_bess  /  tipo = "bateria"
+  groups == "inverter" / "hybrid" (Eng.)  → products_bess  /  tipo = "inversor_hibrido"
+  groups == "string_inverter" (English)   → products_solar /  tipo = "inversor_solar"
   app == "solar"                          → products_solar /  tipo = "modulo_fv"
-  anything else (cables, structures…)    → SKIPPED (not inserted)
+  anything else (cables, structures…)    → SKIPPED
 
 Valid DB values:
   products_bess.tipo  ∈ { 'bateria', 'inversor_hibrido' }
@@ -123,57 +133,77 @@ def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
     """
     Returns (table: 'bess' | 'solar', tipo: str) or (None, None) to skip.
 
-    Routing rules:
-      groups == "battery*"         → products_bess  / tipo = "bateria"
-      groups == "inverter*"        → products_bess  / tipo = "inversor_hibrido"
-          exception: micro-inverters → products_solar / tipo = "inversor_solar"
-      groups == "panel*"           → products_solar / tipo = "modulo_fv"
-      groups == "string_inverter*" → products_solar / tipo = "inversor_solar"
-      app   == "solar"             → products_solar / tipo = "modulo_fv"
-      anything else                → SKIP
-
-    Title-based early rejection:
-      Products whose title contains accessory keywords (cables, connectors,
-      mounting structures, fasteners, monitoring equipment) are always skipped,
-      even when their groups field would otherwise match an inverter or battery.
-      This handles supplier catalogs that group accessories together with
-      inverters under the same "inverter" category.
+    Uses category.title as primary signal for the MeuBESS Portuguese catalog.
+    Falls back to English group names for other catalog formats.
     """
-    title  = (product.get("title")  or "").lower()
-    groups = (product.get("groups") or "").lower().strip()
-    app    = (product.get("app")    or "").lower().strip()
+    title     = (product.get("title")  or "").lower()
+    groups    = (product.get("groups") or "").strip().lower()
+    app       = (product.get("app")    or "").lower()
+    cat_obj   = product.get("category") or {}
+    cat_raw   = cat_obj.get("title") if isinstance(cat_obj, dict) else None
+    cat_title = (cat_raw or "").lower()
 
     # ── Rejeição antecipada por palavras no título ────────────────────────────
-    # Acessórios (cabos, conectores, estruturas, fixadores, monitoramento)
-    # que o fornecedor cataloga junto com inversores são descartados aqui.
     if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
         return None, None
 
-    # ── batteries ────────────────────────────────────────────────────────────
+    # ── Kit bundles (e.g. "Kit Gerador") → sempre ignorar ────────────────────
+    if "kit" in groups and "gerador" in groups:
+        return None, None
+
+    # ── category.title routing (MeuBESS Portuguese catalog) ──────────────────
+    if cat_title:
+        # Batteries: Grupo="Acessórios", Categoria="Módulo de Bateria" / "Cabine de Baterias"
+        if "módulo de bateria" in cat_title or "cabine de bateria" in cat_title:
+            return "bess", "bateria"
+
+        if groups in ("inversor", "inversores"):
+            # Pump inverters → skip
+            if "bomba" in cat_title:
+                return None, None
+            # Micro-inverters → solar
+            if "microinversor" in cat_title or any(kw in title for kw in _MICROINVERTER_KEYWORDS):
+                return "solar", "inversor_solar"
+            # Explicit hybrid category → BESS
+            if "híbrido" in cat_title or "hibrido" in cat_title:
+                return "bess", "inversor_hibrido"
+            # SplitPhase with bess app → these are battery-compatible (e.g. WEG SIW200H SplitPhase)
+            if "splitphase" in cat_title.replace(" ", "").replace("-", ""):
+                if "bess" in app:
+                    return "bess", "inversor_hibrido"
+                return "solar", "inversor_solar"
+            # All other inverter categories (Monofásico, Trifásico, etc.) → string inverter
+            return "solar", "inversor_solar"
+
+        if groups in ("módulo", "módulos", "modulo"):
+            return "solar", "modulo_fv"
+
+    # ── English group names (legacy / other catalog formats) ─────────────────
+
+    # batteries
     if groups in ("battery", "battery_storage", "storage", "bateria"):
         return "bess", "bateria"
 
-    # ── inverters — hybrid/off-grid vs micro ─────────────────────────────────
-    if groups in ("inverter", "inversor", "hybrid", "hibrido", "off_grid", "offgrid"):
-        # Micro-inversores são equipamentos solares, não híbridos de bateria
+    # hybrid / off-grid inverters
+    if groups in ("inverter", "hybrid", "hibrido", "off_grid", "offgrid"):
         if any(kw in title for kw in _MICROINVERTER_KEYWORDS):
             return "solar", "inversor_solar"
         return "bess", "inversor_hibrido"
 
-    # ── solar panels ─────────────────────────────────────────────────────────
+    # solar panels
     if groups in ("panel", "solar_panel", "module", "modulo", "painel", "placa"):
         return "solar", "modulo_fv"
 
-    # ── string / on-grid / solar inverters ───────────────────────────────────
+    # string / on-grid solar inverters
     if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid",
                   "inversor_solar", "solar_inverter"):
         return "solar", "inversor_solar"
 
-    # ── app-level fallback for solar ──────────────────────────────────────────
+    # app-level fallback for solar
     if app == "solar":
         return "solar", "modulo_fv"
 
-    # ── skip everything else (cables, connectors, structures, hardware…) ──────
+    # skip everything else
     return None, None
 
 
