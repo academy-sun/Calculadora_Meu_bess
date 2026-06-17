@@ -82,23 +82,82 @@ def _extract_modelo(title: str) -> str:
     return title
 
 
+def _enrich_modelo(modelo: str, power: float | None, tipo: str) -> str:
+    """
+    Appends the power rating to the model name when it is missing.
+
+    Prevents all variants of the same product line from showing the same
+    generic model (e.g. four OUROLUX "SOFAR" inverters at 4/5/7.5/10 kW
+    all appearing as "SOFAR").
+    """
+    import re
+    if not power or tipo == "bateria":
+        return modelo
+    # Already has a power indicator — leave it alone
+    if re.search(r"\d[\d,.]*\s*k?[wva]", modelo, re.IGNORECASE):
+        return modelo
+    kw_str = f"{power:g}".replace(".", ",") + "kW"
+    return f"{modelo} {kw_str}"
+
+
+_SKIP_TITLE_KEYWORDS: tuple[str, ...] = (
+    # Cabos
+    "cabo solar", "cabo ", " cabo",
+    # Conectores
+    "conector", " mc4", "mc4 ",
+    # Estruturas de fixação / suporte
+    "estrutura", "carport", "abrigo de inversor",
+    # Hardware (parafusos, fixadores, trilhos)
+    "fixador", "grampo", "parafuso", "porca ", " porca", "borracha",
+    "trilho", "perfil ", " perfil", "haste", "emenda u",
+    # Monitoramento / dataloggers
+    "monitoramento", "gateway",
+)
+
+_MICROINVERTER_KEYWORDS: tuple[str, ...] = (
+    "microinversor", "micro inversor", "micro-inversor",
+)
+
+
 def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
     """
     Returns (table: 'bess' | 'solar', tipo: str) or (None, None) to skip.
 
-    Only products with a recognised groups/app value are inserted.
-    Accessories (cables, connectors, structures, hardware, etc.) fall through
-    to the skip path so they never pollute the catalog.
+    Routing rules:
+      groups == "battery*"         → products_bess  / tipo = "bateria"
+      groups == "inverter*"        → products_bess  / tipo = "inversor_hibrido"
+          exception: micro-inverters → products_solar / tipo = "inversor_solar"
+      groups == "panel*"           → products_solar / tipo = "modulo_fv"
+      groups == "string_inverter*" → products_solar / tipo = "inversor_solar"
+      app   == "solar"             → products_solar / tipo = "modulo_fv"
+      anything else                → SKIP
+
+    Title-based early rejection:
+      Products whose title contains accessory keywords (cables, connectors,
+      mounting structures, fasteners, monitoring equipment) are always skipped,
+      even when their groups field would otherwise match an inverter or battery.
+      This handles supplier catalogs that group accessories together with
+      inverters under the same "inverter" category.
     """
+    title  = (product.get("title")  or "").lower()
     groups = (product.get("groups") or "").lower().strip()
     app    = (product.get("app")    or "").lower().strip()
+
+    # ── Rejeição antecipada por palavras no título ────────────────────────────
+    # Acessórios (cabos, conectores, estruturas, fixadores, monitoramento)
+    # que o fornecedor cataloga junto com inversores são descartados aqui.
+    if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
+        return None, None
 
     # ── batteries ────────────────────────────────────────────────────────────
     if groups in ("battery", "battery_storage", "storage", "bateria"):
         return "bess", "bateria"
 
-    # ── hybrid / off-grid inverters ───────────────────────────────────────────
+    # ── inverters — hybrid/off-grid vs micro ─────────────────────────────────
     if groups in ("inverter", "inversor", "hybrid", "hibrido", "off_grid", "offgrid"):
+        # Micro-inversores são equipamentos solares, não híbridos de bateria
+        if any(kw in title for kw in _MICROINVERTER_KEYWORDS):
+            return "solar", "inversor_solar"
         return "bess", "inversor_hibrido"
 
     # ── solar panels ─────────────────────────────────────────────────────────
@@ -120,10 +179,15 @@ def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
 
 def _map_to_bess(product: dict, tipo: str) -> dict:
     power = _safe_float(product.get("power"))
+    modelo = _enrich_modelo(
+        _extract_modelo(product.get("title") or str(product["id"])),
+        power,
+        tipo,
+    )
     return {
         "sku": str(product["id"]),
         "marca": _safe_brand(product),
-        "modelo": _extract_modelo(product.get("title") or str(product["id"])),
+        "modelo": modelo,
         "tipo": tipo,
         "fase": product.get("phase") or None,
         "potencia_continua_kw": power if tipo != "bateria" else None,
@@ -176,16 +240,9 @@ async def _upsert_solar(db: AsyncSession, data: dict) -> None:
 # ── fetch all (with pagination) ───────────────────────────────────────────────
 
 
-async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
-    """
-    Fetch every product from GET /api/v1/products/all, iterating pages.
-
-    Uses per_page=100 (API max) and page=N.
-    Stops when: empty page, meta.current_page >= meta.last_page, or links.next is null.
-    Also handles plain array responses (no pagination).
-    """
+async def _fetch_from_endpoint(client: httpx.AsyncClient, base_url: str) -> list[dict]:
+    """Pagina todos os produtos de um endpoint específico."""
     products: list[dict] = []
-    base_url = f"{settings.meubess_api_url}/products/all"
     page = 1
 
     while True:
@@ -211,18 +268,20 @@ async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
                 break  # empty page → done
 
             meta = body.get("meta") or {}
-            last_page = meta.get("last_page")
-            # links pode ser dict {"next": "..."} ou lista [] dependendo da página
+            # Laravel pode retornar last_page dentro de "meta" (Resource format)
+            # ou no nível raiz da resposta (flat paginator format)
+            last_page = meta.get("last_page") or body.get("last_page")
             links = body.get("links")
-            if isinstance(links, dict):
-                next_url = links.get("next")
-            else:
-                next_url = None  # lista vazia ou formato inesperado → sem próxima página
+            # "links" pode ser um dict {"next": url} (Resource) ou lista (flat)
+            next_url = (
+                links.get("next") if isinstance(links, dict)
+                else body.get("next_page_url")
+            )
 
             if last_page is not None and page >= last_page:
-                break  # reached last page per meta
+                break
             if next_url is None and last_page is None:
-                break  # no pagination info → single page
+                break
 
             page += 1
             continue
@@ -233,6 +292,37 @@ async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
         break
 
     return products
+
+
+async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
+    """
+    Fetch every product from the supplier API.
+
+    Tries GET /products/all first (paginated bulk endpoint). If the server
+    returns a 5xx error, falls back to GET /products. This handles temporary
+    bugs in the supplier's backend without failing the whole sync.
+    """
+    endpoints = [
+        f"{settings.meubess_api_url}/products/all",
+        f"{settings.meubess_api_url}/products",
+    ]
+    last_exc: httpx.HTTPStatusError | None = None
+
+    for url in endpoints:
+        try:
+            return await _fetch_from_endpoint(client, url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code >= 500:
+                # Erro no servidor do fornecedor neste endpoint — tenta o próximo
+                last_exc = exc
+                continue
+            raise  # 4xx (auth, not found) não deve ser silenciado
+
+    raise ValueError(
+        f"Nenhum endpoint de produtos disponível na API do fornecedor. "
+        f"Último erro: HTTP {last_exc.response.status_code} — "
+        f"{last_exc.response.text[:200]}"
+    ) from last_exc
 
 
 # ── per-product processing ────────────────────────────────────────────────────
