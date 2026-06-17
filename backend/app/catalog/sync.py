@@ -207,6 +207,21 @@ def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
     return None, None
 
 
+_VALID_FASES = {"monofasico", "trifasico"}
+
+
+def _normalize_fase(raw: object) -> str | None:
+    """
+    O banco só aceita 'monofasico', 'trifasico' ou NULL.
+    Valores como 'hibrido' (produtos que suportam ambas as fases)
+    são mapeados para NULL.
+    """
+    if not raw:
+        return None
+    v = str(raw).strip().lower()
+    return v if v in _VALID_FASES else None
+
+
 def _map_to_bess(product: dict, tipo: str) -> dict:
     power = _safe_float(product.get("power"))
     modelo = _enrich_modelo(
@@ -219,7 +234,7 @@ def _map_to_bess(product: dict, tipo: str) -> dict:
         "marca": _safe_brand(product),
         "modelo": modelo,
         "tipo": tipo,
-        "fase": product.get("phase") or None,
+        "fase": _normalize_fase(product.get("phase")),
         "potencia_continua_kw": power if tipo != "bateria" else None,
         "capacidade_kwh":       power if tipo == "bateria" else None,
         "preco": _safe_price(product),
