@@ -1,9 +1,9 @@
 """
-Testes para app/catalog/sync.py
+Testes para app/catalog/sync.py (réplica fiel + classificação não-destrutiva)
 
-Cobrem três comportamentos:
-  1. _classify()      — classificação correta de produtos por groups/title
-  2. _enrich_modelo() — enriquecimento do nome do modelo com potência
+Cobrem:
+  1. classify_product()    — cascata de sinais (técnico > categoria > título > fase)
+  2. _map_to_raw()         — achatamento do produto MeuBESS em colunas
   3. _fetch_all_products() — fallback de endpoint quando /products/all retorna 5xx
 """
 
@@ -11,7 +11,7 @@ import pytest
 import httpx
 import respx
 
-from app.catalog.sync import _classify, _enrich_modelo, _fetch_all_products
+from app.catalog.sync import classify_product, _map_to_raw, _fetch_all_products
 from app.config import settings
 
 
@@ -19,249 +19,199 @@ from app.config import settings
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def product(groups="", app="", title="", active=True):
-    """Constrói um dict mínimo de produto para os testes."""
-    return {"id": "1", "groups": groups, "app": app, "title": title, "active": active}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. _classify — produtos que DEVEM ser classificados
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestClassifyBateria:
-    def test_battery_group(self):
-        assert _classify(product(groups="battery")) == ("bess", "bateria")
-
-    def test_battery_storage_group(self):
-        assert _classify(product(groups="battery_storage")) == ("bess", "bateria")
-
-    def test_storage_group(self):
-        assert _classify(product(groups="storage")) == ("bess", "bateria")
-
-    def test_bateria_pt(self):
-        assert _classify(product(groups="bateria")) == ("bess", "bateria")
-
-
-class TestClassifyInversorHibrido:
-    def test_inverter_group(self):
-        assert _classify(product(groups="inverter", title="WEG SIW400H T030 Inversor Hibrido")) == ("bess", "inversor_hibrido")
-
-    def test_hybrid_group(self):
-        assert _classify(product(groups="hybrid", title="Inversor Hibrido 5kW")) == ("bess", "inversor_hibrido")
-
-    def test_off_grid_group(self):
-        assert _classify(product(groups="off_grid", title="Inversor Off-Grid 10kW")) == ("bess", "inversor_hibrido")
-
-    def test_hibrido_pt(self):
-        assert _classify(product(groups="hibrido", title="Sofar 10kW Hibrido")) == ("bess", "inversor_hibrido")
-
-
-class TestClassifyInversorSolar:
-    def test_string_inverter_group(self):
-        assert _classify(product(groups="string_inverter", title="Sungrow 10kW")) == ("solar", "inversor_solar")
-
-    def test_on_grid_group(self):
-        assert _classify(product(groups="on_grid", title="Deye 5kW")) == ("solar", "inversor_solar")
-
-    def test_microinversor_dentro_de_inverter_group(self):
-        # Micro-inversor com groups="inverter" deve ir para solar, não bess
-        assert _classify(product(groups="inverter", title="Microinversor 600W")) == ("solar", "inversor_solar")
-
-    def test_micro_inversor_com_espaco(self):
-        assert _classify(product(groups="inverter", title="Micro Inversor 2,5kW 220V")) == ("solar", "inversor_solar")
-
-
-class TestClassifyModuloFV:
-    def test_panel_group(self):
-        assert _classify(product(groups="panel", title="Painel Solar 550W")) == ("solar", "modulo_fv")
-
-    def test_module_group(self):
-        assert _classify(product(groups="module", title="Módulo FV 400W")) == ("solar", "modulo_fv")
-
-    def test_app_solar_fallback(self):
-        assert _classify(product(groups="", app="solar", title="Painel 400W")) == ("solar", "modulo_fv")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. _classify — produtos que DEVEM ser ignorados (skip)
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestClassifySkip:
-    @pytest.mark.parametrize("title", [
-        "Cabo Solar 6mm",
-        "Cabo Solar 4mm Preto",
-        "Conector MC4 6 mm²",
-        " MC4 fêmea 4mm",
-        "Estrutura de Solo para 8 Módulos",
-        "Estrutura Carport Galvanizada a Fogo",
-        "CCM - Estruturas Metálicas",
-        "Fixador Final Alumínio",
-        "Grampo Intermediário Telhado",
-        "P - Parafuso Auto Brocante INOX 5,5x25",
-        "Porca Serrilhada M8",
-        "Trilho H Alumínio 4,2m",
-        "Perfil Mini Trilho Alto Alumínio 32cm",
-        "Haste Fibromadeira INOX 250mm",
-        "Monitoramento IED202",
-        "Gateway WEG ED100 Trifásico",
-        "Emenda U para Trilho H Completa",
-        "Abrigo de Inversor Metálico",
-    ])
-    def test_acessorio_ignorado(self, title):
-        # Mesmo que groups seja "inverter", itens de acessório devem ser ignorados
-        result = _classify(product(groups="inverter", title=title))
-        assert result == (None, None), f"Deveria ser ignorado: '{title}'"
-
-    def test_groups_desconhecido_sem_app(self):
-        assert _classify(product(groups="accessory", title="Cabo DC")) == (None, None)
-
-    def test_groups_vazio_sem_app(self):
-        assert _classify(product(groups="", app="")) == (None, None)
-
-
-def product_meubess(groups="Inversor", app="bess", title="", cat_title="", active=True):
-    """Constrói produto no formato real da API MeuBESS (com category object)."""
-    return {
-        "id": "1",
-        "groups": groups,
-        "app": app,
-        "title": title,
-        "active": active,
-        "category": {"title": cat_title} if cat_title else None,
+def raw(**kwargs) -> dict:
+    """Dict raw mínimo (formato já achatado) para os testes de classify."""
+    base = {
+        "title": "", "category_title": "", "section": "", "groups": "",
+        "phase": "", "battery_inputs": None, "max_eps_power": None,
     }
+    base.update(kwargs)
+    return base
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2b. _classify — formato MeuBESS português (category.title)
+# 1. classify_product — bateria e módulo (por categoria/section)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestClassifyMeuBESSPortugues:
-    """Testa roteamento usando category.title — formato real da API MeuBESS."""
-
-    # Baterias
+class TestClassifyBateriaModulo:
     def test_modulo_de_bateria(self):
-        p = product_meubess(groups="Acessórios", cat_title="Módulo de Bateria",
-                            title="WEG SBW 5kWh")
-        assert _classify(p) == ("bess", "bateria")
+        tipo, conf, review = classify_product(
+            raw(category_title="Módulo de Bateria", title="WEG SBW 5kWh")
+        )
+        assert tipo == "bateria"
+        assert review is False
 
     def test_cabine_de_baterias(self):
-        p = product_meubess(groups="Acessórios", cat_title="Cabine de Baterias",
-                            title="WEG CB100")
-        assert _classify(p) == ("bess", "bateria")
+        tipo, _, review = classify_product(raw(category_title="Cabine de Baterias"))
+        assert tipo == "bateria"
+        assert review is False
 
-    # Inversores híbridos (categoria explícita)
-    def test_inversor_hibrido_monofasico(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor Híbrido Monofasico 220v",
-                            title="W - WEG - 5,0KW 220V - SIW200H M050 W00 - Inversor Híbrido")
-        assert _classify(p) == ("bess", "inversor_hibrido")
+    def test_bateria_por_section(self):
+        tipo, _, _ = classify_product(raw(section="bat_litio", title="Bateria Lítio"))
+        assert tipo == "bateria"
 
-    def test_inversor_hibrido_trifasico_220v(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor Híbrido Trifásico 220v",
-                            title="W - WEG - SIW400H K017 T030 W20")
-        assert _classify(p) == ("bess", "inversor_hibrido")
+    def test_modulo_por_groups(self):
+        tipo, _, review = classify_product(
+            raw(groups="Módulo", category_title="Módulo Fotovoltaico", title="Painel 550W")
+        )
+        assert tipo == "modulo_fv"
+        assert review is False
 
-    def test_inversor_hibrido_trifasico_380v(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor Híbrido Trifásico 380v",
-                            title="W - WEG - 15,0KW 380V - SIW400H T015 W10 - Inversor Híbrido Trifásico")
-        assert _classify(p) == ("bess", "inversor_hibrido")
-
-    # SplitPhase com app=bess → híbrido (ex: WEG SIW200H SplitPhase)
-    def test_splitphase_bess_app_classifica_como_hibrido(self):
-        p = product_meubess(groups="Inversor", app="bess",
-                            cat_title="Inversor SplitPhase 127/220V",
-                            title="W - WEG SIW200H S075 W20 - Inversor Monofásico 127/220V")
-        assert _classify(p) == ("bess", "inversor_hibrido")
-
-    def test_splitphase_sem_bess_app_classifica_como_solar(self):
-        p = product_meubess(groups="Inversor", app="sunhub",
-                            cat_title="Inversor SplitPhase 127/220V",
-                            title="SIW100G SplitPhase")
-        assert _classify(p) == ("solar", "inversor_solar")
-
-    # Inversores string (Monofásico/Trifásico sem Híbrido) → solar
-    def test_inversor_monofasico_220v_e_string(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor Monofásico 220 V",
-                            title="W - WEG - 5,0KW 220V - SIW300 M050 - Inversor Monofásico")
-        assert _classify(p) == ("solar", "inversor_solar")
-
-    def test_inversor_trifasico_380v_e_string(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor Trifásico 380 V",
-                            title="Huawei SUN2000 15KTL")
-        assert _classify(p) == ("solar", "inversor_solar")
-
-    def test_inversor_bomba_ignorado(self):
-        p = product_meubess(groups="Inversor", cat_title="Inversor p/ bomba trifásica",
-                            title="Sungrow SG15RT-V112")
-        assert _classify(p) == (None, None)
-
-    def test_microinversor_via_categoria(self):
-        p = product_meubess(groups="Inversor", cat_title="Microinversor Monofásico 220 V",
-                            title="W - WEG - 2,4KW 220V - SIW100G M024 W10 - Microinversor")
-        assert _classify(p) == ("solar", "inversor_solar")
-
-    # Módulos FV
-    def test_modulo_fv_grupo_modulo(self):
-        p = product_meubess(groups="Módulo", cat_title="Módulo Fotovoltaico",
-                            title="Painel Solar 550W Bifacial")
-        assert _classify(p) == ("solar", "modulo_fv")
-
-    # Acessórios sem categoria de bateria → ignorar
-    def test_acessorio_sem_categoria_bateria_ignorado(self):
-        p = product_meubess(groups="Acessórios", cat_title="String Box",
-                            title="String Box 4E/2S 1000VCC")
-        assert _classify(p) == (None, None)
+    def test_modulo_por_categoria(self):
+        tipo, _, _ = classify_product(raw(category_title="Painel Solar", title="JA 620Wp"))
+        assert tipo == "modulo_fv"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. _enrich_modelo — enriquecimento do modelo com potência
+# 2. classify_product — sinal técnico é ground-truth (confiança alta)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestEnrichModelo:
-    def test_adiciona_potencia_quando_ausente(self):
-        result = _enrich_modelo("SOFAR", 10.0, "inversor_hibrido")
-        assert "10kW" in result or "10" in result
+class TestClassifyTecnico:
+    def test_battery_inputs_positivo_e_hibrido(self):
+        tipo, conf, review = classify_product(
+            raw(battery_inputs=2, category_title="Inversor Trifásico 380 V")
+        )
+        assert tipo == "inversor_hibrido"
+        assert conf == "alta"
+        # categoria diz "Trifásico" (string) mas técnico diz híbrido → divergência
+        assert review is True
 
-    def test_nao_duplica_potencia_ja_presente(self):
-        result = _enrich_modelo("SOFAR 10kW", 10.0, "inversor_hibrido")
-        # Não deve virar "SOFAR 10kW 10kW"
-        assert result.count("10") == 1
+    def test_battery_inputs_zero_e_string(self):
+        tipo, conf, review = classify_product(
+            raw(battery_inputs=0, category_title="Inversor Monofásico 220 V")
+        )
+        assert tipo == "inversor_string"
+        assert conf == "alta"
+        assert review is False  # categoria concorda (string)
 
-    def test_nao_altera_bateria(self):
-        # Baterias não precisam de potência no modelo
-        result = _enrich_modelo("SBW CB050", 5.0, "bateria")
-        assert result == "SBW CB050"
+    def test_max_eps_power_indica_hibrido(self):
+        tipo, conf, _ = classify_product(
+            raw(max_eps_power=5.0, category_title="Inversor Híbrido Monofasico 220v")
+        )
+        assert tipo == "inversor_hibrido"
+        assert conf == "alta"
 
-    def test_nao_altera_quando_power_none(self):
-        result = _enrich_modelo("SIW400H T030", None, "inversor_hibrido")
-        assert result == "SIW400H T030"
-
-    def test_nao_altera_modelo_com_kva(self):
-        result = _enrich_modelo("25,0KW 220V", 25.0, "inversor_hibrido")
-        # Já contém indicador de potência, não altera
-        assert result == "25,0KW 220V"
-
-    def test_formatos_variados_de_potencia(self):
-        # Cada variante deve ter a potência adicionada e ser distinta entre si
-        resultados = set()
-        for power, modelo_base in [(4.0, "SOFAR"), (7.5, "SOFAR"), (10.0, "SOFAR")]:
-            result = _enrich_modelo(modelo_base, power, "inversor_hibrido")
-            assert result != modelo_base, f"Potência não adicionada para {power}kW"
-            assert "kW" in result or "kw" in result.lower(), f"Unidade kW não encontrada em '{result}'"
-            resultados.add(result)
-        # Os três modelos enriquecidos devem ser distintos entre si
-        assert len(resultados) == 3, "Inversores com potências diferentes geraram nomes idênticos"
+    def test_tecnico_sem_contradicao_nao_revisa(self):
+        tipo, conf, review = classify_product(
+            raw(battery_inputs=4, category_title="Inversor Híbrido Trifásico 380v",
+                title="SIW400H Híbrido", phase="hibrido")
+        )
+        assert tipo == "inversor_hibrido"
+        assert conf == "alta"
+        assert review is False  # todos os sinais concordam
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. _fetch_all_products — fallback de endpoint
+# 3. classify_product — sem técnico: decide por texto, sempre pede revisão
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestClassifySemTecnico:
+    def test_trifasico_220v_e_string_nao_hibrido(self):
+        # Caso real que estava errado: deve sair como STRING, não híbrido.
+        tipo, conf, review = classify_product(
+            raw(category_title="Inversor Trifásico 220 V", groups="Inversor",
+                title="WEG - 20,0KW 220V - SIW400G K020 W00 - Inversor Trifásico",
+                phase="trifasico")
+        )
+        assert tipo == "inversor_string"
+        assert conf == "media"
+        assert review is True  # faltou ground-truth técnico
+
+    def test_categoria_hibrido_sem_tecnico(self):
+        tipo, conf, review = classify_product(
+            raw(category_title="Inversor Híbrido Monofasico 220v",
+                title="SIW200H M050 Híbrido")
+        )
+        assert tipo == "inversor_hibrido"
+        assert conf == "media"
+        assert review is True
+
+    def test_hibrido_so_por_titulo(self):
+        tipo, conf, review = classify_product(
+            raw(title="Inversor Hibrido GOODWE GW6000-ES", category_title="", groups="Inversor")
+        )
+        assert tipo == "inversor_hibrido"
+        assert conf == "baixa"
+        assert review is True
+
+    def test_hibrido_so_por_fase(self):
+        tipo, conf, review = classify_product(raw(phase="hibrido", title="SIW500H T020"))
+        assert tipo == "inversor_hibrido"
+        assert conf == "baixa"
+        assert review is True
+
+    def test_microinversor_via_categoria_e_string(self):
+        tipo, _, _ = classify_product(
+            raw(category_title="Microinversor Monofásico 220 V", title="WEG SIW100G")
+        )
+        assert tipo == "inversor_string"
+
+    def test_indefinido_quando_nenhum_sinal(self):
+        tipo, conf, review = classify_product(raw(title="Produto genérico", groups="Outros"))
+        assert tipo == "indefinido"
+        assert review is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. _map_to_raw — achatamento do produto MeuBESS
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMapToRaw:
+    def test_achata_objetos_aninhados(self):
+        product = {
+            "id": "WHS656200",
+            "title": "WEG 12kW Trifásico",
+            "power": "12.0",
+            "active": True,
+            "battery_inputs": 2,
+            "category": {"id": 5, "title": "Inversor Híbrido Trifásico 380v", "section": "general"},
+            "brand": {"id": 9, "title": "WEG"},
+            "supplier": {"id": 1, "title": "MeuBESS"},
+            "images": [{"path": "a.jpg"}],
+        }
+        out = _map_to_raw(product)
+        assert out["meubess_id"] == "WHS656200"
+        assert out["power"] == 12.0
+        assert out["active"] is True
+        assert out["battery_inputs"] == 2
+        assert out["category_title"] == "Inversor Híbrido Trifásico 380v"
+        assert out["category_section"] == "general"
+        assert out["brand_title"] == "WEG"
+        assert out["marca"] == "WEG"          # cai no brand.title quando marca ausente
+        assert out["supplier_title"] == "MeuBESS"
+        assert out["images"] == [{"path": "a.jpg"}]
+        # classificação anexada
+        assert out["tipo_auto"] == "inversor_hibrido"
+        assert out["classificacao_confianca"] == "alta"
+        assert "needs_review" in out
+
+    def test_id_numerico_vira_string(self):
+        out = _map_to_raw({"id": 1367624546, "title": "x"})
+        assert out["meubess_id"] == "1367624546"
+        assert isinstance(out["meubess_id"], str)
+
+    def test_campos_ausentes_viram_none(self):
+        out = _map_to_raw({"id": "1", "title": "x"})
+        assert out["power"] is None
+        assert out["battery_inputs"] is None
+        assert out["category_title"] is None
+        assert out["images"] is None
+
+    def test_marca_direta_tem_prioridade(self):
+        out = _map_to_raw({"id": "1", "marca": "WEG", "brand": {"id": 9, "title": "OUTRA"}})
+        assert out["marca"] == "WEG"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. _fetch_all_products — fallback de endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
 PRODUCTS_ALL_URL = f"{settings.meubess_api_url}/products/all"
 PRODUCTS_URL     = f"{settings.meubess_api_url}/products"
 
 SAMPLE_PRODUCTS = [
-    {"id": "1", "title": "Bateria WEG 5kWh", "groups": "battery", "power": 5.0, "active": True},
-    {"id": "2", "title": "Inversor Hibrido 10kW", "groups": "inverter", "power": 10.0, "active": True},
+    {"id": "1", "title": "Bateria WEG 5kWh", "category": {"title": "Módulo de Bateria"}, "active": True},
+    {"id": "2", "title": "Inversor Híbrido 10kW", "battery_inputs": 2, "active": True},
 ]
 
 
@@ -289,7 +239,6 @@ class TestFetchAllProductsFallback:
         assert len(result) == 2
 
     async def test_nao_silencia_erro_401_em_products_all(self):
-        """Um 401 (chave inválida) não deve tentar o próximo endpoint — deve propagar."""
         with respx.mock:
             respx.get(PRODUCTS_ALL_URL).mock(
                 return_value=httpx.Response(401, json={"message": "Unauthenticated."})

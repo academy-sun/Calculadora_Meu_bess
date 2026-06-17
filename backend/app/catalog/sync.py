@@ -1,44 +1,26 @@
 """
-Synchronisation with plataforma.meubess.com.br supplier API.
+Réplica fiel do catálogo da plataforma plataforma.meubess.com.br.
 
-Routing rules — uses `category.title` (Portuguese) as primary signal,
-falls back to `groups` for English-format catalogs:
+O sync NÃO classifica nem descarta produtos: ele espelha todos os campos
+relevantes do produto MeuBESS na tabela única `meubess_products`. A
+classificação é uma anotação não-destrutiva (tipo_auto + needs_review),
+calculada por cascata de sinais, e pode ser sobrescrita manualmente
+(tipo_manual / overrides_tecnicos) sem ser perdida no próximo sync.
 
-  category.title contains "Módulo de Bateria"/"Cabine de Baterias"
-                                           → products_bess  /  tipo = "bateria"
-  category.title contains "Híbrido"       → products_bess  /  tipo = "inversor_hibrido"
-  category.title contains "SplitPhase"
-    + app contains "bess"                 → products_bess  /  tipo = "inversor_hibrido"
-  category.title contains "Microinversor"
-    OR title keywords                     → products_solar /  tipo = "inversor_solar"
-  category.title contains "bomba"         → SKIPPED
-  groups == "Inversor" (other categories) → products_solar /  tipo = "inversor_solar"
-  groups == "Módulo" / "panel" variants   → products_solar /  tipo = "modulo_fv"
-  groups == "battery" variants (English)  → products_bess  /  tipo = "bateria"
-  groups == "inverter" / "hybrid" (Eng.)  → products_bess  /  tipo = "inversor_hibrido"
-  groups == "string_inverter" (English)   → products_solar /  tipo = "inversor_solar"
-  app == "solar"                          → products_solar /  tipo = "modulo_fv"
-  anything else (cables, structures…)    → SKIPPED
+Datas de compliance são geradas no Supabase, não na MeuBESS:
+  • first_seen_at  → gravada só no primeiro INSERT (entrada no banco)
+  • last_synced_at → atualizada em todo sync
 
-Valid DB values:
-  products_bess.tipo  ∈ { 'bateria', 'inversor_hibrido' }
-  products_solar.tipo ∈ { 'modulo_fv', 'inversor_solar' }
-
-Unit assumptions:
-  • power for inverters  → potencia_continua_kw (kW)
-  • power for batteries  → capacidade_kwh (kWh)
-  • power for panels     → potencia_pico_wp (Wp) — API sends kW, multiply × 1 000
-  • power for inversor_solar → potencia_nominal_kw (kW)
+IMPORTANTE: a MeuBESS é somente-leitura. Toda interação é GET na API.
 """
 
-import uuid
 from datetime import datetime
 
 import httpx
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.catalog.models import ProductBESS, ProductSolar
+from app.catalog.models import MeuBESSProduct
 from app.config import settings
 
 
@@ -62,227 +44,243 @@ def _safe_float(val: object) -> float | None:
         return None
 
 
-def _safe_price(product: dict) -> float:
-    """Return best available price (price → price_sale → 0). Never raises."""
-    for key in ("price", "price_sale"):
-        f = _safe_float(product.get(key))
-        if f is not None and f > 0:
-            return f
-    return 0.0
-
-
-def _safe_brand(product: dict) -> str:
-    """Extract brand title safely; returns 'Desconhecida' if missing/null."""
-    brand = product.get("brand")
-    if isinstance(brand, dict):
-        return brand.get("title") or "Desconhecida"
-    return str(brand) if brand else "Desconhecida"
-
-
-def _extract_modelo(title: str) -> str:
-    """
-    Input:  "W - WEG - 15,0KW 380V - SIW400G T015 W1 - Inversor Trifásico"
-    Output: "15,0KW 380V - SIW400G T015 W1"
-    """
-    parts = [p.strip() for p in title.split(" - ")]
-    if len(parts) >= 4:
-        return " - ".join(parts[2:-1])
-    if len(parts) == 3:
-        return parts[1]
-    return title
-
-
-def _enrich_modelo(modelo: str, power: float | None, tipo: str) -> str:
-    """
-    Appends the power rating to the model name when it is missing.
-
-    Prevents all variants of the same product line from showing the same
-    generic model (e.g. four OUROLUX "SOFAR" inverters at 4/5/7.5/10 kW
-    all appearing as "SOFAR").
-    """
-    import re
-    if not power or tipo == "bateria":
-        return modelo
-    # Already has a power indicator — leave it alone
-    if re.search(r"\d[\d,.]*\s*k?[wva]", modelo, re.IGNORECASE):
-        return modelo
-    kw_str = f"{power:g}".replace(".", ",") + "kW"
-    return f"{modelo} {kw_str}"
-
-
-_SKIP_TITLE_KEYWORDS: tuple[str, ...] = (
-    # Cabos
-    "cabo solar", "cabo ", " cabo",
-    # Conectores
-    "conector", " mc4", "mc4 ",
-    # Estruturas de fixação / suporte
-    "estrutura", "carport", "abrigo de inversor",
-    # Hardware (parafusos, fixadores, trilhos)
-    "fixador", "grampo", "parafuso", "porca ", " porca", "borracha",
-    "trilho", "perfil ", " perfil", "haste", "emenda u",
-    # Monitoramento / dataloggers
-    "monitoramento", "gateway",
-)
-
-_MICROINVERTER_KEYWORDS: tuple[str, ...] = (
-    "microinversor", "micro inversor", "micro-inversor",
-)
-
-
-def _classify(product: dict) -> tuple[str, str] | tuple[None, None]:
-    """
-    Returns (table: 'bess' | 'solar', tipo: str) or (None, None) to skip.
-
-    Uses category.title as primary signal for the MeuBESS Portuguese catalog.
-    Falls back to English group names for other catalog formats.
-    """
-    title     = (product.get("title")  or "").lower()
-    groups    = (product.get("groups") or "").strip().lower()
-    app       = (product.get("app")    or "").lower()
-    cat_obj   = product.get("category") or {}
-    cat_raw   = cat_obj.get("title") if isinstance(cat_obj, dict) else None
-    cat_title = (cat_raw or "").lower()
-
-    # ── Rejeição antecipada por palavras no título ────────────────────────────
-    if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
-        return None, None
-
-    # ── Kit bundles (e.g. "Kit Gerador") → sempre ignorar ────────────────────
-    if "kit" in groups and "gerador" in groups:
-        return None, None
-
-    # ── category.title routing (MeuBESS Portuguese catalog) ──────────────────
-    if cat_title:
-        # Batteries: Grupo="Acessórios", Categoria="Módulo de Bateria" / "Cabine de Baterias"
-        if "módulo de bateria" in cat_title or "cabine de bateria" in cat_title:
-            return "bess", "bateria"
-
-        if groups in ("inversor", "inversores"):
-            # Pump inverters → skip
-            if "bomba" in cat_title:
-                return None, None
-            # Micro-inverters → solar
-            if "microinversor" in cat_title or any(kw in title for kw in _MICROINVERTER_KEYWORDS):
-                return "solar", "inversor_solar"
-            # Explicit hybrid category → BESS
-            if "híbrido" in cat_title or "hibrido" in cat_title:
-                return "bess", "inversor_hibrido"
-            # SplitPhase with bess app → these are battery-compatible (e.g. WEG SIW200H SplitPhase)
-            if "splitphase" in cat_title.replace(" ", "").replace("-", ""):
-                if "bess" in app:
-                    return "bess", "inversor_hibrido"
-                return "solar", "inversor_solar"
-            # All other inverter categories (Monofásico, Trifásico, etc.) → string inverter
-            return "solar", "inversor_solar"
-
-        if groups in ("módulo", "módulos", "modulo"):
-            return "solar", "modulo_fv"
-
-    # ── English group names (legacy / other catalog formats) ─────────────────
-
-    # batteries
-    if groups in ("battery", "battery_storage", "storage", "bateria"):
-        return "bess", "bateria"
-
-    # hybrid / off-grid inverters
-    if groups in ("inverter", "hybrid", "hibrido", "off_grid", "offgrid"):
-        if any(kw in title for kw in _MICROINVERTER_KEYWORDS):
-            return "solar", "inversor_solar"
-        return "bess", "inversor_hibrido"
-
-    # solar panels
-    if groups in ("panel", "solar_panel", "module", "modulo", "painel", "placa"):
-        return "solar", "modulo_fv"
-
-    # string / on-grid solar inverters
-    if groups in ("string_inverter", "inverter_string", "on_grid", "ongrid",
-                  "inversor_solar", "solar_inverter"):
-        return "solar", "inversor_solar"
-
-    # app-level fallback for solar
-    if app == "solar":
-        return "solar", "modulo_fv"
-
-    # skip everything else
-    return None, None
-
-
-_VALID_FASES = {"monofasico", "trifasico"}
-
-
-def _normalize_fase(raw: object) -> str | None:
-    """
-    O banco só aceita 'monofasico', 'trifasico' ou NULL.
-    Valores como 'hibrido' (produtos que suportam ambas as fases)
-    são mapeados para NULL.
-    """
-    if not raw:
+def _safe_int(val: object) -> int | None:
+    """Convert to int, returning None on null/empty/invalid."""
+    if val is None or val == "":
         return None
-    v = str(raw).strip().lower()
-    return v if v in _VALID_FASES else None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
 
 
-def _map_to_bess(product: dict, tipo: str) -> dict:
-    power = _safe_float(product.get("power"))
-    modelo = _enrich_modelo(
-        _extract_modelo(product.get("title") or str(product["id"])),
-        power,
-        tipo,
-    )
-    return {
-        "sku": str(product["id"]),
-        "marca": _safe_brand(product),
-        "modelo": modelo,
-        "tipo": tipo,
-        "fase": _normalize_fase(product.get("phase")),
-        "potencia_continua_kw": power if tipo != "bateria" else None,
-        "capacidade_kwh":       power if tipo == "bateria" else None,
-        "preco": _safe_price(product),
-        "disponivel": bool(product.get("active", True)),
+def _safe_bool(val: object) -> bool | None:
+    """Convert to bool. Accepts 1/0, '1'/'0', true/false; None stays None."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val != 0
+    s = str(val).strip().lower()
+    if s in ("1", "true", "t", "yes", "s", "sim"):
+        return True
+    if s in ("0", "false", "f", "no", "n", "nao", "não"):
+        return False
+    return None
+
+
+def _safe_str(val: object) -> str | None:
+    """Stringify scalars; collapse empty to None. Lists/dicts → None (handled separately)."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, (dict, list)):
+        return None
+    return str(val)
+
+
+def _nested(obj: dict, key: str, field: str) -> str | None:
+    """Extract `obj[key][field]` safely as string. Returns None if missing."""
+    sub = obj.get(key)
+    if isinstance(sub, dict):
+        return _safe_str(sub.get(field))
+    return None
+
+
+# ── classification cascade (annotation only — never filters/discards) ─────────
+
+_BATTERY    = "bateria"
+_HYBRID     = "inversor_hibrido"
+_STRING     = "inversor_string"
+_MODULE     = "modulo_fv"
+_UNKNOWN    = "indefinido"
+
+_HYBRID_TITLE_TOKENS = ("híbrido", "hibrido", "hybrid")
+_MODULE_TOKENS       = ("módulo", "modulo", "module", "painel", "fotovolt", "placa")
+
+
+def classify_product(raw: dict) -> tuple[str, str, bool]:
+    """
+    Classificação por cascata de sinais. Retorna (tipo_auto, confianca, needs_review).
+
+    Ordem (a primeira conclusiva define o tipo):
+      1. Bateria      — category_title contém "bateria"/"cabine de bateria" ou section "bat_litio".
+      2. Módulo FV    — groups "módulo" ou category/título indicam módulo fotovoltaico.
+      3. Técnico      — battery_inputs > 0 (ou max_eps_power > 0) → híbrido; battery_inputs == 0 → string.
+      4. Categoria    — "híbrido" → híbrido; "inversor/microinversor" → string.
+      5. Título       — contém "híbrido"/"hybrid" → híbrido.
+      6. Fase         — phase == "hibrido" → híbrido.
+
+    confianca: 'alta' (sinal técnico), 'media' (bateria/módulo/categoria), 'baixa' (título/fase/indefinido).
+    needs_review: True quando um sinal posterior contradiz o técnico, OU quando a decisão de
+      híbrido-vs-string veio só de texto (sem o ground-truth técnico), OU quando indefinido.
+    """
+    title   = (raw.get("title") or "").lower()
+    cat     = (raw.get("category_title") or "").lower()
+    section = (raw.get("section") or "").lower()
+    groups  = (raw.get("groups") or "").lower()
+    phase   = (raw.get("phase") or "").lower()
+    battery_inputs = raw.get("battery_inputs")
+    max_eps        = raw.get("max_eps_power")
+
+    # 1. Bateria (categoria/section são confiáveis para bateria)
+    if "bateria" in cat or "cabine de bateria" in cat or section == "bat_litio":
+        return _BATTERY, "media", False
+
+    # 2. Módulo FV (antes de inversor; "Módulo de Bateria" já foi tratado acima)
+    if groups in _MODULE_TOKENS or any(tok in cat for tok in _MODULE_TOKENS):
+        return _MODULE, "media", False
+
+    # ── A partir daqui é inversor: distinguir híbrido vs string ──────────────
+
+    # 3. Sinal técnico (ground-truth quando preenchido)
+    tecnico: str | None = None
+    if battery_inputs is not None:
+        tecnico = _HYBRID if battery_inputs > 0 else _STRING
+    elif max_eps is not None and _safe_float(max_eps) and float(max_eps) > 0:
+        tecnico = _HYBRID
+
+    # 4. Sinal de categoria
+    cat_sig: str | None = None
+    if any(tok in cat for tok in _HYBRID_TITLE_TOKENS):
+        cat_sig = _HYBRID
+    elif "inversor" in cat:  # inclui "microinversor", "inversor monofásico/trifásico"
+        cat_sig = _STRING
+
+    # 5. Sinal de título
+    tit_sig = _HYBRID if any(tok in title for tok in _HYBRID_TITLE_TOKENS) else None
+
+    # 6. Sinal de fase
+    fase_sig = _HYBRID if phase == "hibrido" else None
+
+    # ── Decisão ──────────────────────────────────────────────────────────────
+    if tecnico is not None:
+        # Técnico manda; marca revisão se algum sinal textual o contradiz.
+        contradiz = any(
+            sig is not None and sig != tecnico
+            for sig in (cat_sig, tit_sig, fase_sig)
+        )
+        return tecnico, "alta", contradiz
+
+    # Sem técnico: decide por texto, mas sempre pede revisão (faltou ground-truth).
+    if cat_sig is not None:
+        return cat_sig, "media", True
+    if tit_sig is not None:
+        return tit_sig, "baixa", True
+    if fase_sig is not None:
+        return fase_sig, "baixa", True
+
+    # Nenhum sinal conclusivo
+    return _UNKNOWN, "baixa", True
+
+
+# ── mapeamento raw (espelha o produto MeuBESS em colunas) ─────────────────────
+
+
+def _map_to_raw(product: dict) -> dict:
+    """Achata o JSON do produto MeuBESS no formato das colunas de meubess_products."""
+    raw = {
+        "meubess_id": str(product["id"]),
+
+        # identidade / comercial
+        "enterprise_id": _safe_str(product.get("enterprise_id")),
+        "title": _safe_str(product.get("title")),
+        "original_title": _safe_str(product.get("original_title")),
+        "description": _safe_str(product.get("description")),
+        "sku": _safe_str(product.get("sku")),
+        "suplier_cod": _safe_str(product.get("suplier_cod")),
+        "marca": _safe_str(product.get("marca")) or _nested(product, "brand", "title"),
+        "brand_id": _safe_str(product.get("brand_id")) or _nested(product, "brand", "id"),
+        "brand_title": _nested(product, "brand", "title"),
+        "supplier_id": _safe_str(product.get("supplier_id")) or _nested(product, "supplier", "id"),
+        "supplier_title": _nested(product, "supplier", "title"),
+        "app": _safe_str(product.get("app")),
+        "active": _safe_bool(product.get("active")),
+        "view": _safe_str(product.get("view")),
+        "section": _safe_str(product.get("section")),
+        "type": _safe_str(product.get("type")),
+        "groups": _safe_str(product.get("groups")),
+        "availability": _safe_str(product.get("availability")),
+
+        # categoria
+        "category_id": _safe_str(product.get("category_id")) or _nested(product, "category", "id"),
+        "category_title": _nested(product, "category", "title"),
+        "category_section": _nested(product, "category", "section"),
+
+        # elétricos / técnicos
+        "power": _safe_float(product.get("power")),
+        "voltage": _safe_str(product.get("voltage")),
+        "phase": _safe_str(product.get("phase")),
+        "breaker": _safe_str(product.get("breaker")),
+        "battery_inputs": _safe_int(product.get("battery_inputs")),
+        "max_eps_power": _safe_float(product.get("max_eps_power")),
+        "max_output_power": _safe_float(product.get("max_output_power")),
+        "qty_mppt": _safe_int(product.get("qty_mppt")),
+        "qty_inputs_per_mppt": _safe_int(product.get("qty_inputs_per_mppt")),
+        "voc_max_voltage": _safe_float(product.get("voc_max_voltage")),
+        "mppt_min_voltage": _safe_float(product.get("mppt_min_voltage")),
+        "output_voltage": _safe_float(product.get("output_voltage")),
+        "string_current": _safe_float(product.get("string_current")),
+        "short_circuit_current_inverter": _safe_float(product.get("short_circuit_current_inverter")),
+        "short_circuit_current_module": _safe_float(product.get("short_circuit_current_module")),
+        "max_power_current": _safe_float(product.get("max_power_current")),
+
+        # preço / fiscal / dimensão
+        "price": _safe_float(product.get("price")),
+        "price_sale": _safe_float(product.get("price_sale")),
+        "price_sale_until": _safe_str(product.get("price_sale_until")),
+        "ncm": _safe_str(product.get("ncm")),
+        "unt_measure": _safe_str(product.get("unt_measure")),
+        "unt_multiples": _safe_str(product.get("unt_multiples")),
+        "weight": _safe_float(product.get("weight")),
+        "width": _safe_float(product.get("width")),
+        "height": _safe_float(product.get("height")),
+        "length": _safe_float(product.get("length")),
+        "volumes": _safe_float(product.get("volumes")),
+        "fixing_type": _safe_str(product.get("fixing_type")),
+        "fixing_capacity": _safe_int(product.get("fixing_capacity")),
+
+        # mídia (lista de imagens → JSONB)
+        "images": product.get("images") if isinstance(product.get("images"), list) else None,
     }
 
+    tipo_auto, confianca, needs_review = classify_product(raw)
+    raw["tipo_auto"] = tipo_auto
+    raw["classificacao_confianca"] = confianca
+    raw["needs_review"] = needs_review
+    return raw
 
-def _map_to_solar(product: dict, tipo: str = "modulo_fv") -> dict:
-    power = _safe_float(product.get("power"))
-    # API sends power in kW for all products.
-    # Solar panels: field expects Wp  → multiply by 1000  (e.g. 0.55 kW → 550 Wp)
-    # String inverters: field expects kW → keep as-is
-    potencia_pico_wp   = power * 1000 if power and tipo == "modulo_fv"      else None
-    potencia_nominal_kw = power        if power and tipo == "inversor_solar" else None
-    return {
-        "sku": str(product["id"]),
-        "marca": _safe_brand(product),
-        "modelo": _extract_modelo(product.get("title") or str(product["id"])),
-        "tipo": tipo,
-        "potencia_pico_wp":   potencia_pico_wp,
-        "potencia_nominal_kw": potencia_nominal_kw,
-        "fase": product.get("phase") or None,
-        "preco": _safe_price(product),
-        "disponivel": bool(product.get("active", True)),
+
+# ── upsert (preserva first_seen_at e decisão humana) ──────────────────────────
+
+# Colunas que NÃO devem ser sobrescritas num re-sync:
+#   first_seen_at        → data de entrada no banco (só no primeiro INSERT)
+#   tipo_manual / ...    → decisão humana de validação/override
+_PRESERVE_ON_CONFLICT = {
+    "first_seen_at",
+    "tipo_manual",
+    "overrides_tecnicos",
+    "validado_por",
+    "validado_em",
+}
+
+
+async def _upsert_raw(db: AsyncSession, data: dict) -> None:
+    now = datetime.utcnow()
+    values = {**data, "last_synced_at": now, "first_seen_at": now}
+    stmt = pg_insert(MeuBESSProduct).values(**values)
+    # No conflito: atualiza tudo MENOS as colunas preservadas; refresca last_synced_at.
+    update_set = {
+        k: stmt.excluded[k]
+        for k in data
+        if k not in _PRESERVE_ON_CONFLICT and k != "meubess_id"
     }
-
-
-# ── upsert ───────────────────────────────────────────────────────────────────
-
-
-async def _upsert_bess(db: AsyncSession, data: dict) -> None:
-    stmt = pg_insert(ProductBESS).values(
-        id=uuid.uuid4(), atualizado_em=datetime.utcnow(), **data
-    )
-    update_set = {k: stmt.excluded[k] for k in data if k != "sku"}
-    update_set["atualizado_em"] = datetime.utcnow()
-    stmt = stmt.on_conflict_do_update(index_elements=["sku"], set_=update_set)
+    update_set["last_synced_at"] = now
+    stmt = stmt.on_conflict_do_update(index_elements=["meubess_id"], set_=update_set)
     await db.execute(stmt)
 
 
-async def _upsert_solar(db: AsyncSession, data: dict) -> None:
-    stmt = pg_insert(ProductSolar).values(id=uuid.uuid4(), **data)
-    update_set = {k: stmt.excluded[k] for k in data if k != "sku"}
-    stmt = stmt.on_conflict_do_update(index_elements=["sku"], set_=update_set)
-    await db.execute(stmt)
-
-
-# ── fetch all (with pagination) ───────────────────────────────────────────────
+# ── fetch all (paginado) ──────────────────────────────────────────────────────
 
 
 async def _fetch_from_endpoint(client: httpx.AsyncClient, base_url: str) -> list[dict]:
@@ -317,7 +315,6 @@ async def _fetch_from_endpoint(client: httpx.AsyncClient, base_url: str) -> list
             # ou no nível raiz da resposta (flat paginator format)
             last_page = meta.get("last_page") or body.get("last_page")
             links = body.get("links")
-            # "links" pode ser um dict {"next": url} (Resource) ou lista (flat)
             next_url = (
                 links.get("next") if isinstance(links, dict)
                 else body.get("next_page_url")
@@ -344,8 +341,7 @@ async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
     Fetch every product from the supplier API.
 
     Tries GET /products/all first (paginated bulk endpoint). If the server
-    returns a 5xx error, falls back to GET /products. This handles temporary
-    bugs in the supplier's backend without failing the whole sync.
+    returns a 5xx error, falls back to GET /products.
     """
     endpoints = [
         f"{settings.meubess_api_url}/products/all",
@@ -358,7 +354,6 @@ async def _fetch_all_products(client: httpx.AsyncClient) -> list[dict]:
             return await _fetch_from_endpoint(client, url)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
-                # Erro no servidor do fornecedor neste endpoint — tenta o próximo
                 last_exc = exc
                 continue
             raise  # 4xx (auth, not found) não deve ser silenciado
@@ -377,7 +372,22 @@ class SyncResult:
     def __init__(self) -> None:
         self.synced: list[dict] = []
         self.errors: list[dict] = []
-        self.skipped: list[str] = []
+        self.por_tipo: dict[str, int] = {}
+        self.needs_review_count = 0
+
+    def record(self, raw: dict) -> None:
+        tipo = raw.get("tipo_auto") or "indefinido"
+        self.por_tipo[tipo] = self.por_tipo.get(tipo, 0) + 1
+        if raw.get("needs_review"):
+            self.needs_review_count += 1
+        self.synced.append({
+            "id": raw["meubess_id"],
+            "tipo_auto": tipo,
+            "confianca": raw.get("classificacao_confianca"),
+            "needs_review": raw.get("needs_review"),
+            "marca": raw.get("marca"),
+            "title": raw.get("title"),
+        })
 
     def to_dict(self) -> dict:
         return {
@@ -385,38 +395,19 @@ class SyncResult:
             "errors": self.errors,
             "total_synced": len(self.synced),
             "total_errors": len(self.errors),
-            "total_skipped": len(self.skipped),
+            "por_tipo": self.por_tipo,
+            "needs_review_count": self.needs_review_count,
         }
 
 
 async def _process_product(db: AsyncSession, product: dict, result: SyncResult) -> None:
     pid = str(product.get("id", "?"))
     try:
-        table, tipo = _classify(product)
-        if table is None:
-            # Not a catalogable product (accessory, cable, structure, etc.) — skip silently
-            result.skipped.append(pid)
-            return
-        if table == "bess":
-            data = _map_to_bess(product, tipo)
-            await _upsert_bess(db, data)
-        else:
-            data = _map_to_solar(product, tipo)
-            await _upsert_solar(db, data)
-
-        result.synced.append({
-            "id": pid,
-            "table": table,
-            "tipo": tipo,
-            "marca": data["marca"],
-            "modelo": data["modelo"],
-            "preco": data["preco"],
-        })
+        data = _map_to_raw(product)
+        await _upsert_raw(db, data)
+        result.record(data)
     except Exception as exc:  # noqa: BLE001
-        # Roll back the aborted transaction so the next product can proceed normally.
-        # Without this, a CheckViolationError (or any DB error) leaves the SQLAlchemy
-        # session in a failed-transaction state and every subsequent execute() raises
-        # InFailedSQLTransactionError.
+        # Roll back para a sessão não ficar em estado de transação abortada.
         await db.rollback()
         result.errors.append({"id": pid, "error": str(exc)})
 
@@ -434,13 +425,13 @@ def _check_api_key() -> None:
 
 async def sync_all_products(db: AsyncSession) -> dict:
     """
-    Fetch ALL products from the supplier API (paginated) and upsert into
-    products_bess / products_solar based on their type.
+    Replica TODOS os produtos da API do fornecedor (paginado) na tabela
+    única `meubess_products`, sem classificar/descartar — apenas anotando
+    o tipo sugerido (tipo_auto) e a flag de revisão (needs_review).
     """
     _check_api_key()
     result = SyncResult()
 
-    # connect=10s evita travar quando Railway não alcança a API do fornecedor
     _timeout = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=5.0)
     async with httpx.AsyncClient(timeout=_timeout) as client:
         try:
@@ -484,8 +475,8 @@ async def preview_raw_products(limit: int = 5) -> list[dict]:
 
 async def sync_products_by_ids(db: AsyncSession, product_ids: list[str]) -> dict:
     """
-    Fetch specific product IDs from the supplier API and upsert them.
-    Kept for potential future use (e.g. webhook-triggered single-product refresh).
+    Fetch specific product IDs from the supplier API and upsert them into
+    `meubess_products`. Útil para refresh pontual (ex.: webhook).
     """
     _check_api_key()
     result = SyncResult()
