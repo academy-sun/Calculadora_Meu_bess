@@ -1,11 +1,102 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.catalog.models import ProductBESS, ProductSolar, StandardLoad
-from app.catalog.schemas import ProductBESSCreate, ProductSolarCreate, StandardLoadCreate
+from app.catalog.models import MeuBESSProduct, ProductBESS, ProductSolar, StandardLoad
+from app.catalog.schemas import (
+    MeuBESSProductUpdate, ProductBESSCreate, ProductSolarCreate, StandardLoadCreate,
+)
+
+
+# ── meubess_products (réplica fiel) ──────────────────────────────────────────
+
+
+async def list_products(
+    db: AsyncSession,
+    *,
+    tipo: str | None = None,
+    marca: str | None = None,
+    app: str | None = None,
+    needs_review: bool | None = None,
+    titulo: str | None = None,
+    potencia_min: float | None = None,
+    potencia_max: float | None = None,
+    active: bool | None = None,
+    synced_from: datetime | None = None,
+    synced_to: datetime | None = None,
+    seen_from: datetime | None = None,
+    seen_to: datetime | None = None,
+    limit: int = 2000,
+) -> list[MeuBESSProduct]:
+    """
+    Lista produtos da réplica MeuBESS com filtros opcionais.
+
+    `tipo` filtra pelo tipo efetivo = coalesce(tipo_manual, tipo_auto).
+    Potência: só `potencia_min` = "maior que"; só `potencia_max` = "menor que"; ambos = faixa.
+    """
+    stmt = select(MeuBESSProduct)
+
+    if tipo:
+        tipo_efetivo = func.coalesce(MeuBESSProduct.tipo_manual, MeuBESSProduct.tipo_auto)
+        stmt = stmt.where(tipo_efetivo == tipo)
+    if marca:
+        stmt = stmt.where(func.lower(MeuBESSProduct.marca).like(f"%{marca.lower()}%"))
+    if app:
+        stmt = stmt.where(MeuBESSProduct.app.like(f"%{app}%"))
+    if needs_review is not None:
+        stmt = stmt.where(MeuBESSProduct.needs_review == needs_review)
+    if titulo:
+        stmt = stmt.where(func.lower(MeuBESSProduct.title).like(f"%{titulo.lower()}%"))
+    if potencia_min is not None:
+        stmt = stmt.where(MeuBESSProduct.power >= potencia_min)
+    if potencia_max is not None:
+        stmt = stmt.where(MeuBESSProduct.power <= potencia_max)
+    if active is not None:
+        stmt = stmt.where(MeuBESSProduct.active == active)
+    if synced_from is not None:
+        stmt = stmt.where(MeuBESSProduct.last_synced_at >= synced_from)
+    if synced_to is not None:
+        stmt = stmt.where(MeuBESSProduct.last_synced_at <= synced_to)
+    if seen_from is not None:
+        stmt = stmt.where(MeuBESSProduct.first_seen_at >= seen_from)
+    if seen_to is not None:
+        stmt = stmt.where(MeuBESSProduct.first_seen_at <= seen_to)
+
+    stmt = stmt.order_by(MeuBESSProduct.title).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_product(db: AsyncSession, meubess_id: str) -> MeuBESSProduct | None:
+    result = await db.execute(
+        select(MeuBESSProduct).where(MeuBESSProduct.meubess_id == meubess_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_product(
+    db: AsyncSession, meubess_id: str, data: MeuBESSProductUpdate
+) -> MeuBESSProduct | None:
+    """Aplica edição manual / validação, preservando os campos não informados."""
+    product = await get_product(db, meubess_id)
+    if not product:
+        return None
+
+    if data.tipo_manual is not None:
+        product.tipo_manual = data.tipo_manual
+    if data.overrides_tecnicos is not None:
+        product.overrides_tecnicos = data.overrides_tecnicos
+    if data.validado_por is not None:
+        product.validado_por = data.validado_por
+    if data.marcar_validado:
+        product.needs_review = False
+        product.validado_em = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(product)
+    return product
 
 
 async def list_bess(db: AsyncSession, disponivel_only: bool = True) -> list[ProductBESS]:

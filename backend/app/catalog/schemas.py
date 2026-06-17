@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel
 
 
@@ -59,6 +59,96 @@ class ProductSolarRead(ProductSolarCreate):
     id: uuid.UUID
 
     model_config = {"from_attributes": True}
+
+
+class MeuBESSProductRead(BaseModel):
+    """Produto da réplica fiel MeuBESS (tabela meubess_products)."""
+    meubess_id: str
+
+    # identidade / comercial
+    enterprise_id: Optional[str] = None
+    title: Optional[str] = None
+    original_title: Optional[str] = None
+    description: Optional[str] = None
+    sku: Optional[str] = None
+    suplier_cod: Optional[str] = None
+    marca: Optional[str] = None
+    brand_id: Optional[str] = None
+    brand_title: Optional[str] = None
+    supplier_id: Optional[str] = None
+    supplier_title: Optional[str] = None
+    app: Optional[str] = None
+    active: Optional[bool] = None
+    view: Optional[str] = None
+    section: Optional[str] = None
+    type: Optional[str] = None
+    groups: Optional[str] = None
+    availability: Optional[str] = None
+
+    # categoria
+    category_id: Optional[str] = None
+    category_title: Optional[str] = None
+    category_section: Optional[str] = None
+
+    # elétricos / técnicos
+    power: Optional[float] = None
+    voltage: Optional[str] = None
+    phase: Optional[str] = None
+    breaker: Optional[str] = None
+    battery_inputs: Optional[int] = None
+    max_eps_power: Optional[float] = None
+    max_output_power: Optional[float] = None
+    qty_mppt: Optional[int] = None
+    qty_inputs_per_mppt: Optional[int] = None
+    voc_max_voltage: Optional[float] = None
+    mppt_min_voltage: Optional[float] = None
+    output_voltage: Optional[float] = None
+    string_current: Optional[float] = None
+    short_circuit_current_inverter: Optional[float] = None
+    short_circuit_current_module: Optional[float] = None
+    max_power_current: Optional[float] = None
+
+    # preço / fiscal / dimensão
+    price: Optional[float] = None
+    price_sale: Optional[float] = None
+    price_sale_until: Optional[str] = None
+    ncm: Optional[str] = None
+    unt_measure: Optional[str] = None
+    unt_multiples: Optional[str] = None
+    weight: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
+    length: Optional[float] = None
+    volumes: Optional[float] = None
+    fixing_type: Optional[str] = None
+    fixing_capacity: Optional[int] = None
+
+    # mídia
+    images: Optional[Any] = None
+
+    # classificação / validação
+    tipo_auto: Optional[str] = None
+    classificacao_confianca: Optional[str] = None
+    needs_review: bool = False
+    tipo_manual: Optional[str] = None
+    overrides_tecnicos: Optional[Any] = None
+    validado_por: Optional[str] = None
+    validado_em: Optional[datetime] = None
+
+    # origem / compliance
+    origem: str = "meubess"
+    first_seen_at: datetime
+    last_synced_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MeuBESSProductUpdate(BaseModel):
+    """Edição manual / validação de um produto da réplica."""
+    tipo_manual: Optional[str] = None
+    overrides_tecnicos: Optional[dict] = None
+    validado_por: Optional[str] = None
+    marcar_validado: bool = True  # se True, limpa needs_review e carimba validado_em
 
 
 class StandardLoadCreate(BaseModel):
