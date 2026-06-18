@@ -112,7 +112,7 @@ export function CatalogBESSPage() {
                   </p>
                   {syncResult.synced.length > 0 && (
                     <p className="mt-1 text-xs text-green-700">
-                      {syncResult.synced.map(p => `${p.marca} ${p.modelo}`).join(' · ')}
+                      {syncResult.synced.map(p => `${p.marca ?? ''} ${p.title ?? ''}`).join(' · ')}
                     </p>
                   )}
                   {syncResult.errors.length > 0 && (

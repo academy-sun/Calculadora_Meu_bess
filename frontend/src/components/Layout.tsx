@@ -6,6 +6,7 @@ import {
   PlusCircle,
   Sun,
   Zap,
+  Package,
   LogOut,
 } from 'lucide-react'
 
@@ -68,6 +69,7 @@ export function Layout() {
               <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Catálogos
               </p>
+              <NavItem to="/products" icon={Package} label="Catálogo MeuBESS" />
               <NavItem to="/catalog" icon={Sun} label="Solar e BESS" />
               <NavItem to="/catalog/loads" icon={Zap} label="Cargas Padrão" />
             </>

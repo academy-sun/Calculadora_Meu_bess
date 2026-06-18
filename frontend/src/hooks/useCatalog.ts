@@ -1,6 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiDelete, apiGet, apiPost, apiPut } from '@/lib/api'
-import type { ProductBESS, ProductSolar, StandardLoad } from '@/types'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '@/lib/api'
+import type {
+  MeuBESSProduct, ProductBESS, ProductFilters, ProductSolar, ProductUpdate, StandardLoad,
+} from '@/types'
+
+// ── Réplica MeuBESS (tabela única meubess_products) ──────────────────────────
+
+function buildQuery(filters: ProductFilters): string {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') params.set(k, String(v))
+  })
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export function useProducts(filters: ProductFilters = {}) {
+  return useQuery({
+    queryKey: ['catalog', 'products', filters],
+    queryFn: () => apiGet<MeuBESSProduct[]>(`/catalog/products${buildQuery(filters)}`),
+  })
+}
+
+export function useUpdateProduct() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ meubess_id, ...data }: ProductUpdate & { meubess_id: string }) =>
+      apiPatch<MeuBESSProduct>(`/catalog/products/${meubess_id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['catalog', 'products'] }),
+  })
+}
 
 // ── BESS ─────────────────────────────────────────────────────────────────────
 
@@ -76,11 +105,11 @@ export function useDeleteSolar() {
 
 export interface SyncedProduct {
   id: string
-  table: 'bess' | 'solar'
-  tipo: string
-  marca: string
-  modelo: string
-  preco: number
+  tipo_auto: string
+  confianca?: string
+  needs_review?: boolean
+  marca?: string
+  title?: string
 }
 
 export interface SyncError {
@@ -93,7 +122,8 @@ export interface SyncResult {
   errors: SyncError[]
   total_synced: number
   total_errors: number
-  total_skipped?: number
+  por_tipo?: Record<string, number>
+  needs_review_count?: number
 }
 
 export function useSyncCatalog() {
@@ -101,8 +131,7 @@ export function useSyncCatalog() {
   return useMutation({
     mutationFn: () => apiPost<SyncResult>('/catalog/sync', {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['catalog', 'bess'] })
-      qc.invalidateQueries({ queryKey: ['catalog', 'solar'] })
+      qc.invalidateQueries({ queryKey: ['catalog', 'products'] })
     },
   })
 }

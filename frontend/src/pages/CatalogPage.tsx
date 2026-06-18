@@ -259,7 +259,7 @@ export function CatalogPage() {
                 <p className="font-medium">
                   ✅ {syncResult.total_synced} produto(s) sincronizado(s)
                   {syncResult.total_errors  > 0 && ` · ⚠ ${syncResult.total_errors} erro(s)`}
-                  {(syncResult.total_skipped ?? 0) > 0 && ` · ⏭ ${syncResult.total_skipped} ignorado(s)`}
+                  {(syncResult.needs_review_count ?? 0) > 0 && ` · 🔍 ${syncResult.needs_review_count} a revisar`}
                 </p>
               )}
             </div>

@@ -47,6 +47,112 @@ export interface ProductSolar {
   disponivel: boolean
 }
 
+// Réplica fiel do catálogo MeuBESS (tabela única meubess_products)
+export type TipoProduto =
+  | 'bateria' | 'inversor_hibrido' | 'inversor_string'
+  | 'modulo_fv' | 'acessorio' | 'indefinido'
+
+export interface MeuBESSProduct {
+  meubess_id: string
+
+  // identidade / comercial
+  enterprise_id?: string
+  title?: string
+  original_title?: string
+  description?: string
+  sku?: string
+  suplier_cod?: string
+  marca?: string
+  brand_id?: string
+  brand_title?: string
+  supplier_id?: string
+  supplier_title?: string
+  app?: string
+  active?: boolean
+  view?: string
+  section?: string
+  type?: string
+  groups?: string
+  availability?: string
+
+  // categoria
+  category_id?: string
+  category_title?: string
+  category_section?: string
+
+  // elétricos / técnicos
+  power?: number
+  voltage?: string
+  phase?: string
+  breaker?: string
+  battery_inputs?: number
+  max_eps_power?: number
+  max_output_power?: number
+  qty_mppt?: number
+  qty_inputs_per_mppt?: number
+  voc_max_voltage?: number
+  mppt_min_voltage?: number
+  output_voltage?: number
+  string_current?: number
+  short_circuit_current_inverter?: number
+  short_circuit_current_module?: number
+  max_power_current?: number
+
+  // preço / fiscal / dimensão
+  price?: number
+  price_sale?: number
+  price_sale_until?: string
+  ncm?: string
+  unt_measure?: string
+  unt_multiples?: string
+  weight?: number
+  width?: number
+  height?: number
+  length?: number
+  volumes?: number
+  fixing_type?: string
+  fixing_capacity?: number
+
+  // mídia
+  images?: unknown
+
+  // classificação / validação
+  tipo_auto?: TipoProduto
+  classificacao_confianca?: 'alta' | 'media' | 'baixa'
+  needs_review: boolean
+  tipo_manual?: TipoProduto
+  overrides_tecnicos?: Record<string, unknown>
+  validado_por?: string
+  validado_em?: string
+
+  // origem / compliance
+  origem: string
+  first_seen_at: string
+  last_synced_at: string
+}
+
+export interface ProductFilters {
+  tipo?: string
+  marca?: string
+  app?: string
+  needs_review?: boolean
+  titulo?: string
+  potencia_min?: number
+  potencia_max?: number
+  active?: boolean
+  synced_from?: string
+  synced_to?: string
+  seen_from?: string
+  seen_to?: string
+}
+
+export interface ProductUpdate {
+  tipo_manual?: TipoProduto
+  overrides_tecnicos?: Record<string, unknown>
+  validado_por?: string
+  marcar_validado?: boolean
+}
+
 export interface StandardLoad {
   id: string
   nome: string
