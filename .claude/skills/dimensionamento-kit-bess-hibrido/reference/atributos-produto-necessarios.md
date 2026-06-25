@@ -55,7 +55,8 @@ como `qty_mppt`/`qty_inputs_per_mppt` na réplica.
 ### Derivados (calcule)
 - **C-rate** = potência de descarga ÷ capacidade = (corrente × tensão) ÷ capacidade.
   Ex.: 27 A × ~192 V ≈ 5,2 kW ÷ 5,02 kWh ≈ **1 C** (descarrega em ~1 h).
-- **Necessita caixa de junção (JBW)** = `baterias_em_paralelo ≥ 2`.
+- **Caixa de junção (JBW)** = `nº de entradas com ≥ 2 baterias em paralelo` (por
+  entrada, não por bateria; ver R9).
 
 ---
 

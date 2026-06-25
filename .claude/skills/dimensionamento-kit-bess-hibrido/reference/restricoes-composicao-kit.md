@@ -19,31 +19,36 @@ total_baterias ≤ inversor.entradas_bateria × bateria.max_em_paralelo
 - ⚠️ Hoje `compatibility.py` calcula `n_baterias = ⌈energia/capacidade⌉` **sem este
   teto** — é o bug central a corrigir.
 
-## R2 — Potência entregável pela bateria (limite de corrente) — garante a partida
+## R2 — Potência entregável pela bateria (limite de corrente POR ENTRADA)
 
-A potência que chega às cargas pela via DC é limitada pela **corrente** (da bateria
-e da entrada do inversor), não pela contagem de baterias. **Precisa cobrir o pico de
-partida das cargas** (`Pp`), senão o inversor desarma mesmo sendo "potente".
+O limite é **por entrada**: cada entrada de bateria do inversor aceita no máximo
+`corrente_max_entrada` (WEG SIW400H = **50 A por entrada**). A corrente das baterias
+em paralelo **numa mesma entrada** soma, mas é **truncada** nesse teto. Portanto a
+potência DC depende de **como as baterias são distribuídas** entre as entradas, não
+só de quantas existem.
 
 ```
-# potência DC disponível (use corrente de pico da bateria p/ a partida):
-i_entrada      = min(baterias_na_entrada × bateria.corrente_pico, inversor.corrente_max_entrada)
-p_dc_pico      = Σ_entradas (i_entrada × bateria.tensao)
-pico_entregavel = min(p_dc_pico, inversor.potencia_pico_eps)
-exigir: pico_entregavel ≥ Pp_das_cargas        # senão a partida não é garantida
-
-# nº de baterias que a POTÊNCIA exige (independente da energia):
-n_por_potencia = ⌈ Pp / (bateria.corrente_pico × bateria.tensao) ⌉   # respeitando o cap da entrada
+# potência DC por entrada (corrente truncada no teto da entrada):
+i_entrada(e)   = min( n_baterias_na_entrada(e) × bateria.corrente, inversor.corrente_max_entrada )
+p_dc           = Σ_entradas ( i_entrada(e) × tensao_bateria )
+pico_entregavel = min( p_dc(corrente_PICO), inversor.potencia_pico_eps )
+exigir: pico_entregavel ≥ Pp   E   p_dc(corrente_CONTÍNUA) ≥ Pn
 ```
 
-- A corrente máx por entrada satura com ~2 baterias (ex. WEG: entrada 50 A, bateria
-  ~27 A contínua / 65 A pico → 2 baterias já saturam). Baterias **além** disso
-  adicionam **energia**, não potência. É o que a "Tabela EPS" da WEG tabula.
-- Distribuir baterias entre as entradas aumenta a potência; empilhar tudo numa
-  entrada, não.
-- **Por isso o nº final de baterias é `max(n_por_energia, n_por_potencia)`** (ver
-  metodologia §5). Há casos em que a potência de partida exige mais baterias do que a
-  energia — não basta dimensionar pela energia.
+**Regra de distribuição (chave):** espalhe as baterias o mais uniformemente possível
+entre as entradas. Concentrar numa só **desperdiça** potência.
+
+> Exemplo do treinamento: 3 baterias de 10 kWh num inversor tri (entrada de 50 A).
+> - **3 numa entrada + 0 na outra:** corrente truncada em 50 A → só ~19 kW (a 3ª
+>   bateria vira só energia, não potência). A outra entrada fica ociosa.
+> - **2 numa entrada + 1 na outra (correto):** entrada A = 50 A (2 baterias saturam),
+>   entrada B = 27 A (1 bateria) → ~77 A contínuos; no pico (65 A/bateria) ambas
+>   saturam em 50 A → ~100 A. **Muito mais potência.**
+
+- **Nº final de baterias = `max(n_por_energia, n_por_potencia)`** (ver metodologia §5):
+  há casos em que a potência de partida exige mais baterias (e a distribuição certa)
+  do que a energia. `n_por_potencia` deve considerar o teto por entrada — adicionar
+  baterias além da saturação de uma entrada só ajuda se forem para **outra** entrada.
 
 ## R3 — Potência de pico das cargas
 
@@ -141,12 +146,22 @@ projeto.
 ## R9 — Acessório de paralelismo de baterias (caixa de junção / JBW)
 
 ```
-necessita_caixa_juncao = (baterias_em_paralelo_por_entrada ≥ 2)
+n_jbw = número de ENTRADAS que recebem ≥ 2 baterias em paralelo
 ```
 
-- 1 bateria = ligação direta (sem acessório). ≥ 2 baterias numa entrada = 1 caixa de
-  junção. No trifásico com baterias nas 2 entradas, 1 caixa por entrada.
+A caixa de junção faz o paralelismo CC **dentro de uma entrada**. Logo conta-se **por
+entrada com ≥ 2 baterias**, não por entrada que tem bateria.
+
+- 1 bateria numa entrada = ligação **direta**, sem caixa.
+- ≥ 2 baterias numa entrada = **1 caixa** naquela entrada.
+- Exemplos (tri, 2 entradas):
+  - distribuição **2 + 1** → só a entrada com 2 baterias usa caixa → **1 JBW**.
+  - distribuição **2 + 2** (4 baterias) → as duas entradas usam caixa → **2 JBW**.
+  - distribuição **1 + 1** (2 baterias) → ambas diretas → **0 JBW**.
 - Impacta o **custo/BOM** do kit, não a viabilidade elétrica.
+
+> **MS Box ≠ JBW.** A MS Box é para **paralelismo de inversores** trifásicos
+> (vários inversores), não para baterias. Um único inversor **não** precisa de MS Box.
 
 ---
 

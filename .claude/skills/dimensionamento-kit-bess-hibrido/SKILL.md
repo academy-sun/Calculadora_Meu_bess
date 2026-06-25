@@ -60,9 +60,11 @@ Detalhe e justificativa em `reference/restricoes-composicao-kit.md`. Em síntese
 
 1. **Contagem de baterias:** `total_baterias ≤ inversor.entradas_bateria ×
    bateria.max_em_paralelo`. (WEG mono = 1 entrada × 4 = 4; tri = 2 × 4 = 8.)
-2. **Potência entregável:** limitada pela **corrente máx por entrada** do inversor
-   × tensão da bateria, não pela contagem. Acima de ~2 baterias por entrada,
-   adicionar bateria dá **energia**, não potência. (É o que a "Tabela EPS" mostra.)
+2. **Potência entregável (limite POR ENTRADA):** cada entrada tem teto de corrente
+   (WEG = 50 A). Baterias em paralelo na MESMA entrada somam corrente até esse teto;
+   acima dele, adicionar bateria dá **energia**, não potência. **Distribua** as
+   baterias entre as entradas (ex.: 2+1, não 3+0) para extrair mais potência. O nº
+   final de baterias = `max(por energia, por potência de partida)`.
 3. **Potência de pico:** o pico das cargas (`Pp`, função do IP/IN) deve caber na
    **potência de pico** do inversor (sustentada ~60 s; depois cai para a nominal).
 4. **Paralelismo de inversores:** `qtd_inversores ≤ inversor.max_paralelo` (WEG
@@ -85,8 +87,10 @@ Detalhe e justificativa em `reference/restricoes-composicao-kit.md`. Em síntese
    trifásica nunca em inversor mono; inversor tri 220/380 não alimenta mono 127 V.
    **Split-phase** (ex. SIW200H linha S) alimenta 127 e 220 V mono simultaneamente —
    prefira-o quando há mistura 127/220.
-9. **Acessório (caixa de junção / JBW):** necessário quando há ≥ 2 baterias em
-   paralelo numa entrada.
+9. **Acessório (caixa de junção / JBW):** `n_jbw` = nº de **entradas** com ≥ 2
+   baterias em paralelo (ex.: distribuição 2+1 → 1 JBW; 2+2 → 2 JBW; 1+1 → 0). A
+   **MS Box** é outra coisa: serve para paralelizar **inversores** tri (vários),
+   não baterias — um único inversor não precisa.
 
 ## Metodologia de dimensionamento (resumo)
 

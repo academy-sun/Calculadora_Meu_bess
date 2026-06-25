@@ -88,7 +88,8 @@ consulte `datasheets/DATASHEET_SIW400H_K007_T030_W20_PT_web (1).pdf`.
 
 ## Acessórios mencionados (não são produtos de kit, mas condicionam a montagem)
 
-- **Caixa de junção (JBW):** faz o paralelismo CC das baterias. 1 bateria = ligação
-  direta (sem JBW); ≥ 2 baterias = 1 JBW por entrada com baterias em paralelo.
+- **Caixa de junção (JBW):** faz o paralelismo CC das baterias **dentro de uma
+  entrada**. Conta-se 1 JBW por **entrada com ≥ 2 baterias** (1 bateria = ligação
+  direta). Ex. tri com distribuição 2+1 → 1 JBW; 2+2 → 2 JBW.
 - **MS Box:** gestão de energia para paralelismo de inversores trifásicos.
 - **Medidor / TC:** necessário para conexão à rede (zero-export / carga da bateria).
