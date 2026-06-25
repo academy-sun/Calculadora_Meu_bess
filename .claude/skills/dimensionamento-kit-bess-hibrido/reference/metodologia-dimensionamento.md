@@ -69,12 +69,16 @@ Totais por soma. Daí:
 
 ## 5. Seleção das baterias
 
-1. `n_baterias = ⌈E_BAT / capacidade_util_da_bateria⌉`.
-2. Respeite o **limite de contagem**: `n_baterias ≤ entradas × máx_em_paralelo`.
-3. Verifique a **potência**: poucas baterias limitam a potência entregável (a
-   corrente máx por entrada satura com ~2 baterias). Se o pico exige mais potência,
-   pode ser necessário mais baterias **ou** distribuí-las entre entradas — ver a
-   "Tabela EPS" potência-vs-nº-de-baterias.
+1. **Por energia:** `n_energia = ⌈E_BAT / capacidade_util_da_bateria⌉`.
+2. **Por potência (R2):** `n_potencia = ⌈Pp / (corrente_pico_bateria × tensao)⌉` —
+   quantas baterias são necessárias para **entregar o pico de partida** das cargas
+   (a corrente da bateria/entrada limita a potência, não só a energia).
+3. **Nº de baterias = `max(n_energia, n_potencia)`.** Não basta dimensionar pela
+   energia: há casos (muita partida, pouco tempo de backup) em que a potência exige
+   mais baterias. Depois **respeite o teto** `n_baterias ≤ entradas × máx_em_paralelo`
+   (R1); se estourar, vá para mais inversores (R4).
+4. Confirme o **pico entregável** = `min(potência DC das baterias, pico EPS do
+   inversor) ≥ Pp` — ver "Tabela EPS" potência-vs-nº-de-baterias.
 4. **Reserva de backup:** pode-se reservar parte da capacidade só p/ emergência e
    deixar o resto ciclar em autoconsumo (parametrização no monitoramento).
 

@@ -19,19 +19,31 @@ total_baterias ≤ inversor.entradas_bateria × bateria.max_em_paralelo
 - ⚠️ Hoje `compatibility.py` calcula `n_baterias = ⌈energia/capacidade⌉` **sem este
   teto** — é o bug central a corrigir.
 
-## R2 — Potência entregável (limite de corrente, não de contagem)
+## R2 — Potência entregável pela bateria (limite de corrente) — garante a partida
+
+A potência que chega às cargas pela via DC é limitada pela **corrente** (da bateria
+e da entrada do inversor), não pela contagem de baterias. **Precisa cobrir o pico de
+partida das cargas** (`Pp`), senão o inversor desarma mesmo sendo "potente".
 
 ```
-potencia_por_entrada ≤ inversor.corrente_max_por_entrada × bateria.tensao
-potencia_total ≤ min(inversor.potencia_pico, Σ potencia_por_entrada)
+# potência DC disponível (use corrente de pico da bateria p/ a partida):
+i_entrada      = min(baterias_na_entrada × bateria.corrente_pico, inversor.corrente_max_entrada)
+p_dc_pico      = Σ_entradas (i_entrada × bateria.tensao)
+pico_entregavel = min(p_dc_pico, inversor.potencia_pico_eps)
+exigir: pico_entregavel ≥ Pp_das_cargas        # senão a partida não é garantida
+
+# nº de baterias que a POTÊNCIA exige (independente da energia):
+n_por_potencia = ⌈ Pp / (bateria.corrente_pico × bateria.tensao) ⌉   # respeitando o cap da entrada
 ```
 
 - A corrente máx por entrada satura com ~2 baterias (ex. WEG: entrada 50 A, bateria
-  ~27 A → 2 baterias ≈ 50 A). Baterias **além** disso adicionam **energia**, não
-  potência. É exatamente o que a "Tabela EPS" da WEG tabula (potência vs nº de
-  baterias).
-- Por isso, distribuir baterias entre as entradas aumenta a potência; empilhar tudo
-  numa entrada, não.
+  ~27 A contínua / 65 A pico → 2 baterias já saturam). Baterias **além** disso
+  adicionam **energia**, não potência. É o que a "Tabela EPS" da WEG tabula.
+- Distribuir baterias entre as entradas aumenta a potência; empilhar tudo numa
+  entrada, não.
+- **Por isso o nº final de baterias é `max(n_por_energia, n_por_potencia)`** (ver
+  metodologia §5). Há casos em que a potência de partida exige mais baterias do que a
+  energia — não basta dimensionar pela energia.
 
 ## R3 — Potência de pico das cargas
 
