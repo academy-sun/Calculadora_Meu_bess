@@ -116,6 +116,27 @@ export interface MeuBESSProduct {
   // mídia
   images?: unknown
 
+  // dimensionamento (datasheet)
+  peak_power_kw?: number
+  peak_power_duration_s?: number
+  battery_input_max_current_a?: number
+  battery_voltage_min_v?: number
+  battery_voltage_max_v?: number
+  eps_output_voltage?: string
+  split_phase?: boolean
+  max_parallel_units?: number
+  usable_capacity_kwh?: number
+  nominal_capacity_kwh?: number
+  dod_percent?: number
+  max_parallel_batteries?: number
+  max_continuous_current_a?: number
+  peak_discharge_current_a?: number
+  nominal_voltage_v?: number
+  operating_voltage_min_v?: number
+  operating_voltage_max_v?: number
+  chemistry?: string
+  compatible_inverters?: string
+
   // classificação / validação
   tipo_auto?: TipoProduto
   classificacao_confianca?: 'alta' | 'media' | 'baixa'
@@ -151,6 +172,8 @@ export interface ProductUpdate {
   overrides_tecnicos?: Record<string, unknown>
   validado_por?: string
   marcar_validado?: boolean
+  // campos de dimensionamento (colunas dedicadas, enviados diretamente)
+  [key: string]: unknown
 }
 
 export interface StandardLoad {

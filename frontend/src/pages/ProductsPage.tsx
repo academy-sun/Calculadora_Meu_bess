@@ -49,6 +49,54 @@ function fmtDate(v: string | undefined): string {
 
 // ── página ───────────────────────────────────────────────────────────────────
 
+// ── dimensionamento (campos editáveis por tipo) ──────────────────────────────
+
+type DimField = { key: keyof MeuBESSProduct; label: string; kind: 'num' | 'text' | 'bool' }
+
+const DIM_INVERSOR: DimField[] = [
+  { key: 'peak_power_kw',               label: 'Potência de pico (kW)',       kind: 'num' },
+  { key: 'peak_power_duration_s',       label: 'Duração do pico (s)',         kind: 'num' },
+  { key: 'battery_input_max_current_a', label: 'Corrente máx/entrada (A)',    kind: 'num' },
+  { key: 'battery_voltage_min_v',       label: 'Tensão bateria mín (V)',      kind: 'num' },
+  { key: 'battery_voltage_max_v',       label: 'Tensão bateria máx (V)',      kind: 'num' },
+  { key: 'eps_output_voltage',          label: 'Tensão saída EPS',            kind: 'text' },
+  { key: 'split_phase',                 label: 'Split-phase',                 kind: 'bool' },
+  { key: 'max_parallel_units',          label: 'Máx inversores paralelo',     kind: 'num' },
+]
+
+const DIM_BATERIA: DimField[] = [
+  { key: 'usable_capacity_kwh',     label: 'Capacidade útil (kWh)',     kind: 'num' },
+  { key: 'nominal_capacity_kwh',    label: 'Capacidade nominal (kWh)',  kind: 'num' },
+  { key: 'dod_percent',             label: 'DoD (%)',                   kind: 'num' },
+  { key: 'max_parallel_batteries',  label: 'Máx em paralelo',           kind: 'num' },
+  { key: 'max_continuous_current_a', label: 'Corrente máx contínua (A)', kind: 'num' },
+  { key: 'peak_discharge_current_a', label: 'Corrente pico descarga (A)', kind: 'num' },
+  { key: 'nominal_voltage_v',       label: 'Tensão nominal (V)',        kind: 'num' },
+  { key: 'operating_voltage_min_v', label: 'Tensão operação mín (V)',   kind: 'num' },
+  { key: 'operating_voltage_max_v', label: 'Tensão operação máx (V)',   kind: 'num' },
+  { key: 'chemistry',               label: 'Química',                   kind: 'text' },
+  { key: 'compatible_inverters',    label: 'Inversores compatíveis',    kind: 'text' },
+]
+
+const REQ_INVERSOR: (keyof MeuBESSProduct)[] = ['peak_power_kw', 'battery_input_max_current_a', 'eps_output_voltage']
+const REQ_BATERIA: (keyof MeuBESSProduct)[] = ['usable_capacity_kwh', 'max_parallel_batteries', 'max_continuous_current_a', 'nominal_voltage_v']
+
+/** Valor efetivo: override manual vence o nativo (espelha o backend). */
+function effVal(p: MeuBESSProduct, key: string): unknown {
+  const ov = p.overrides_tecnicos as Record<string, unknown> | undefined
+  return ov?.[key] ?? (p as unknown as Record<string, unknown>)[key]
+}
+
+/** Faltam dados técnicos obrigatórios para o tipo? (só inversor híbrido / bateria) */
+function dadosTecnicosIncompletos(p: MeuBESSProduct): boolean {
+  const t = tipoEfetivo(p)
+  if (t === 'inversor_hibrido')
+    return REQ_INVERSOR.some(k => effVal(p, k) == null) || effVal(p, 'battery_inputs') == null
+  if (t === 'bateria')
+    return REQ_BATERIA.some(k => effVal(p, k) == null)
+  return false
+}
+
 export function ProductsPage() {
   const [filters, setFilters] = useState<ProductFilters>({})
   const { data: products = [], isLoading } = useProducts(filters)
@@ -196,6 +244,10 @@ export function ProductsPage() {
                         <span className="flex items-center gap-1 text-xs text-amber-600">
                           <AlertTriangle size={13} /> A revisar
                         </span>
+                      ) : dadosTecnicosIncompletos(p) ? (
+                        <span className="flex items-center gap-1 text-xs text-orange-600">
+                          <AlertTriangle size={13} /> Dados incompletos
+                        </span>
                       ) : p.validado_em ? (
                         <span className="flex items-center gap-1 text-xs text-green-600">
                           <CheckCircle2 size={13} /> Validado
@@ -236,20 +288,45 @@ function DetailModal({ product, onClose }: { product: MeuBESSProduct; onClose: (
   const [error, setError] = useState<string | null>(null)
 
   const t = tipoEfetivo(product)
+  const dimFields: DimField[] = t === 'bateria' ? DIM_BATERIA
+    : t === 'inversor_hibrido' || t === 'inversor_string' ? DIM_INVERSOR : []
+
+  const [dim, setDim] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const f of dimFields) {
+      const v = effVal(product, f.key as string)
+      init[f.key as string] = v == null ? '' : f.kind === 'bool' ? (v ? 'true' : 'false') : String(v)
+    }
+    return init
+  })
 
   async function handleSave(marcarValidado: boolean) {
     setError(null)
+    // battery_inputs / max_eps_power são nativos da MeuBESS → vão para overrides
     const overrides: Record<string, unknown> = {}
     if (batteryInputs !== '' && Number(batteryInputs) !== product.battery_inputs)
       overrides.battery_inputs = Number(batteryInputs)
     if (maxEps !== '' && Number(maxEps) !== product.max_eps_power)
       overrides.max_eps_power = Number(maxEps)
+
+    // campos de dimensionamento (colunas dedicadas) → enviados diretamente
+    const dimChanges: Record<string, unknown> = {}
+    for (const f of dimFields) {
+      const raw = dim[f.key as string]
+      const val: unknown = raw === '' ? null
+        : f.kind === 'num' ? Number(raw)
+        : f.kind === 'bool' ? raw === 'true' : raw
+      if (val !== (product as unknown as Record<string, unknown>)[f.key as string])
+        dimChanges[f.key as string] = val
+    }
+
     try {
       await updateProduct.mutateAsync({
         meubess_id: product.meubess_id,
         tipo_manual: tipoManual || undefined,
         overrides_tecnicos: Object.keys(overrides).length ? overrides : undefined,
         marcar_validado: marcarValidado,
+        ...dimChanges,
       })
       onClose()
     } catch (err) {
@@ -306,6 +383,38 @@ function DetailModal({ product, onClose }: { product: MeuBESSProduct; onClose: (
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
             </div>
           </div>
+          {dimFields.length > 0 && (
+            <div className="mt-4 border-t border-amber-200 pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase text-amber-700">
+                Dados de dimensionamento (datasheet)
+                {dadosTecnicosIncompletos(product) && (
+                  <span className="ml-1 normal-case text-orange-600"> — incompletos</span>
+                )}
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {dimFields.map(f => (
+                  <div key={f.key as string}>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">{f.label}</label>
+                    {f.kind === 'bool' ? (
+                      <select value={dim[f.key as string] ?? ''}
+                        onChange={e => setDim(d => ({ ...d, [f.key as string]: e.target.value }))}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm">
+                        <option value="">—</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                      </select>
+                    ) : (
+                      <input type={f.kind === 'num' ? 'number' : 'text'} step="any"
+                        value={dim[f.key as string] ?? ''}
+                        onChange={e => setDim(d => ({ ...d, [f.key as string]: e.target.value }))}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             <button onClick={() => handleSave(false)} disabled={updateProduct.isPending}
