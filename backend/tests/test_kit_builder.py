@@ -1,0 +1,148 @@
+"""
+Testes do motor de montagem de kit (R1–R9), com os modelos WEG validados.
+"""
+
+from app.engines.kit_builder import build_kits
+
+
+class FakeProduct:
+    """Objeto leve que imita MeuBESSProduct (eff() usa getattr com default None)."""
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+# ── catálogo de teste (specs WEG reais) ───────────────────────────────────────
+
+def cb100(preco=11974.0):
+    return FakeProduct(
+        meubess_id="cb100", title="SBW CB100 W00", marca="WEG",
+        usable_capacity_kwh=10.07, max_parallel_batteries=4,
+        max_continuous_current_a=27, peak_discharge_current_a=65,
+        nominal_voltage_v=384, operating_voltage_min_v=348, operating_voltage_max_v=436.8,
+        compatible_inverters="SIW200H; SIW400H", preco=preco,
+    )
+
+def m050():
+    return FakeProduct(
+        meubess_id="m050", title="W - WEG - SIW200H M050 - Inversor Híbrido", marca="WEG",
+        peak_power_kw=6.0, max_eps_power=5.0, battery_inputs=1,
+        battery_input_max_current_a=40, max_parallel_units=5,
+        eps_output_voltage="220", split_phase=False,
+        battery_voltage_min_v=80, battery_voltage_max_v=480, preco=6919.0,
+    )
+
+def s057():
+    return FakeProduct(
+        meubess_id="s057", title="W - WEG - SIW200H S057 - SplitPhase", marca="WEG",
+        peak_power_kw=7.695, max_eps_power=5.7, battery_inputs=1,
+        battery_input_max_current_a=50, max_parallel_units=4,
+        eps_output_voltage="127/220", split_phase=True,
+        battery_voltage_min_v=85, battery_voltage_max_v=460, preco=7560.0,
+    )
+
+def t015():
+    return FakeProduct(
+        meubess_id="t015", title="W - WEG - SIW400H T015 - Trifásico", marca="WEG",
+        peak_power_kw=18.0, max_eps_power=15.0, battery_inputs=2,
+        battery_input_max_current_a=50, max_parallel_units=4,
+        eps_output_voltage="380/220", split_phase=False,
+        battery_voltage_min_v=150, battery_voltage_max_v=800, preco=14715.0,
+    )
+
+def t030():
+    return FakeProduct(
+        meubess_id="t030", title="W - WEG - SIW400H T030 - Trifásico", marca="WEG",
+        peak_power_kw=36.0, max_eps_power=30.0, battery_inputs=2,
+        battery_input_max_current_a=50, max_parallel_units=4,
+        eps_output_voltage="380/220", split_phase=False,
+        battery_voltage_min_v=150, battery_voltage_max_v=800, preco=17932.0,
+    )
+
+
+# ── Residencial monofásico (mistura 127/220 → exige split-phase) ──────────────
+
+class TestResidencial:
+    def _run(self):
+        return build_kits(
+            [m050(), s057()], [cb100()],
+            pn_kva=2.40, pp_kva=4.33, e_bat_kwh=13.5,
+            fase_instalacao="monofasico", tensoes_carga={"127", "220"},
+        )
+
+    def test_split_phase_e_escolhido_e_m050_descartado(self):
+        kits, skipped = self._run()
+        assert kits, "deveria haver ao menos um kit viável"
+        melhor = kits[0]
+        assert melhor.inversor.meubess_id == "s057"  # split-phase, não o M050
+        # M050 (EPS só 220) descartado por R8 (não atende 127 V)
+        assert any(s.produto_id == "m050" and "127" in s.motivo for s in skipped)
+
+    def test_duas_baterias_e_uma_caixa_de_juncao(self):
+        kits, _ = self._run()
+        melhor = kits[0]
+        assert melhor.qtd_baterias == 2          # energia manda (13,5 kWh / 10,07)
+        assert melhor.qtd_inversores == 1
+        assert melhor.distribuicao_baterias == [2]
+        assert melhor.n_caixas_juncao == 1
+        assert melhor.pico_entregavel_kw >= 4.33
+
+
+# ── Comercial trifásico ───────────────────────────────────────────────────────
+
+class TestComercial:
+    def _run(self):
+        return build_kits(
+            [t015(), t030()], [cb100()],
+            pn_kva=8.67, pp_kva=22.4, e_bat_kwh=22.2,
+            fase_instalacao="trifasico", tensoes_carga={"220", "380"},
+        )
+
+    def test_t030_single_3_baterias_distribuidas_2_1(self):
+        kits, _ = self._run()
+        kit_t030 = next(k for k in kits if k.inversor.meubess_id == "t030")
+        assert kit_t030.qtd_inversores == 1
+        assert kit_t030.qtd_baterias == 3              # energia (22,2 / 10,07)
+        assert kit_t030.distribuicao_baterias == [2, 1]  # 2 numa entrada, 1 na outra
+        assert kit_t030.n_caixas_juncao == 1            # só a entrada com 2 baterias
+        assert kit_t030.pico_entregavel_kw >= 22.4
+
+    def test_t015_escala_para_2_inversores_no_pico(self):
+        kits, _ = self._run()
+        kit_t015 = next((k for k in kits if k.inversor.meubess_id == "t015"), None)
+        assert kit_t015 is not None
+        # pico 22,4 > 18 kVA de um T015 → precisa de 2 em paralelo (R4)
+        assert kit_t015.qtd_inversores == 2
+
+
+# ── Restrições de dado / tensão ───────────────────────────────────────────────
+
+class TestRestricoes:
+    def test_inversor_sem_pico_e_descartado_com_motivo(self):
+        inv_incompleto = FakeProduct(
+            meubess_id="x", title="Inversor sem specs", marca="WEG",
+            battery_inputs=1, battery_input_max_current_a=50, max_eps_power=5,
+        )  # falta peak_power_kw
+        kits, skipped = build_kits(
+            [inv_incompleto], [cb100()],
+            pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0,
+        )
+        assert kits == []
+        assert any(s.produto_id == "x" and "peak_power_kw" in s.motivo for s in skipped)
+
+    def test_r8_bloqueia_carga_127_em_inversor_220(self):
+        kits, skipped = build_kits(
+            [m050()], [cb100()],
+            pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0,
+            tensoes_carga={"127"},
+        )
+        assert kits == []
+        assert any(s.produto_id == "m050" for s in skipped)
+
+    def test_sem_tensao_carga_nao_bloqueia_por_r8(self):
+        # Sem tensões de carga informadas, R8 não filtra (pendência, não erro).
+        kits, _ = build_kits(
+            [m050()], [cb100()],
+            pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0,
+        )
+        assert kits, "sem tensão de carga, M050 deve montar kit normalmente"
