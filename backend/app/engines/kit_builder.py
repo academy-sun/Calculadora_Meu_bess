@@ -79,6 +79,36 @@ def _serve_tensoes(inv, tensoes_carga: set[str]) -> tuple[bool, str | None]:
     return True, None
 
 
+def _inversor_e_trifasico(inv) -> bool:
+    eps = _parse_eps_voltages(eff(inv, "eps_output_voltage"))
+    if "380" in eps:
+        return True
+    return (eff(inv, "phase") or "").strip().lower() == "trifasico"
+
+
+def _alertas_rede(inv, fase_instalacao: str | None, padrao_entrada: str | None) -> list[str]:
+    """
+    R7 — compatibilidade do inversor com a rede da unidade (apenas ALERTA).
+    `padrao_entrada` ∈ {mono_127, mono_220, tri_127_220, tri_220_380} (opcional).
+    """
+    alertas: list[str] = []
+    inv_tri = _inversor_e_trifasico(inv)
+    eps = _parse_eps_voltages(eff(inv, "eps_output_voltage"))
+
+    unidade_mono = (padrao_entrada or "").startswith("mono") or fase_instalacao == "monofasico"
+    if inv_tri and unidade_mono:
+        alertas.append(
+            "Inversor trifásico em unidade monofásica — requer aumento de carga / "
+            "mudança do padrão de entrada junto à concessionária."
+        )
+    if padrao_entrada == "tri_127_220" and inv_tri and "380" in eps:
+        alertas.append(
+            "Rede trifásica 127/220 V com inversor 380/220 V — requer autotransformador "
+            "de potência adequada."
+        )
+    return alertas
+
+
 # ── distribuição de baterias / potência DC (R2) ───────────────────────────────
 
 def _distribuir(n_bat: int, n_entradas: int) -> list[int]:
@@ -157,6 +187,7 @@ def build_kits(
     e_bat_kwh: float,
     fase_instalacao: str | None = None,
     tensoes_carga: set[str] | None = None,
+    padrao_entrada: str | None = None,
     require_same_brand: bool = True,
 ) -> tuple[list[KitBESS], list[SkipReason]]:
     """
@@ -184,6 +215,9 @@ def build_kits(
             if not ok:
                 skipped.append(SkipReason(_id(inv), _tit(inv), why))
                 continue
+
+        # R7 — alertas de compatibilidade com a rede da unidade (não bloqueia)
+        alertas_rede = _alertas_rede(inv, fase_instalacao, padrao_entrada)
 
         # R3/R4 — potência: escala nº de inversores por pico e nominal
         qtd_inv = max(
@@ -236,7 +270,7 @@ def build_kits(
             pico_dc = _pico_dc_kw(dist, ia["i_input_a"], ba["i_pico_a"], ba["tensao_v"])
             n_jbw = sum(1 for x in dist if x >= 2)
 
-            alertas: list[str] = []
+            alertas: list[str] = list(alertas_rede)
             # R6 — carga mono em inversor tri (advisory; precisa da maior carga mono)
             if fase_instalacao == "trifasico" and tensoes_carga:
                 alertas.append("verifique cargas monofásicas ≤ 1/3 da potência (alerta)")

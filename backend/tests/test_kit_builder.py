@@ -146,3 +146,34 @@ class TestRestricoes:
             pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0,
         )
         assert kits, "sem tensão de carga, M050 deve montar kit normalmente"
+
+
+class TestR7Rede:
+    def test_inversor_tri_em_unidade_mono_gera_alerta(self):
+        kits, _ = build_kits(
+            [t030()], [cb100()],
+            pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
+            fase_instalacao="monofasico", padrao_entrada="mono_220",
+        )
+        assert kits
+        assert any("trifásico em unidade monofásica" in a.lower() or "monofásica" in a
+                   for a in kits[0].alertas)
+
+    def test_autotransformador_127_220_com_inversor_380(self):
+        kits, _ = build_kits(
+            [t030()], [cb100()],
+            pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
+            fase_instalacao="trifasico", padrao_entrada="tri_127_220",
+        )
+        assert kits
+        assert any("autotransformador" in a.lower() for a in kits[0].alertas)
+
+    def test_tri_em_unidade_tri_380_sem_alerta_de_rede(self):
+        kits, _ = build_kits(
+            [t030()], [cb100()],
+            pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
+            fase_instalacao="trifasico", padrao_entrada="tri_220_380",
+        )
+        assert kits
+        assert not any("autotransformador" in a.lower() or "monofásica" in a
+                       for a in kits[0].alertas)

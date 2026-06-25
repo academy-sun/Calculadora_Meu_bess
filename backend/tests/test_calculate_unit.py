@@ -174,7 +174,7 @@ def _mock_db_and_catalog(mock_project=None):
         patch("app.calculate.service.mark_project_done", new=AsyncMock()),
         patch("app.calculate.service.mark_project_error", new=AsyncMock()),
         patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], []))),
-        patch("app.calculate.service.list_solar", new=AsyncMock(return_value=[])),
+        patch("app.calculate.service.list_products", new=AsyncMock(return_value=[])),
     ]
     return db, patches
 

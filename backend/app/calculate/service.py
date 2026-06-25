@@ -7,7 +7,7 @@ from app.calculate.schemas import (
     CalculateRequest, CalculateResponse, KitInfo, LoadItem,
     SolarDimensionamento,
 )
-from app.catalog.service import list_kit_products, get_bess_comercial, list_solar
+from app.catalog.service import list_kit_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import build_kits
@@ -80,11 +80,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         else:
             curva = []
 
-        # Fonte de kit: réplica meubess_products (tipo efetivo coalesce(manual,auto))
+        # Fonte de kit/módulos: réplica meubess_products (tipo efetivo coalesce(manual,auto))
         inversores, baterias = await list_kit_products(db)
-
-        modulos_fv = await list_solar(db, disponivel_only=True)
-        modulos_fv = [m for m in modulos_fv if m.tipo == "modulo_fv"]
+        modulos_fv = await list_products(db, tipo="modulo_fv", active=True)
 
         capacidade_kwh = 0.0
         potencia_kw = 0.0
@@ -142,6 +140,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 e_bat_kwh=energy_backup_kwh,
                 fase_instalacao=req.tipo_instalacao or "monofasico",
                 tensoes_carga=tensoes_carga,
+                padrao_entrada=req.padrao_entrada,
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 

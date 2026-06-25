@@ -43,6 +43,7 @@ export function NewProjectPage() {
 
   // ── Backup ──────────────────────────────────────────────────────────────────
   const [tipoInstalacao, setTipoInstalacao] = useState<'monofasico' | 'trifasico'>('monofasico')
+  const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const [autonomia, setAutonomia] = useState('4')
   const [dod, setDod] = useState('90')
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
@@ -99,6 +100,7 @@ export function NewProjectPage() {
     if (tipo === 'backup') {
       payload.cargas_backup = backupRows.map(({ id: _id, ...r }) => r)
       payload.tipo_instalacao = tipoInstalacao
+      payload.padrao_entrada = padraoEntrada
       payload.autonomia_horas = parseFloat(autonomia)
       payload.dod_percent = parseFloat(dod)
       payload.eficiencia_roundtrip = 90
@@ -178,7 +180,7 @@ export function NewProjectPage() {
                 <div className="flex gap-3">
                   {(['monofasico', 'trifasico'] as const).map(t => (
                     <button key={t} type="button"
-                      onClick={() => setTipoInstalacao(t)}
+                      onClick={() => { setTipoInstalacao(t); setPadraoEntrada(t === 'trifasico' ? 'tri_220_380' : 'mono_220') }}
                       className={`flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-colors ${
                         tipoInstalacao === t
                           ? 'border-primary bg-primary/5 text-primary'
@@ -188,6 +190,27 @@ export function NewProjectPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Padrão de entrada da unidade</label>
+                <select value={padraoEntrada} onChange={e => setPadraoEntrada(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none">
+                  {tipoInstalacao === 'monofasico' ? (
+                    <>
+                      <option value="mono_127">Monofásico 127 V</option>
+                      <option value="mono_220">Monofásico 220 V</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="tri_127_220">Trifásico 127/220 V</option>
+                      <option value="tri_220_380">Trifásico 220/380 V</option>
+                    </>
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-gray-400">
+                  Usado para alertar sobre mudança de padrão de entrada ou autotransformador.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

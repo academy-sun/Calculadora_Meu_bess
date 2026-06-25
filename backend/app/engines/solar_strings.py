@@ -2,6 +2,7 @@
 import math
 from typing import Optional
 
+from app.engines.kit_attributes import eff, eff_float
 from app.engines.schemas import SolarStringsInput, SolarStringsResult
 
 EFICIENCIA_SISTEMA = 0.8
@@ -13,37 +14,40 @@ def _kwp_necessario(consumo_mensal: float, hsp: float) -> float:
 
 
 def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStringsResult]:
-    mppt_v_min = getattr(inversor, 'mppt_v_min', None)
-    mppt_v_max = getattr(inversor, 'mppt_v_max', None)
-    mppt_i_max_a = getattr(inversor, 'mppt_i_max_a', None)
-    mppt_qty = getattr(inversor, 'mppt_qty', None)
-    voc_v = getattr(modulo, 'voc_v', None)
-    vmp_v = getattr(modulo, 'vmp_v', None)
-    imp_a = getattr(modulo, 'imp_a', None)
-    wp = getattr(modulo, 'potencia_pico_wp', None)
+    # Atributos lidos da réplica meubess_products (via valor efetivo):
+    #   inversor: tensão máx PV (voc_max_voltage), corrente de string, nº MPPT
+    #   módulo:   Voc, Imp, potência (kW → Wp)
+    # Vmp do módulo não existe na réplica → restrição de tensão mínima é opcional.
+    mppt_v_min   = eff_float(inversor, 'mppt_min_voltage')
+    mppt_v_max   = eff_float(inversor, 'voc_max_voltage')
+    mppt_i_max_a = eff_float(inversor, 'string_current')
+    mppt_qty     = eff(inversor, 'qty_mppt')
+    voc_v = eff_float(modulo, 'voc_max_voltage')
+    vmp_v = eff_float(modulo, 'vmp_v')  # opcional (ausente na réplica)
+    imp_a = eff_float(modulo, 'max_power_current')
+    power_kw = eff_float(modulo, 'power')
+    wp = power_kw * 1000 if power_kw else None
 
-    # mppt_v_min é opcional — se ausente, não aplica restrição de tensão mínima
-    if any(v is None for v in [mppt_v_max, mppt_i_max_a, mppt_qty,
-                                voc_v, vmp_v, imp_a, wp]):
+    # Obrigatórios (Vmp e mppt_v_min são opcionais → restrição mín. relaxada)
+    if any(v is None for v in [mppt_v_max, mppt_i_max_a, mppt_qty, voc_v, imp_a, wp]):
         return None
 
     mppt_v_max = float(mppt_v_max)
     mppt_i_max_a = float(mppt_i_max_a)
     mppt_qty = int(mppt_qty)
     voc_v = float(voc_v)
-    vmp_v = float(vmp_v)
     imp_a = float(imp_a)
     wp = float(wp)
 
-    if vmp_v <= 0 or voc_v <= 0 or imp_a <= 0 or wp <= 0:
+    if voc_v <= 0 or imp_a <= 0 or wp <= 0:
         return None
 
     n_serie_max = math.floor(mppt_v_max / voc_v)
     if n_serie_max < 1:
         return None
 
-    # Se mppt_v_min não informado, assume 1 como mínimo (sem restrição de tensão mínima)
-    n_serie_min = math.ceil(float(mppt_v_min) / vmp_v) if mppt_v_min is not None else 1
+    # Restrição de tensão mínima só quando há mppt_v_min E Vmp do módulo.
+    n_serie_min = math.ceil(mppt_v_min / vmp_v) if (mppt_v_min and vmp_v) else 1
     if n_serie_min > n_serie_max:
         return None
 
@@ -60,11 +64,12 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
     kwp_instalado = round(qty_modulos * wp / 1000, 3)
     cobertura_pct = round(min(kwp_instalado / kwp_necessario * 100, 999.9), 1)
 
-    preco_modulos_total = round(float(modulo.preco) * qty_modulos, 2) if modulo.preco else 0.0
+    preco_mod = eff_float(modulo, 'preco')
+    preco_modulos_total = round(preco_mod * qty_modulos, 2) if preco_mod else 0.0
 
     return SolarStringsResult(
-        modulo_marca=str(modulo.marca),
-        modulo_modelo=str(modulo.modelo),
+        modulo_marca=str(eff(modulo, 'marca') or '—'),
+        modulo_modelo=str(eff(modulo, 'title') or eff(modulo, 'meubess_id') or ''),
         modulo_wp=wp,
         qty_modulos=qty_modulos,
         n_serie=n_serie,
@@ -92,7 +97,7 @@ def size_solar_strings(
 
     candidatos = []
     for modulo in modulos:
-        if not getattr(modulo, 'disponivel', True):
+        if eff(modulo, 'active') is False:
             continue
         result = _size_module(inversor, modulo, kwp_nec)
         if result is not None:
@@ -105,7 +110,8 @@ def size_solar_strings(
         modulo, r = item
         penalty = 0 if r.kwp_instalado <= kwp_nec * 1.2 else 1000
         distance = abs(r.kwp_instalado - kwp_nec)
-        preco_total = float(modulo.preco) * r.qty_modulos if modulo.preco else float('inf')
+        preco_mod = eff_float(modulo, 'preco')
+        preco_total = preco_mod * r.qty_modulos if preco_mod else float('inf')
         return (penalty, distance, preco_total)
 
     candidatos.sort(key=score)
