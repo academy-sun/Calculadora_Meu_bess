@@ -95,6 +95,11 @@ class KitInfo(BaseModel):
     preco_total: float
     economia_mensal_rs: Optional[float] = None
     payback_anos: Optional[float] = None
+    # dimensionamento (motor kit_builder R1–R9)
+    distribuicao_baterias: Optional[list[int]] = None
+    n_caixas_juncao: Optional[int] = None
+    pico_entregavel_kw: Optional[float] = None
+    alertas: Optional[list[str]] = None
 
 
 class SolarDimensionamento(BaseModel):

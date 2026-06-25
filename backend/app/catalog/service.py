@@ -70,6 +70,18 @@ async def list_products(
     return list(result.scalars().all())
 
 
+async def list_kit_products(
+    db: AsyncSession,
+) -> tuple[list[MeuBESSProduct], list[MeuBESSProduct]]:
+    """
+    Retorna (inversores_hibridos, baterias) ativos da réplica para montar kit,
+    pelo tipo efetivo = coalesce(tipo_manual, tipo_auto).
+    """
+    inversores = await list_products(db, tipo="inversor_hibrido", active=True)
+    baterias = await list_products(db, tipo="bateria", active=True)
+    return inversores, baterias
+
+
 async def get_product(db: AsyncSession, meubess_id: str) -> MeuBESSProduct | None:
     result = await db.execute(
         select(MeuBESSProduct).where(MeuBESSProduct.meubess_id == meubess_id)
@@ -227,9 +239,13 @@ async def delete_load(db: AsyncSession, load_id: uuid.UUID) -> bool:
     return True
 
 
-async def get_bess_comercial(db: AsyncSession) -> ProductBESS | None:
-    """Returns the single commercial BESS unit used by the Arbitragem engine."""
+async def get_bess_comercial(db: AsyncSession) -> MeuBESSProduct | None:
+    """
+    Unidade BESS comercial usada pela Arbitragem, da réplica (origem='manual',
+    tipo efetivo='bess_comercial'). Retorna None se nenhuma estiver cadastrada.
+    """
+    tipo_efetivo = func.coalesce(MeuBESSProduct.tipo_manual, MeuBESSProduct.tipo_auto)
     result = await db.execute(
-        select(ProductBESS).where(ProductBESS.tipo == "bess_comercial").limit(1)
+        select(MeuBESSProduct).where(tipo_efetivo == "bess_comercial").limit(1)
     )
     return result.scalar_one_or_none()

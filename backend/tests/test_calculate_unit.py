@@ -4,8 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.calculate.schemas import CalculateRequest, CalculateResponse, KitInfo, LoadItem, OrigemInfo
 from app.calculate.service import _build_load_curve, _kits_to_response
-from app.engines.compatibility import KitBESS
-from app.catalog.schemas import ProductBESSRead
+from app.engines.kit_builder import KitBESS
 import uuid
 from datetime import datetime, timezone
 import pytest
@@ -51,22 +50,20 @@ def test_build_load_curve_returns_24_points():
 
 # ── _kits_to_response ──────────────────────────────────────────────────────────
 
+class _FakeProd:
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
 def make_kit(marca="WEG", preco=30000.0) -> KitBESS:
-    bat = ProductBESSRead(
-        id=uuid.uuid4(), marca=marca, modelo="BAT", sku=f"B-{marca}",
-        tipo="bateria", preco=18000.0, disponivel=True,
-        atualizado_em=datetime.utcnow(),
-    )
-    inv = ProductBESSRead(
-        id=uuid.uuid4(), marca=marca, modelo="INV", sku=f"I-{marca}",
-        tipo="inversor_hibrido", preco=12000.0, disponivel=True,
-        atualizado_em=datetime.utcnow(),
-    )
+    bat = _FakeProd(meubess_id="bat", marca=marca, title="BAT")
+    inv = _FakeProd(meubess_id="inv", marca=marca, title="INV")
     return KitBESS(
-        bateria=bat, inversor=inv,
-        qtd_baterias=1,
-        qtd_inversores=1,
-        capacidade_total_kwh=14.3, potencia_total_kw=5.0,
+        inversor=inv, bateria=bat,
+        qtd_inversores=1, qtd_baterias=1,
+        distribuicao_baterias=[1], n_caixas_juncao=0,
+        capacidade_total_kwh=14.3, pico_entregavel_kw=5.0,
         preco_total=preco,
     )
 
@@ -176,7 +173,7 @@ def _mock_db_and_catalog(mock_project=None):
         patch("app.calculate.service.create_project", new=AsyncMock(return_value=mock_project)),
         patch("app.calculate.service.mark_project_done", new=AsyncMock()),
         patch("app.calculate.service.mark_project_error", new=AsyncMock()),
-        patch("app.calculate.service.list_bess", new=AsyncMock(return_value=[])),
+        patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], []))),
         patch("app.calculate.service.list_solar", new=AsyncMock(return_value=[])),
     ]
     return db, patches

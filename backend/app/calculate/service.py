@@ -7,9 +7,10 @@ from app.calculate.schemas import (
     CalculateRequest, CalculateResponse, KitInfo, LoadItem,
     SolarDimensionamento,
 )
-from app.catalog.service import list_bess, get_bess_comercial, list_solar
+from app.catalog.service import list_kit_products, get_bess_comercial, list_solar
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
-from app.engines.compatibility import find_compatible_kits
+from app.engines.kit_attributes import eff, eff_float
+from app.engines.kit_builder import build_kits
 from app.engines.schemas import (
     BackupInput, LoadRow,
     ArbitrageInputV2,
@@ -38,16 +39,18 @@ def _kits_to_response(kits) -> tuple[KitInfo | None, list[KitInfo]]:
         return None, []
     kit_info_list = [
         KitInfo(
-            marca=k.bateria.marca,
-            bateria_modelo=k.bateria.modelo,
-            inversor_modelo=k.inversor.modelo,
+            marca=str(eff(k.inversor, "marca") or eff(k.bateria, "marca") or "—"),
+            bateria_modelo=str(eff(k.bateria, "title") or ""),
+            inversor_modelo=str(eff(k.inversor, "title") or ""),
             qtd_baterias=k.qtd_baterias,
             qtd_inversores=k.qtd_inversores,
             capacidade_total_kwh=k.capacidade_total_kwh,
-            potencia_total_kw=k.potencia_total_kw,
+            potencia_total_kw=k.pico_entregavel_kw,
             preco_total=k.preco_total,
-            economia_mensal_rs=k.economia_mensal,
-            payback_anos=k.payback_anos,
+            distribuicao_baterias=k.distribuicao_baterias,
+            n_caixas_juncao=k.n_caixas_juncao,
+            pico_entregavel_kw=k.pico_entregavel_kw,
+            alertas=k.alertas or None,
         )
         for k in kits
     ]
@@ -77,9 +80,8 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         else:
             curva = []
 
-        todos_bess = await list_bess(db, disponivel_only=True)
-        baterias = [p for p in todos_bess if p.tipo == "bateria"]
-        inversores = [p for p in todos_bess if p.tipo == "inversor_hibrido"]
+        # Fonte de kit: réplica meubess_products (tipo efetivo coalesce(manual,auto))
+        inversores, baterias = await list_kit_products(db)
 
         modulos_fv = await list_solar(db, disponivel_only=True)
         modulos_fv = [m for m in modulos_fv if m.tipo == "modulo_fv"]
@@ -132,12 +134,12 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             capacidade_kwh = energy_backup_kwh
             potencia_kw = backup_result.total_pp
 
-            kits = find_compatible_kits(
-                baterias=baterias,
-                inversores=inversores,
-                total_pp_kva=backup_result.total_pp,
-                total_e_eps_kwh=energy_backup_kwh,   # capacidade correta para backup
-                tipo_instalacao=req.tipo_instalacao or "monofasico",
+            kits, _skipped = build_kits(
+                inversores, baterias,
+                pn_kva=backup_result.total_pn,
+                pp_kva=backup_result.total_pp,
+                e_bat_kwh=energy_backup_kwh,
+                fase_instalacao=req.tipo_instalacao or "monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
@@ -185,12 +187,12 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             capacidade_kwh = req.total_e_eps_kwh
             potencia_kw    = req.total_pp_kva
 
-            kits = find_compatible_kits(
-                baterias=baterias,
-                inversores=inversores,
-                total_pp_kva=req.total_pp_kva,
-                total_e_eps_kwh=req.total_e_eps_kwh,
-                tipo_instalacao=req.tipo_instalacao or "monofasico",
+            kits, _skipped = build_kits(
+                inversores, baterias,
+                pn_kva=0.0,  # Pn não informado em backup_direto; pico (Pp) é o que filtra
+                pp_kva=req.total_pp_kva,
+                e_bat_kwh=req.total_e_eps_kwh,
+                fase_instalacao=req.tipo_instalacao or "monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
@@ -204,12 +206,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             potencia_kw = result.potencia_necessaria_kw
             economia_mensal = result.economia_mensal_estimada_rs
 
-            kits = find_compatible_kits(
-                baterias=baterias,
-                inversores=inversores,
-                total_pp_kva=potencia_kw,
-                total_e_eps_kwh=capacidade_kwh,
-                tipo_instalacao="monofasico",
+            kits, _skipped = build_kits(
+                inversores, baterias,
+                pn_kva=0.0, pp_kva=potencia_kw,
+                e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
@@ -225,18 +225,22 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             if not bess_com:
                 raise ValueError("Produto BESS Comercial não encontrado no catálogo")
 
+            com_cap  = eff_float(bess_com, "usable_capacity_kwh") or 0.0
+            com_dod  = eff_float(bess_com, "dod_percent") or 0.0
+            com_preco = eff_float(bess_com, "preco") or 0.0
+
             arb_result = calculate_arbitrage_v2(ArbitrageInputV2(
                 consumo_ponta_kwh=req.consumo_ponta_kwh,
                 demanda_ponta_kw=req.demanda_ponta_kw,
                 tarifa_ponta_kwh=req.tarifa_ponta_rs_kwh or 0.0,
                 tarifa_fora_ponta_kwh=req.tarifa_fora_ponta_rs_kwh or 0.0,
-                bess_capacidade_kwh=float(bess_com.capacidade_kwh),
-                bess_dod=float(bess_com.dod_percent),
-                bess_preco=float(bess_com.preco),
+                bess_capacidade_kwh=com_cap,
+                bess_dod=com_dod,
+                bess_preco=com_preco,
             ))
 
             capacidade_kwh = round(
-                arb_result.qty_bess * float(bess_com.capacidade_kwh) * (float(bess_com.dod_percent) / 100.0), 2
+                arb_result.qty_bess * com_cap * (com_dod / 100.0), 2
             )
             potencia_kw = 0.0
             economia_mensal = arb_result.economia_mensal
@@ -262,12 +266,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 baterias = []
                 inversores = []
 
-            kits = find_compatible_kits(
-                baterias=baterias,
-                inversores=inversores,
-                total_pp_kva=potencia_kw,
-                total_e_eps_kwh=capacidade_kwh,
-                tipo_instalacao="monofasico",
+            kits, _skipped = build_kits(
+                inversores, baterias,
+                pn_kva=0.0, pp_kva=potencia_kw,
+                e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
