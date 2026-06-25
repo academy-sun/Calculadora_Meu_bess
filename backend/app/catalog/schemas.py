@@ -126,6 +126,27 @@ class MeuBESSProductRead(BaseModel):
     # mídia
     images: Optional[Any] = None
 
+    # dimensionamento de kit (datasheet)
+    peak_power_kw: Optional[float] = None
+    peak_power_duration_s: Optional[int] = None
+    battery_input_max_current_a: Optional[float] = None
+    battery_voltage_min_v: Optional[float] = None
+    battery_voltage_max_v: Optional[float] = None
+    eps_output_voltage: Optional[str] = None
+    split_phase: Optional[bool] = None
+    max_parallel_units: Optional[int] = None
+    usable_capacity_kwh: Optional[float] = None
+    nominal_capacity_kwh: Optional[float] = None
+    dod_percent: Optional[float] = None
+    max_parallel_batteries: Optional[int] = None
+    max_continuous_current_a: Optional[float] = None
+    peak_discharge_current_a: Optional[float] = None
+    nominal_voltage_v: Optional[float] = None
+    operating_voltage_min_v: Optional[float] = None
+    operating_voltage_max_v: Optional[float] = None
+    chemistry: Optional[str] = None
+    compatible_inverters: Optional[str] = None
+
     # classificação / validação
     tipo_auto: Optional[str] = None
     classificacao_confianca: Optional[str] = None
@@ -149,6 +170,38 @@ class MeuBESSProductUpdate(BaseModel):
     overrides_tecnicos: Optional[dict] = None
     validado_por: Optional[str] = None
     marcar_validado: bool = True  # se True, limpa needs_review e carimba validado_em
+
+    # dimensionamento de kit (preenchível via datasheet pelo frontend)
+    peak_power_kw: Optional[float] = None
+    peak_power_duration_s: Optional[int] = None
+    battery_input_max_current_a: Optional[float] = None
+    battery_voltage_min_v: Optional[float] = None
+    battery_voltage_max_v: Optional[float] = None
+    eps_output_voltage: Optional[str] = None
+    split_phase: Optional[bool] = None
+    max_parallel_units: Optional[int] = None
+    usable_capacity_kwh: Optional[float] = None
+    nominal_capacity_kwh: Optional[float] = None
+    dod_percent: Optional[float] = None
+    max_parallel_batteries: Optional[int] = None
+    max_continuous_current_a: Optional[float] = None
+    peak_discharge_current_a: Optional[float] = None
+    nominal_voltage_v: Optional[float] = None
+    operating_voltage_min_v: Optional[float] = None
+    operating_voltage_max_v: Optional[float] = None
+    chemistry: Optional[str] = None
+    compatible_inverters: Optional[str] = None
+
+
+# Campos de dimensionamento editáveis (whitelist usada no update)
+DIMENSIONAMENTO_FIELDS = (
+    "peak_power_kw", "peak_power_duration_s", "battery_input_max_current_a",
+    "battery_voltage_min_v", "battery_voltage_max_v", "eps_output_voltage",
+    "split_phase", "max_parallel_units", "usable_capacity_kwh", "nominal_capacity_kwh",
+    "dod_percent", "max_parallel_batteries", "max_continuous_current_a",
+    "peak_discharge_current_a", "nominal_voltage_v", "operating_voltage_min_v",
+    "operating_voltage_max_v", "chemistry", "compatible_inverters",
+)
 
 
 class StandardLoadCreate(BaseModel):

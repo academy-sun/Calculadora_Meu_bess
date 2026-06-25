@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.catalog.models import MeuBESSProduct, ProductBESS, ProductSolar, StandardLoad
 from app.catalog.schemas import (
-    MeuBESSProductUpdate, ProductBESSCreate, ProductSolarCreate, StandardLoadCreate,
+    DIMENSIONAMENTO_FIELDS, MeuBESSProductUpdate,
+    ProductBESSCreate, ProductSolarCreate, StandardLoadCreate,
 )
 
 
@@ -84,12 +85,21 @@ async def update_product(
     if not product:
         return None
 
-    if data.tipo_manual is not None:
+    # Só aplica campos efetivamente enviados (exclude_unset) — permite zerar via null.
+    provided = data.model_dump(exclude_unset=True)
+
+    if "tipo_manual" in provided:
         product.tipo_manual = data.tipo_manual
-    if data.overrides_tecnicos is not None:
+    if "overrides_tecnicos" in provided:
         product.overrides_tecnicos = data.overrides_tecnicos
-    if data.validado_por is not None:
+    if "validado_por" in provided:
         product.validado_por = data.validado_por
+
+    # Campos de dimensionamento (datasheet)
+    for field in DIMENSIONAMENTO_FIELDS:
+        if field in provided:
+            setattr(product, field, provided[field])
+
     if data.marcar_validado:
         product.needs_review = False
         product.validado_em = datetime.utcnow()

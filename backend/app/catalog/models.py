@@ -135,6 +135,29 @@ class MeuBESSProduct(Base):
     # ── mídia ───────────────────────────────────────────────────────────────
     images: Mapped[Any | None] = mapped_column(JSONB)
 
+    # ── dimensionamento de kit (contrato da skill; preenchido por datasheet) ──
+    # Inversor híbrido:
+    peak_power_kw: Mapped[float | None] = mapped_column(Numeric)
+    peak_power_duration_s: Mapped[int | None] = mapped_column(Integer)
+    battery_input_max_current_a: Mapped[float | None] = mapped_column(Numeric)
+    battery_voltage_min_v: Mapped[float | None] = mapped_column(Numeric)
+    battery_voltage_max_v: Mapped[float | None] = mapped_column(Numeric)
+    eps_output_voltage: Mapped[str | None] = mapped_column(Text)
+    split_phase: Mapped[bool | None] = mapped_column(Boolean)
+    max_parallel_units: Mapped[int | None] = mapped_column(Integer)
+    # Bateria:
+    usable_capacity_kwh: Mapped[float | None] = mapped_column(Numeric)
+    nominal_capacity_kwh: Mapped[float | None] = mapped_column(Numeric)
+    dod_percent: Mapped[float | None] = mapped_column(Numeric)
+    max_parallel_batteries: Mapped[int | None] = mapped_column(Integer)
+    max_continuous_current_a: Mapped[float | None] = mapped_column(Numeric)
+    peak_discharge_current_a: Mapped[float | None] = mapped_column(Numeric)
+    nominal_voltage_v: Mapped[float | None] = mapped_column(Numeric)
+    operating_voltage_min_v: Mapped[float | None] = mapped_column(Numeric)
+    operating_voltage_max_v: Mapped[float | None] = mapped_column(Numeric)
+    chemistry: Mapped[str | None] = mapped_column(Text)
+    compatible_inverters: Mapped[str | None] = mapped_column(Text)
+
     # ── classificação automática (anotação, não filtro) ────────────────────
     tipo_auto: Mapped[str | None] = mapped_column(Text)
     classificacao_confianca: Mapped[str | None] = mapped_column(Text)
