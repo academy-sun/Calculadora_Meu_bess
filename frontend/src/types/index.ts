@@ -225,6 +225,11 @@ export interface KitInfo {
   preco_total: number
   economia_mensal_rs?: number
   payback_anos?: number
+  // dimensionamento (motor kit_builder R1–R9)
+  distribuicao_baterias?: number[]
+  n_caixas_juncao?: number
+  pico_entregavel_kw?: number
+  alertas?: string[]
 }
 
 export interface SolarDimensionamento {

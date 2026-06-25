@@ -23,6 +23,7 @@ class BackupLoadRow(BaseModel):
     fd: float = 1.0
     ip_in: float = 1.0
     tdia_h: float = 4.0
+    tensao: Optional[str] = None  # "127" | "220" | "380" — usada no R8 (saída EPS)
 
 
 class BackupRowResult(BaseModel):

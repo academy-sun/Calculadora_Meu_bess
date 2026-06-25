@@ -28,6 +28,7 @@ type BackupRow = {
   fd: number
   ip_in: number
   tdia_h: number
+  tensao: string   // "127" | "220" | "380" — usada no R8 (saída EPS do inversor)
 }
 
 export function NewProjectPage() {
@@ -59,6 +60,7 @@ export function NewProjectPage() {
       fd: load.fator_demanda ?? 1,
       ip_in: load.ip_in ?? 1,
       tdia_h: load.tdia_horas ?? 4,
+      tensao: tipoInstalacao === 'trifasico' ? '380' : '220',
     }])
   }
 
@@ -267,7 +269,7 @@ export function NewProjectPage() {
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr>
-                          {['Equipamento','Qtd','PNOM (W)','TDIA (h)','FP','FD','IP/IN',''].map(h => (
+                          {['Equipamento','Qtd','PNOM (W)','TDIA (h)','FP','FD','IP/IN','Tensão',''].map(h => (
                             <th key={h} className="px-2 py-2 text-left text-gray-500 font-medium">{h}</th>
                           ))}
                         </tr>
@@ -283,6 +285,15 @@ export function NewProjectPage() {
                                   className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none" />
                               </td>
                             ))}
+                            <td className="px-1 py-1">
+                              <select value={row.tensao}
+                                onChange={e => setBackupRows(prev => prev.map(r => r.id === row.id ? { ...r, tensao: e.target.value } : r))}
+                                className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none">
+                                <option value="127">127</option>
+                                <option value="220">220</option>
+                                <option value="380">380</option>
+                              </select>
+                            </td>
                             <td className="px-1 py-1">
                               <button type="button" onClick={() => removeBackupRow(row.id)}
                                 className="text-red-400 hover:text-red-600 text-sm">✕</button>
@@ -477,8 +488,28 @@ export function NewProjectPage() {
             {result.kit_selecionado.qtd_baterias}× baterias
             {result.kit_selecionado.qtd_inversores && result.kit_selecionado.qtd_inversores > 1
               ? ` · ${result.kit_selecionado.qtd_inversores}× inversores` : ''}
-            {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis · {result.kit_selecionado.potencia_total_kw} kW
+            {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis
+            {' '}· pico entregável {result.kit_selecionado.pico_entregavel_kw ?? result.kit_selecionado.potencia_total_kw} kVA
           </p>
+          {(result.kit_selecionado.distribuicao_baterias || result.kit_selecionado.n_caixas_juncao != null) && (
+            <p className="mt-1 text-xs text-gray-500">
+              {result.kit_selecionado.distribuicao_baterias && (
+                <>Distribuição das baterias: {result.kit_selecionado.distribuicao_baterias.join(' + ')} por entrada</>
+              )}
+              {result.kit_selecionado.n_caixas_juncao != null && (
+                <> · {result.kit_selecionado.n_caixas_juncao}× caixa(s) de junção</>
+              )}
+            </p>
+          )}
+          {result.kit_selecionado.alertas && result.kit_selecionado.alertas.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {result.kit_selecionado.alertas.map((a, i) => (
+                <p key={i} className="flex items-start gap-1 text-xs text-amber-700">
+                  <span>⚠</span><span>{a}</span>
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

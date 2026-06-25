@@ -134,12 +134,14 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             capacidade_kwh = energy_backup_kwh
             potencia_kw = backup_result.total_pp
 
+            tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
             kits, _skipped = build_kits(
                 inversores, baterias,
                 pn_kva=backup_result.total_pn,
                 pp_kva=backup_result.total_pp,
                 e_bat_kwh=energy_backup_kwh,
                 fase_instalacao=req.tipo_instalacao or "monofasico",
+                tensoes_carga=tensoes_carga,
             )
             kit_selecionado, alternativas = _kits_to_response(kits)
 
