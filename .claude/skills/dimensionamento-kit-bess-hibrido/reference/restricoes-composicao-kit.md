@@ -87,7 +87,46 @@ se inversor.fase == trifasico e carga_mono > inversor.potencia_nominal / 3:
   de ~1/3 (ex. 30 kW tri → ~10 kW mono por fase). É **orientação**, não impedimento:
   a plataforma deve sinalizar, não recusar o kit.
 
-## R7 — Acessório de paralelismo de baterias (caixa de junção / JBW)
+## R7 — Compatibilidade inversor × rede da unidade (AC, lado rede) — ALERTA
+
+```
+se inversor.fase/tensao_rede != unidade.padrao_entrada:
+    emitir ALERTA de infraestrutura (NÃO bloquear necessariamente)
+```
+
+A tensão AC tem domínios distintos da tensão DC da bateria (R5). Aqui é o lado
+**rede**: o que o inversor espera na conexão com a concessionária vs o padrão de
+entrada da unidade consumidora.
+
+- Unidade **mono** mas o dimensionamento exige inversor **tri** → alerta:
+  **aumento de carga / troca de padrão de entrada** da unidade junto à concessionária.
+- Unidade **tri 127/220** com inversor **tri 220/380** → alerta: precisa de
+  **autotransformador** de potência adequada.
+- É orientação de infraestrutura — a plataforma sinaliza o custo/obra extra, não
+  recusa o kit automaticamente.
+
+## R8 — Compatibilidade saída EPS × cargas de backup (AC, lado carga) — BLOQUEANTE
+
+```
+para cada carga_critica:
+    exigir carga.tensao/fase ∈ inversor.saida_eps   (senão: kit inviável)
+```
+
+Este é o lado **carga**: a saída EPS do inversor precisa alimentar adequadamente
+cada carga de backup. Diferente de R7, aqui a incompatibilidade **inviabiliza** o
+projeto.
+
+- Inversor mono com **EPS só 220 V** → **não** alimenta carga 127 V.
+- **Carga trifásica nunca** em inversor monofásico.
+- Inversor **tri 220/380** → não alimenta mono **127 V** (a linha K 220/127 sim).
+- Mono **127 V** exige EPS 127 V **ou** **split-phase** 127/220.
+- Mistura **127 + 220** mono no backup → exige **split-phase** (ex. SIW200H linha S),
+  que alimenta as duas tensões simultaneamente e tolera 100% de desequilíbrio entre
+  elas (pode-se concentrar a carga numa perna 127 V).
+- **WEG (saída EPS por linha):** M = 220; S = 110/220 (split-phase); T = 380/220;
+  K = 380/220 e 220/127.
+
+## R9 — Acessório de paralelismo de baterias (caixa de junção / JBW)
 
 ```
 necessita_caixa_juncao = (baterias_em_paralelo_por_entrada ≥ 2)
@@ -101,10 +140,12 @@ necessita_caixa_juncao = (baterias_em_paralelo_por_entrada ≥ 2)
 
 ## Ordem de aplicação sugerida na montagem
 
-1. Filtrar inversores compatíveis com a fase da instalação.
+1. Filtrar inversores por **compatibilidade de saída EPS com as cargas** (R8 —
+   bloqueante) e pela fase da instalação.
 2. Para cada inversor candidato: checar **R3** (pico/nominal ≥ cargas).
 3. Calcular baterias por energia (E_BAT) e aplicar **R1** (teto de contagem) + **R2**
    (potência). Se não atende, tentar **R4** (mais inversores).
-4. Aplicar **R5** (tensão) ao parear inversor × bateria.
-5. **R6** como alerta; **R7** para compor o BOM (acessórios).
-6. Ordenar por custo total e devolver as melhores opções.
+4. Aplicar **R5** (compatibilidade inversor × bateria) ao parear inversor × bateria.
+5. Alertas: **R6** (carga mono em tri) e **R7** (rede/autotransformador).
+6. **R9** para compor o BOM (acessórios).
+7. Ordenar por custo total e devolver as melhores opções.

@@ -43,6 +43,7 @@ prevalece.
 | Máx baterias (1 entrada × 4) | 4 | 4 | 4 | 4 | 4 |
 | Capacidade máx (kWh) | até ~40 | até ~40 | até ~40 | até ~40 | até ~40 |
 | Fase | monofásico 220/230/240 V | | | | |
+| **Tensão de saída EPS** | **220 V mono** (não alimenta 127 V) | | | | |
 | MPPT | 2 (1 string cada) | | | | |
 | Paralelismo off-grid | 5 unidades | | | | |
 
@@ -58,6 +59,7 @@ prevalece.
 | Faixa de tensão de bateria (V) | 85–460 | | | | |
 | Nº de MPPT | 3 | | | | |
 | Fase | SplitPhase 110/220 V (2L+N) | | | | |
+| **Tensão de saída EPS** | **110/220 V simultâneo** (split-phase; tolera 100% desequilíbrio) | | | | |
 
 ## Inversor híbrido trifásico SIW400H (linha T, 380 V)
 
@@ -74,13 +76,15 @@ prevalece.
 | Capacidade máx (kWh) | até ~80 | | | | | |
 | Paralelismo | máx 4 unidades | | | | | |
 | Fase | trifásico 380/220 (3L+N+PE) | | | | | |
+| **Tensão de saída EPS** | **380/220 V tri** (fase-neutro 220; não alimenta 127 V) | | | | | |
 
 ## Inversor híbrido trifásico SIW400H (linha K — tensão dupla 380/220 e 220/127)
 
-A linha K (K007 T012 … K017 T030) é trifásica de tensão dupla. Mesmas restrições
-estruturais da linha T (2 entradas de bateria, faixa de tensão, paralelismo).
-Para valores exatos por modelo, consulte
-`datasheets/DATASHEET_SIW400H_K007_T030_W20_PT_web (1).pdf`.
+A linha K (K007 T012 … K017 T030) é trifásica de **tensão dupla**: opera em
+**380/220 V** ou **220/127 V**. Diferente da linha T, no modo 220/127 ela **alimenta
+cargas 127 V** (fase-neutro). Mesmas restrições estruturais da linha T (2 entradas de
+bateria, faixa de tensão de bateria, paralelismo). Para valores exatos por modelo,
+consulte `datasheets/DATASHEET_SIW400H_K007_T030_W20_PT_web (1).pdf`.
 
 ## Acessórios mencionados (não são produtos de kit, mas condicionam a montagem)
 

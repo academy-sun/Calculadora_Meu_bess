@@ -52,6 +52,12 @@ Totais por soma. Daí:
 
 ## 4. Seleção do inversor
 
+0. **Filtre por tensão antes da potência.** A saída EPS do inversor precisa atender
+   a tensão/fase de **todas** as cargas críticas (R8 — bloqueante): carga 127 V exige
+   EPS 127 V ou split-phase; carga tri exige inversor tri; etc. Confira também a
+   compatibilidade com a rede da unidade (R7) — se exigir tri numa unidade mono, ou
+   autotransformador, isso é alerta de infraestrutura. Ver
+   `restricoes-composicao-kit.md`.
 1. Calcule `Pp total` (pico) e `Pn total` (nominal) das cargas críticas.
 2. Escolha um inversor cuja **potência de pico ≥ Pp total** e **nominal ≥ Pn total**.
 3. Se nenhum inversor único atende, use **paralelismo** (até o limite do modelo) —

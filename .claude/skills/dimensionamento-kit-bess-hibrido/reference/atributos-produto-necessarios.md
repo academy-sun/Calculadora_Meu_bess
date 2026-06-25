@@ -19,6 +19,9 @@ mudam. Todo atributo abaixo foi confirmado como presente nos datasheets WEG.
 | Duração do pico | s | Sim | O pico é sustentado por tempo limitado; depois cai p/ a nominal | junto da pot. de pico | 60 s |
 | Potência EPS nominal | kW | Sim | Potência contínua disponível na saída de backup (≠ saída on-grid) | "SAÍDA EPS / Potência Aparente Máxima" | SIW200H M050 = 5,0 kVA |
 | Tipo de fase | enum (mono/tri/splitphase) | Sim | Define compatibilidade com a instalação e a regra de carga mono em tri | "Tensão Nominal da Rede" (2L+N / 3L+N…) | SIW200H = mono 220 V; SIW400H = tri 380/220 |
+| Tensão/fase de conexão à rede (AC, lado rede) | V + fase | Sim | Comparar com o padrão de entrada da unidade → alerta de aumento de carga ou autotransformador | "Tensão Nominal da Rede" (seção ENTRADA CA) | M = 220 mono; T = 380/220 tri; K = 380/220 e 220/127 |
+| Tensão/fase da saída EPS (AC, lado carga) | V + fase | Sim | Cada carga de backup precisa ser atendida por esta tensão; senão fica inviável | "Tensão Nominal de Saída" (seção SAÍDA EPS) | M = 220; S = 110/220; T = 380/220; K = 380/220 e 220/127 |
+| Capacidade split-phase | bool | Recomendado | Permite alimentar 127 e 220 V mono simultaneamente (escolha quando há mistura) | "Saída CA 110/220" + "Desequilíbrio Fases Divididas 100%" | só linha S (SplitPhase) |
 | Nº de entradas de bateria | int | Sim | Multiplica o limite de baterias em paralelo (total = entradas × máx-paralelo) | "Número de Entradas de Bateria" | SIW200H = 1; SIW400H = 2 |
 | Corrente máx por entrada de bateria | A | Sim | Limita a **potência** entregável por entrada (corrente × tensão); explica a "Tabela EPS" | "Corrente Máxima de Carga/Descarga" | SIW200H = 40 A; SIW400H = 50+50 A |
 | Faixa de tensão de bateria aceita | V (min–max) | Sim | A tensão de operação da bateria precisa caber nesta faixa (compatibilidade) | "Tensão da Bateria" / "Faixa de Tensão da Bateria" | SIW200H = 80–480 V; SIW400H = 150–800 V |
@@ -70,6 +73,39 @@ como `qty_mppt`/`qty_inputs_per_mppt` na réplica.
    Σ por entrada de [corrente_max_entrada × tensao_bateria])`. Mais baterias além
    da saturação de corrente da entrada **não** aumentam a potência.
 
+## Carga (item do levantamento, não é produto)
+
+Para checar a compatibilidade AC abaixo, cada carga crítica precisa carregar:
+
+| Atributo | Unidade | Por que |
+|---|---|---|
+| Tensão | V (127 / 220 / 380) | Verificar se a saída EPS do inversor atende |
+| Fase | enum (mono / tri) | Carga tri só em inversor tri; mono precisa da tensão certa |
+
+(O `db_cargas.csv` traz `3F?`; a **tensão** da carga precisa ser informada no
+cadastro de cargas da plataforma — hoje não há essa coluna.)
+
+## Compatibilidade AC — rede e cargas (além da bateria DC)
+
+A tensão tem **três** domínios; trate-os separadamente:
+
+1. **Rede da unidade ↔ entrada do inversor (alerta de infraestrutura):**
+   - inversor exige tri mas a unidade é mono → alerta: **aumentar carga / trocar
+     padrão de entrada** da unidade.
+   - unidade tri 127/220 e inversor tri 220/380 → alerta: precisa de
+     **autotransformador** de potência adequada.
+   - É alerta, não bloqueio: informa uma mudança de infra necessária.
+2. **Saída EPS do inversor ↔ cargas de backup (BLOQUEANTE p/ viabilidade):**
+   - toda carga crítica precisa que sua tensão/fase seja servível pela saída EPS.
+   - mono 127 V → inversor com EPS 127 V **ou** split-phase 127/220.
+   - mono 220 V → EPS 220 V (ou split-phase).
+   - carga trifásica → **nunca** em inversor mono.
+   - inversor tri 220/380 → **não** alimenta mono 127 V (a linha K 220/127 sim).
+   - mistura 127 + 220 mono no backup → exige **split-phase**.
+   - split-phase tolera 100% de desequilíbrio entre as duas tensões (pode-se pôr
+     toda a carga numa perna 127 V).
+3. **Frequência:** 60 Hz no Brasil — todos os WEG atendem; checar só em casos exóticos.
+
 ## Lacunas no cadastro atual (`meubess_products`)
 
 Mapeamento para os campos da réplica (ver `../../../../backend/app/catalog/models.py`):
@@ -81,16 +117,21 @@ Mapeamento para os campos da réplica (ver `../../../../backend/app/catalog/mode
 | Inversor: nº entradas de bateria | `battery_inputs` | ✅ existe |
 | Inversor: fase | `phase` | ✅ existe |
 | Inversor: MPPT | `qty_mppt`, `qty_inputs_per_mppt` | ✅ existe |
+| Inversor: tensão de rede (AC entrada) | `voltage` (ou `output_voltage`) | ◐ conferir semântica |
 | Inversor: **potência de pico + duração** | — | ⚠️ a adicionar |
 | Inversor: **corrente máx por entrada** | — | ⚠️ a adicionar |
 | Inversor: **faixa de tensão de bateria** | parcial (`voltage` é da rede, não da bateria) | ⚠️ a adicionar |
 | Inversor: **máx unidades em paralelo** | — | ⚠️ a adicionar |
+| Inversor: **tensão/fase da saída EPS** | — | ⚠️ a adicionar |
+| Inversor: **split-phase (sim/não)** | — | ⚠️ a adicionar |
 | Bateria: **capacidade útil / nominal** | — | ⚠️ a adicionar |
 | Bateria: **DoD** | — | ⚠️ a adicionar |
 | Bateria: **máx em paralelo** | — | ⚠️ a adicionar |
 | Bateria: **corrente máx contínua/pico** | — | ⚠️ a adicionar |
 | Bateria: **tensão nominal/faixa** | — | ⚠️ a adicionar |
 | Bateria: química | — | opcional |
+| **Carga: tensão (127/220/380)** | — (cadastro de cargas) | ⚠️ a adicionar |
+| Unidade consumidora: padrão de entrada (tensão/fase) | — (input do cálculo) | ⚠️ a adicionar |
 
 **Recomendação:** os campos ⚠️ devem ser criados no cadastro da plataforma MeuBESS
 (todos existem nos datasheets, logo são cadastráveis). Enquanto não existirem, a

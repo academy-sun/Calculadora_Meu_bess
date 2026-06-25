@@ -74,7 +74,18 @@ Detalhe e justificativa em `reference/restricoes-composicao-kit.md`. Em síntese
    `bateria.faixa_tensao ⊂ inversor.faixa_tensao_bateria`.
 6. **Carga monofásica em inversor trifásico:** ≤ potência ÷ 3. Isto é apenas
    **alerta**, NÃO bloqueia o kit.
-7. **Acessório (caixa de junção / JBW):** necessário quando há ≥ 2 baterias em
+7. **Compatibilidade inversor × rede da unidade (AC, lado rede):** se a fase/tensão
+   exigida pelo inversor difere da entrada de energia da unidade, é **alerta** de
+   infraestrutura — ex.: unidade mono mas dimensionamento exige tri → precisa
+   aumento de carga/troca de padrão de entrada; unidade tri 127/220 com inversor tri
+   220/380 → precisa **autotransformador** de potência adequada.
+8. **Compatibilidade saída EPS × cargas de backup (AC, lado carga) — BLOQUEANTE:**
+   cada carga crítica precisa ter sua tensão/fase atendida pela saída EPS do
+   inversor. Ex.: inversor mono com EPS só 220 V não alimenta carga 127 V; carga
+   trifásica nunca em inversor mono; inversor tri 220/380 não alimenta mono 127 V.
+   **Split-phase** (ex. SIW200H linha S) alimenta 127 e 220 V mono simultaneamente —
+   prefira-o quando há mistura 127/220.
+9. **Acessório (caixa de junção / JBW):** necessário quando há ≥ 2 baterias em
    paralelo numa entrada.
 
 ## Metodologia de dimensionamento (resumo)
