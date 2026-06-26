@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { ElementType } from 'react'
-import { BatteryCharging, TrendingUp } from 'lucide-react'
+import { BatteryCharging, TrendingUp, Plus } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
+import { AddLoadDialog } from '@/components/AddLoadDialog'
+import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
-import type { CalculateResponse, StandardLoad } from '@/types'
+import type { CalculateResponse } from '@/types'
 
 type TipoCalculo = 'backup' | 'arbitragem'
 
@@ -24,6 +26,7 @@ type Step = 'tipo' | 'dados' | 'resultado'
 type BackupRow = {
   id: string
   nome: string
+  categoria: string
   qtd: number
   pnom_w: number
   fp: number
@@ -31,6 +34,7 @@ type BackupRow = {
   ip_in: number
   tdia_h: number
   tensao: string   // "127" | "220" | "380" — usada no R8 (saída EPS do inversor)
+  fase: string
 }
 
 export function NewProjectPage() {
@@ -53,23 +57,14 @@ export function NewProjectPage() {
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
   const [cidadeLabel, setCidadeLabel] = useState('')
+  const [showAddLoad, setShowAddLoad] = useState(false)
 
-  function addBackupRow(load: StandardLoad) {
-    setBackupRows(prev => [...prev, {
-      id: crypto.randomUUID(),
-      nome: load.nome,
-      qtd: 1,
-      pnom_w: load.potencia_w,
-      fp: load.fator_potencia ?? 1,
-      fd: load.fator_demanda ?? 1,
-      ip_in: load.ip_in ?? 1,
-      tdia_h: load.tdia_horas ?? 4,
-      tensao: tipoInstalacao === 'trifasico' ? '380' : '220',
-    }])
+  function insertRow(r: LoadRowInput) {
+    setBackupRows(prev => [...prev, { id: crypto.randomUUID(), ...r }])
   }
 
-  function updateBackupRow(id: string, field: keyof Omit<BackupRow, 'id' | 'nome'>, value: number) {
-    setBackupRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  function patchRow(id: string, patch: Partial<BackupRow>) {
+    setBackupRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
   }
 
   function removeBackupRow(id: string) {
@@ -81,6 +76,15 @@ export function NewProjectPage() {
   const [arbDemandaPonta, setArbDemandaPonta] = useState<string[]>(Array(12).fill(''))
   const [arbTarifaPonta, setArbTarifaPonta] = useState('2.50')
   const [arbTarifaForaPonta, setArbTarifaForaPonta] = useState('0.30')
+
+  const subtotais = backupRows.reduce(
+    (a, r) => ({
+      pnom: a.pnom + r.qtd * r.pnom_w,
+      pico: a.pico + r.qtd * r.pnom_w * r.ip_in,
+      energia: a.energia + (r.qtd * r.pnom_w * r.tdia_h) / 1000,
+    }),
+    { pnom: 0, pico: 0, energia: 0 },
+  )
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
@@ -101,7 +105,10 @@ export function NewProjectPage() {
     }
 
     if (tipo === 'backup') {
-      payload.cargas_backup = backupRows.map(({ id: _id, ...r }) => r)
+      payload.cargas_backup = backupRows.map(r => ({
+        nome: r.nome, qtd: r.qtd, pnom_w: r.pnom_w, fp: r.fp, fd: r.fd,
+        ip_in: r.ip_in, tdia_h: r.tdia_h, tensao: r.tensao,
+      }))
       payload.tipo_instalacao = tipoInstalacao
       payload.padrao_entrada = padraoEntrada
       payload.autonomia_horas = parseFloat(autonomia)
@@ -238,65 +245,51 @@ export function NewProjectPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Cargas da Instalação</label>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">Cargas da instalação</label>
+                  <button type="button" onClick={() => setShowAddLoad(true)}
+                    className="flex items-center gap-1 rounded-lg border-2 border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                    <Plus size={16} /> Adicionar carga
+                  </button>
+                </div>
 
-                {loadsLoading ? (
-                  <p className="mb-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                    Carregando catálogo...
-                  </p>
-                ) : loadsError ? (
+                {loadsError && (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-                    ⚠ Erro ao carregar catálogo — verifique se as migrações foram aplicadas no Supabase.
+                    ⚠ Erro ao carregar o catálogo de cargas.
                   </p>
-                ) : !loads || loads.length === 0 ? (
-                  <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Catálogo vazio — importe as cargas via script ou adicione manualmente em{' '}
-                    <strong>Catálogo de Cargas</strong>.
-                  </p>
-                ) : (
-                  <select
-                    className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                    defaultValue=""
-                    onChange={e => {
-                      const load = loads.find(l => l.id === e.target.value)
-                      if (load) { addBackupRow(load); e.currentTarget.value = '' }
-                    }}
-                  >
-                    <option value="" disabled>+ Adicionar carga do catálogo...</option>
-                    {loads.filter(l => l.ativo).map(l => (
-                      <option key={l.id} value={l.id}>{l.nome} ({l.potencia_w} W)</option>
-                    ))}
-                  </select>
                 )}
 
-                {backupRows.length > 0 && (
+                {backupRows.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border border-gray-200">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
-                        <tr>
-                          {['Equipamento','Qtd','PNOM (W)','TDIA (h)','FP','FD','IP/IN','Tensão',''].map(h => (
-                            <th key={h} className="px-2 py-2 text-left text-gray-500 font-medium">{h}</th>
+                        <tr className="text-left text-gray-500">
+                          {['Equipamento','Categoria','Qtd','Pot (W)','Uso (h)','FP','FD','IP/IN','Tensão','Fase',''].map(h => (
+                            <th key={h} className="px-2 py-2 font-medium">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {backupRows.map(row => (
                           <tr key={row.id} className="border-t border-gray-100">
-                            <td className="px-2 py-1 text-gray-700 min-w-[100px]">{row.nome}</td>
-                            {(['qtd','pnom_w','tdia_h','fp','fd','ip_in'] as const).map(f => (
-                              <td key={f} className="px-1 py-1">
-                                <input type="number" value={row[f]} step="any" min={0}
-                                  onChange={e => updateBackupRow(row.id, f, parseFloat(e.target.value))}
-                                  className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none" />
-                              </td>
-                            ))}
+                            <td className="px-1 py-1"><TInput value={row.nome} onChange={v => patchRow(row.id, { nome: v })} w="w-32" /></td>
+                            <td className="px-1 py-1"><TInput value={row.categoria} onChange={v => patchRow(row.id, { categoria: v })} w="w-24" /></td>
+                            <td className="px-1 py-1"><NInput value={row.qtd} onChange={v => patchRow(row.id, { qtd: v })} /></td>
+                            <td className="px-1 py-1"><NInput value={row.pnom_w} onChange={v => patchRow(row.id, { pnom_w: v })} /></td>
+                            <td className="px-1 py-1"><NInput value={row.tdia_h} onChange={v => patchRow(row.id, { tdia_h: v })} /></td>
+                            <td className="px-1 py-1"><NInput value={row.fp} onChange={v => patchRow(row.id, { fp: v })} /></td>
+                            <td className="px-1 py-1"><NInput value={row.fd} onChange={v => patchRow(row.id, { fd: v })} /></td>
+                            <td className="px-1 py-1"><NInput value={row.ip_in} onChange={v => patchRow(row.id, { ip_in: v })} /></td>
                             <td className="px-1 py-1">
-                              <select value={row.tensao}
-                                onChange={e => setBackupRows(prev => prev.map(r => r.id === row.id ? { ...r, tensao: e.target.value } : r))}
+                              <select value={row.tensao} onChange={e => patchRow(row.id, { tensao: e.target.value })}
                                 className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none">
-                                <option value="127">127</option>
-                                <option value="220">220</option>
-                                <option value="380">380</option>
+                                <option value="127">127</option><option value="220">220</option><option value="380">380</option>
+                              </select>
+                            </td>
+                            <td className="px-1 py-1">
+                              <select value={row.fase} onChange={e => patchRow(row.id, { fase: e.target.value })}
+                                className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none">
+                                <option value="monofasico">Mono</option><option value="trifasico">Tri</option>
                               </select>
                             </td>
                             <td className="px-1 py-1">
@@ -306,11 +299,21 @@ export function NewProjectPage() {
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-700">
+                          <td className="px-2 py-2" colSpan={11}>
+                            Subtotais — Pot. nominal: {(subtotais.pnom / 1000).toFixed(2)} kVA
+                            {' · '}Pot. pico: {(subtotais.pico / 1000).toFixed(2)} kVA
+                            {' · '}Energia/dia: {subtotais.energia.toFixed(2)} kWh
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
-                )}
-                {backupRows.length === 0 && (
-                  <p className="mt-1 text-xs text-gray-400">Adicione ao menos uma carga do catálogo.</p>
+                ) : (
+                  <p className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-400">
+                    Nenhuma carga adicionada. Clique em <strong>Adicionar carga</strong>.
+                  </p>
                 )}
               </div>
             </>
@@ -371,9 +374,18 @@ export function NewProjectPage() {
             disabled={isPending || (tipo === 'backup' && backupRows.length === 0)}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
           >
-            {isPending ? 'Calculando...' : 'Calcular Dimensionamento'}
+            {isPending ? 'Buscando…' : 'Buscar kits'}
           </button>
         </form>
+
+        {showAddLoad && (
+          <AddLoadDialog
+            loads={loads ?? []}
+            defaultTensao={tipoInstalacao === 'trifasico' ? '380' : '220'}
+            onInsert={insertRow}
+            onClose={() => setShowAddLoad(false)}
+          />
+        )}
       </div>
     )
   }
@@ -600,5 +612,21 @@ function Field({ label, value, onChange, placeholder, required }: {
         placeholder={placeholder} required={required}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
     </div>
+  )
+}
+
+// Inputs editáveis dentro da tabela de cargas
+function TInput({ value, onChange, w = 'w-24' }: { value: string; onChange: (v: string) => void; w?: string }) {
+  return (
+    <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      className={`${w} rounded border border-gray-200 px-1 py-0.5 text-xs focus:border-primary focus:outline-none`} />
+  )
+}
+
+function NInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <input type="number" step="any" min={0} value={value}
+      onChange={e => onChange(parseFloat(e.target.value) || 0)}
+      className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none" />
   )
 }
