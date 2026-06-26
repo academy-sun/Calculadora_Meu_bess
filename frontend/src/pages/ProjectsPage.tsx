@@ -2,19 +2,34 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PlusCircle, Trash2 } from 'lucide-react'
 import { useProjects, useDeleteProjects } from '@/hooks/useProjects'
+import type { Project } from '@/types'
 
 const TIPO_LABEL: Record<string, string> = {
   backup: 'Backup',
+  backup_direto: 'Backup',
   peak_shaving: 'Peak Shaving',
   arbitragem: 'Arbitragem',
   solar: 'Solar',
   solar_storage: 'Solar + Storage',
 }
 
-const ESTADO_COLOR: Record<string, string> = {
-  concluido: 'bg-green-100 text-green-700',
-  calculando: 'bg-yellow-100 text-yellow-700',
-  erro: 'bg-red-100 text-red-700',
+function paramOf(p: Project): Record<string, unknown> {
+  return (p.parametros ?? {}) as Record<string, unknown>
+}
+
+function quoteField(p: Project, key: 'titulo'): string {
+  const v = paramOf(p)[key] ?? p.negocio_nome
+  return (v as string) || '—'
+}
+
+function quoteNum(p: Project, which: 'pico' | 'pot_baterias' | 'energia'): string {
+  const pm = paramOf(p)
+  const kit = (pm['kit_selecionado'] ?? {}) as Record<string, unknown>
+  const n =
+    which === 'pico'        ? (pm['total_pp_kva'] ?? pm['potencia_kw'])
+    : which === 'pot_baterias' ? (kit['pico_entregavel_kw'] ?? kit['potencia_total_kw'])
+    : (pm['capacidade_kwh'] ?? kit['capacidade_total_kwh'])
+  return n == null ? '—' : Number(n).toLocaleString('pt-BR')
 }
 
 export function ProjectsPage() {
@@ -61,12 +76,12 @@ export function ProjectsPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Projetos</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Histórico de cotações</h1>
         <Link
-          to="/projects/new"
+          to="/"
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
-          <PlusCircle size={16} /> Novo Cálculo
+          <PlusCircle size={16} /> Nova Cotação
         </Link>
       </div>
 
@@ -106,10 +121,11 @@ export function ProjectsPage() {
                     className="rounded border-gray-300"
                   />
                 </th>
+                <th className="px-4 py-3 text-left">Título</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
-                <th className="px-4 py-3 text-left">Solicitante</th>
-                <th className="px-4 py-3 text-left">Origem</th>
-                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-right">Pot. pico (kW)</th>
+                <th className="px-4 py-3 text-right">Pot. baterias (kW)</th>
+                <th className="px-4 py-3 text-right">Energia (kWh)</th>
                 <th className="px-4 py-3 text-left">Data</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -125,20 +141,13 @@ export function ProjectsPage() {
                       className="rounded border-gray-300"
                     />
                   </td>
-                  <td className="px-4 py-3 font-medium">
+                  <td className="px-4 py-3 font-medium">{quoteField(p, 'titulo')}</td>
+                  <td className="px-4 py-3 text-gray-700">
                     {TIPO_LABEL[p.tipo_calculo] ?? p.tipo_calculo}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{p.solicitante_nome}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize">
-                      {p.origem}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_COLOR[p.estado] ?? ''}`}>
-                      {p.estado}
-                    </span>
-                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">{quoteNum(p, 'pico')}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{quoteNum(p, 'pot_baterias')}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{quoteNum(p, 'energia')}</td>
                   <td className="px-4 py-3 text-gray-500">
                     {new Date(p.solicitado_em).toLocaleDateString('pt-BR')}
                   </td>
@@ -151,9 +160,9 @@ export function ProjectsPage() {
               ))}
               {projects.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
-                    Nenhum projeto ainda.{' '}
-                    <Link to="/projects/new" className="text-primary">Criar o primeiro</Link>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    Nenhuma cotação salva ainda.{' '}
+                    <Link to="/" className="text-primary">Criar a primeira</Link>
                   </td>
                 </tr>
               )}

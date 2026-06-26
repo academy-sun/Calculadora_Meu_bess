@@ -1,10 +1,8 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import {
-  LayoutDashboard,
-  FolderOpen,
+  FileText,
   PlusCircle,
-  Sun,
   Zap,
   Package,
   LogOut,
@@ -59,9 +57,8 @@ export function Layout() {
         </div>
 
         <nav className="flex flex-1 flex-col gap-1">
-          <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
-          <NavItem to="/projects" icon={FolderOpen} label="Projetos" />
-          <NavItem to="/projects/new" icon={PlusCircle} label="Novo Cálculo" />
+          <NavItem to="/" icon={PlusCircle} label="Nova Cotação" />
+          <NavItem to="/projects" icon={FileText} label="Histórico de cotações" />
 
           {isAdmin && (
             <>
@@ -70,7 +67,6 @@ export function Layout() {
                 Catálogos
               </p>
               <NavItem to="/products" icon={Package} label="Catálogo MeuBESS" />
-              <NavItem to="/catalog" icon={Sun} label="Solar e BESS" />
               <NavItem to="/catalog/loads" icon={Zap} label="Cargas Padrão" />
             </>
           )}

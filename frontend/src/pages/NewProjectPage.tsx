@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import type { ElementType } from 'react'
+import { BatteryCharging, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
 import { useCalculate } from '@/hooks/useProjects'
@@ -7,9 +9,9 @@ import type { CalculateResponse, StandardLoad } from '@/types'
 
 type TipoCalculo = 'backup' | 'arbitragem'
 
-const TIPOS: { value: TipoCalculo; label: string; desc: string }[] = [
-  { value: 'backup',    label: 'Backup de Energia',   desc: 'Garante autonomia em caso de falta de energia' },
-  { value: 'arbitragem', label: 'Arbitragem Tarifária', desc: 'Carrega no off-peak, descarrega no peak' },
+const TIPOS: { value: TipoCalculo; label: string; desc: string; icon: ElementType }[] = [
+  { value: 'backup',    label: 'Backup de Energia',   desc: 'Autonomia na falta de energia', icon: BatteryCharging },
+  { value: 'arbitragem', label: 'Arbitragem Tarifária', desc: 'Carrega no fora-ponta, descarrega na ponta', icon: TrendingUp },
 ]
 
 const MONTHS = [
@@ -42,8 +44,9 @@ export function NewProjectPage() {
   const [error, setError] = useState<string | null>(null)
 
   // ── Backup ──────────────────────────────────────────────────────────────────
-  const [tipoInstalacao, setTipoInstalacao] = useState<'monofasico' | 'trifasico'>('monofasico')
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
+  const tipoInstalacao: 'monofasico' | 'trifasico' =
+    padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
   const [autonomia, setAutonomia] = useState('4')
   const [dod, setDod] = useState('90')
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
@@ -128,34 +131,29 @@ export function NewProjectPage() {
   // ── Step: Tipo ──────────────────────────────────────────────────────────────
   if (step === 'tipo') {
     return (
-      <div className="p-6 max-w-2xl">
-        <h1 className="mb-1 text-2xl font-bold">Novo Cálculo</h1>
-        <p className="mb-6 text-gray-500">Selecione o tipo de dimensionamento</p>
-        <div className="space-y-3">
-          {TIPOS.map(t => (
-            <button
-              key={t.value}
-              onClick={() => setTipo(t.value)}
-              className={`flex w-full items-start gap-4 rounded-xl border-2 p-4 text-left transition-colors ${
-                tipo === t.value ? 'border-primary bg-primary/5' : 'border-gray-200 bg-white hover:border-gray-300'
-              }`}
-            >
-              <div className={`mt-0.5 h-4 w-4 flex-shrink-0 rounded-full border-2 ${
-                tipo === t.value ? 'border-primary bg-primary' : 'border-gray-300'
-              }`} />
-              <div>
-                <p className="font-semibold text-gray-900">{t.label}</p>
-                <p className="text-sm text-gray-500">{t.desc}</p>
-              </div>
-            </button>
-          ))}
+      <div className="flex min-h-[80vh] flex-col items-center justify-center p-6">
+        <h1 className="mb-1 text-2xl font-bold">Nova Cotação</h1>
+        <p className="mb-10 text-gray-500">Selecione o tipo de dimensionamento</p>
+        <div className="flex flex-wrap items-stretch justify-center gap-6">
+          {TIPOS.map(t => {
+            const Icon = t.icon
+            return (
+              <button
+                key={t.value}
+                onClick={() => { setTipo(t.value); setStep('dados') }}
+                className="flex w-60 flex-col items-center gap-4 rounded-2xl border-2 border-gray-200 bg-white p-8 text-center transition-all hover:-translate-y-1 hover:border-primary hover:shadow-lg"
+              >
+                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Icon size={40} />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-gray-900">{t.label}</p>
+                  <p className="mt-1 text-sm text-gray-500">{t.desc}</p>
+                </div>
+              </button>
+            )
+          })}
         </div>
-        <button
-          onClick={() => setStep('dados')}
-          className="mt-6 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          Próximo →
-        </button>
       </div>
     )
   }
@@ -176,41 +174,25 @@ export function NewProjectPage() {
           {tipo === 'backup' && (
             <>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de Instalação</label>
-                <div className="flex gap-3">
-                  {(['monofasico', 'trifasico'] as const).map(t => (
-                    <button key={t} type="button"
-                      onClick={() => { setTipoInstalacao(t); setPadraoEntrada(t === 'trifasico' ? 'tri_220_380' : 'mono_220') }}
-                      className={`flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-colors ${
-                        tipoInstalacao === t
+                <label className="mb-2 block text-sm font-medium text-gray-700">Padrão de entrada da unidade</label>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {([
+                    { v: 'mono_127', l: 'Monofásico', s: '127 V' },
+                    { v: 'mono_220', l: 'Monofásico', s: '220 V' },
+                    { v: 'tri_127_220', l: 'Trifásico', s: '127/220 V' },
+                    { v: 'tri_220_380', l: 'Trifásico', s: '220/380 V' },
+                  ] as const).map(o => (
+                    <button key={o.v} type="button" onClick={() => setPadraoEntrada(o.v)}
+                      className={`rounded-xl border-2 px-3 py-3 text-center transition-colors ${
+                        padraoEntrada === o.v
                           ? 'border-primary bg-primary/5 text-primary'
                           : 'border-gray-200 text-gray-600 hover:border-gray-300'
                       }`}>
-                      {t === 'monofasico' ? 'Monofásico' : 'Trifásico'}
+                      <span className="block text-sm font-semibold">{o.l}</span>
+                      <span className="block text-xs">{o.s}</span>
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Padrão de entrada da unidade</label>
-                <select value={padraoEntrada} onChange={e => setPadraoEntrada(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none">
-                  {tipoInstalacao === 'monofasico' ? (
-                    <>
-                      <option value="mono_127">Monofásico 127 V</option>
-                      <option value="mono_220">Monofásico 220 V</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="tri_127_220">Trifásico 127/220 V</option>
-                      <option value="tri_220_380">Trifásico 220/380 V</option>
-                    </>
-                  )}
-                </select>
-                <p className="mt-1 text-xs text-gray-400">
-                  Usado para alertar sobre mudança de padrão de entrada ou autotransformador.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
