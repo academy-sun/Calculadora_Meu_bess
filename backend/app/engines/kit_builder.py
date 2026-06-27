@@ -41,6 +41,7 @@ class KitBESS:
     pico_entregavel_kw: float
     preco_total: float
     alertas: list[str] = field(default_factory=list)
+    itens: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -275,6 +276,16 @@ def build_kits(
             if fase_instalacao == "trifasico" and tensoes_carga:
                 alertas.append("verifique cargas monofásicas ≤ 1/3 da potência (alerta)")
 
+            itens = [
+                {"nome": _tit(inv), "tipo": "inversor", "qtd": qtd_inv,
+                 "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2)},
+                {"nome": _tit(bat), "tipo": "bateria", "qtd": n,
+                 "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2)},
+            ]
+            if n_jbw > 0:
+                itens.append({"nome": "Caixa de junção (JBW)", "tipo": "acessorio", "qtd": n_jbw,
+                              "preco_unitario": 0.0, "preco_total": 0.0})
+
             kits.append(KitBESS(
                 inversor=inv,
                 bateria=bat,
@@ -286,6 +297,7 @@ def build_kits(
                 pico_entregavel_kw=round(min(pico_dc, pico_inv_total), 2),
                 preco_total=round(ba["preco"] * n + ia["preco"] * qtd_inv, 2),
                 alertas=alertas,
+                itens=itens,
             ))
 
     kits.sort(key=lambda k: k.preco_total)

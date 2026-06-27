@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
+import { KitResult } from '@/components/KitResult'
 import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
 import type { CalculateResponse } from '@/types'
@@ -21,7 +22,7 @@ const MONTHS = [
   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
 ]
 
-type Step = 'tipo' | 'dados' | 'resultado'
+type Step = 'tipo' | 'dados'
 
 type BackupRow = {
   id: string
@@ -126,8 +127,7 @@ export function NewProjectPage() {
 
     try {
       const res = await calcular(payload)
-      setResult(res)
-      setStep('resultado')
+      setResult(res)  // mostra o kit na mesma página (abaixo do formulário)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao calcular')
     }
@@ -387,208 +387,13 @@ export function NewProjectPage() {
             onClose={() => setShowAddLoad(false)}
           />
         )}
+
+        {result && <KitResult result={result} />}
       </div>
     )
   }
 
-  // ── Step: Resultado ─────────────────────────────────────────────────────────
-  return (
-    <div className="p-6 max-w-3xl">
-      <h1 className="mb-1 text-2xl font-bold text-green-700">✅ Dimensionamento Concluído</h1>
-      <p className="mb-6 text-gray-500">
-        {tipo === 'backup' ? 'Backup de Energia' : 'Arbitragem Tarifária'}
-      </p>
-
-      {/* Summary cards */}
-      <div className="mb-6 grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs text-gray-400 uppercase">Capacidade</p>
-          <p className="text-2xl font-bold">{result?.capacidade_kwh ?? '—'} kWh</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs text-gray-400 uppercase">Potência</p>
-          <p className="text-2xl font-bold">{result?.potencia_kw ?? '—'} kW</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs text-gray-400 uppercase">Payback</p>
-          <p className="text-2xl font-bold">{result?.payback_meses ? `${result.payback_meses} m` : '—'}</p>
-        </div>
-      </div>
-
-      {/* Backup: per-row results */}
-      {result?.backup_rows && result.backup_rows.length > 0 && (
-        <div className="mb-4 overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Equipamento','Pn (kVA)','Dmn (kVA)','Pp (kVA)','DMp (kVA)','E_EPS (kWh)'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.backup_rows.map((r, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="px-3 py-1 text-gray-700">{r.nome}</td>
-                  <td className="px-3 py-1">{r.pn_kva}</td>
-                  <td className="px-3 py-1">{r.dmn_kva}</td>
-                  <td className="px-3 py-1">{r.pp_kva}</td>
-                  <td className="px-3 py-1">{r.dmp_kva}</td>
-                  <td className="px-3 py-1 font-medium">{r.e_eps_kwh}</td>
-                </tr>
-              ))}
-              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-                <td className="px-3 py-1">TOTAL</td>
-                <td className="px-3 py-1">{result.total_pn_kva}</td>
-                <td className="px-3 py-1">{result.total_dmn_kva}</td>
-                <td className="px-3 py-1">{result.total_pp_kva}</td>
-                <td className="px-3 py-1">{result.total_dmp_kva}</td>
-                <td className="px-3 py-1">
-                  {result.backup_rows.reduce((s, r) => s + (r.e_eps_kwh ?? 0), 0).toFixed(2)} kWh
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Arbitragem: dimensionamento */}
-      {result?.qty_bess != null && (
-        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
-          <p className="mb-3 text-xs font-bold uppercase text-gray-500">Dimensionamento Arbitragem</p>
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <div>
-              <p className="text-xs text-gray-400">Qtd BESS</p>
-              <p className="text-2xl font-bold text-primary">{result.qty_bess}</p>
-              <p className="text-xs text-gray-400">
-                {result.qty_bess === result.qty_consumo ? 'limitado por consumo' : 'limitado por demanda'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Média Consumo Ponta</p>
-              <p className="font-semibold">{result.avg_consumo_ponta?.toFixed(1)} kWh/mês</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Maior Demanda Ponta</p>
-              <p className="font-semibold">{result.max_demanda_ponta?.toFixed(1)} kW</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Economia Estimada</p>
-              <p className="font-semibold text-green-700">
-                R$ {result.economia_mensal_rs?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Kit recomendado */}
-      {result?.kit_selecionado && (
-        <div className="mb-4 rounded-xl border-2 border-primary/40 bg-primary/5 p-4">
-          <p className="mb-3 text-xs font-bold uppercase text-primary">Kit Recomendado — Menor Preço</p>
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <div><p className="text-xs text-gray-500">Marca</p><p className="font-semibold">{result.kit_selecionado.marca}</p></div>
-            <div><p className="text-xs text-gray-500">Bateria</p><p className="font-semibold">{result.kit_selecionado.bateria_modelo}</p></div>
-            <div><p className="text-xs text-gray-500">Inversor</p><p className="font-semibold">{result.kit_selecionado.inversor_modelo}</p></div>
-            <div>
-              <p className="text-xs text-gray-500">Preço Total</p>
-              <p className="font-bold text-green-700">R$ {result.kit_selecionado.preco_total.toLocaleString('pt-BR')}</p>
-            </div>
-          </div>
-          {result.solar_dimensionamento && (
-            <div className="mt-2 border-t border-amber-200 pt-2">
-              <span className="text-xs text-gray-500">Total com Solar</span>
-              <p className="text-lg font-bold text-amber-700">
-                {(result.kit_selecionado.preco_total + result.solar_dimensionamento.preco_modulos_total)
-                  .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </p>
-            </div>
-          )}
-          <p className="mt-2 text-xs text-gray-500">
-            {result.kit_selecionado.qtd_baterias}× baterias
-            {result.kit_selecionado.qtd_inversores && result.kit_selecionado.qtd_inversores > 1
-              ? ` · ${result.kit_selecionado.qtd_inversores}× inversores` : ''}
-            {' '}· {result.kit_selecionado.capacidade_total_kwh} kWh úteis
-            {' '}· pico entregável {result.kit_selecionado.pico_entregavel_kw ?? result.kit_selecionado.potencia_total_kw} kVA
-          </p>
-          {(result.kit_selecionado.distribuicao_baterias || result.kit_selecionado.n_caixas_juncao != null) && (
-            <p className="mt-1 text-xs text-gray-500">
-              {result.kit_selecionado.distribuicao_baterias && (
-                <>Distribuição das baterias: {result.kit_selecionado.distribuicao_baterias.join(' + ')} por entrada</>
-              )}
-              {result.kit_selecionado.n_caixas_juncao != null && (
-                <> · {result.kit_selecionado.n_caixas_juncao}× caixa(s) de junção</>
-              )}
-            </p>
-          )}
-          {result.kit_selecionado.alertas && result.kit_selecionado.alertas.length > 0 && (
-            <div className="mt-2 space-y-1">
-              {result.kit_selecionado.alertas.map((a, i) => (
-                <p key={i} className="flex items-start gap-1 text-xs text-amber-700">
-                  <span>⚠</span><span>{a}</span>
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Solar dimensioning result */}
-      {result?.solar_dimensionamento && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-800 uppercase tracking-wide">
-            ☀️ Dimensionamento Solar
-          </h3>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-            <div>
-              <span className="text-gray-500">Módulo selecionado</span>
-              <p className="font-medium">
-                {result.solar_dimensionamento.modulo_marca} {result.solar_dimensionamento.modulo_modelo}
-                {' '}— {result.solar_dimensionamento.modulo_wp} Wp
-              </p>
-            </div>
-            <div>
-              <span className="text-gray-500">Configuração</span>
-              <p className="font-medium font-mono">
-                {result.solar_dimensionamento.n_serie}S ×{' '}
-                {result.solar_dimensionamento.n_paralelo}P ×{' '}
-                {result.solar_dimensionamento.mppt_qty} MPPT
-              </p>
-            </div>
-            <div>
-              <span className="text-gray-500">Total de módulos</span>
-              <p className="font-medium">{result.solar_dimensionamento.qty_modulos} unidades</p>
-            </div>
-            <div>
-              <span className="text-gray-500">Potência instalada</span>
-              <p className="font-medium">{result.solar_dimensionamento.kwp_instalado} kWp</p>
-            </div>
-            <div className="col-span-2">
-              <span className="text-gray-500">Cobertura estimada</span>
-              <p className="font-medium text-amber-700">
-                {result.solar_dimensionamento.cobertura_pct}% do consumo mensal
-              </p>
-            </div>
-            <div className="col-span-2 border-t border-amber-200 pt-2">
-              <span className="text-gray-500">Custo estimado dos módulos</span>
-              <p className="font-semibold text-amber-800">
-                {result.solar_dimensionamento.preco_modulos_total.toLocaleString('pt-BR', {
-                  style: 'currency', currency: 'BRL',
-                })}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <button
-        onClick={() => { setStep('tipo'); setResult(null); setBackupRows([]) }}
-        className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-      >
-        ← Novo Cálculo
-      </button>
-    </div>
-  )
+  return null
 }
 
 function Field({ label, value, onChange, placeholder, required }: {

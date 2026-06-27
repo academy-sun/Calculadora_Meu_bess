@@ -51,6 +51,7 @@ def _kits_to_response(kits) -> tuple[KitInfo | None, list[KitInfo]]:
             n_caixas_juncao=k.n_caixas_juncao,
             pico_entregavel_kw=k.pico_entregavel_kw,
             alertas=k.alertas or None,
+            itens=k.itens or None,
         )
         for k in kits
     ]

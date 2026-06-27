@@ -86,6 +86,14 @@ class CalculateRequest(BaseModel):
 
 # ── Kit info ──────────────────────────────────────────────────────────────────
 
+class KitItem(BaseModel):
+    nome: str
+    tipo: str
+    qtd: int
+    preco_unitario: float
+    preco_total: float
+
+
 class KitInfo(BaseModel):
     marca: str
     bateria_modelo: str
@@ -102,6 +110,7 @@ class KitInfo(BaseModel):
     n_caixas_juncao: Optional[int] = None
     pico_entregavel_kw: Optional[float] = None
     alertas: Optional[list[str]] = None
+    itens: Optional[list[KitItem]] = None
 
 
 class SolarDimensionamento(BaseModel):

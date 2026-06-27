@@ -253,6 +253,15 @@ export interface KitInfo {
   n_caixas_juncao?: number
   pico_entregavel_kw?: number
   alertas?: string[]
+  itens?: KitItem[]
+}
+
+export interface KitItem {
+  nome: string
+  tipo: string
+  qtd: number
+  preco_unitario: number
+  preco_total: number
 }
 
 export interface SolarDimensionamento {
