@@ -155,7 +155,7 @@ def _attrs_inversor(inv) -> tuple[dict, str | None]:
         "battery_inputs":  eff_int(inv, "battery_inputs"),
         "i_input_a":       eff_float(inv, "battery_input_max_current_a"),
         "max_paralelo":    eff_int(inv, "max_parallel_units") or 1,
-        "preco":           eff_float(inv, "preco") or 0.0,
+        "preco":           eff_float(inv, "price") or eff_float(inv, "preco") or 0.0,
     }
     faltando = [k for k in ("peak_power_kw", "eps_nominal_kw", "battery_inputs", "i_input_a") if not a[k]]
     if faltando:
@@ -170,7 +170,7 @@ def _attrs_bateria(bat) -> tuple[dict, str | None]:
         "i_cont_a":       eff_float(bat, "max_continuous_current_a"),
         "i_pico_a":       eff_float(bat, "peak_discharge_current_a") or eff_float(bat, "max_continuous_current_a"),
         "tensao_v":       eff_float(bat, "nominal_voltage_v"),
-        "preco":          eff_float(bat, "preco") or 0.0,
+        "preco":          eff_float(bat, "price") or eff_float(bat, "preco") or 0.0,
     }
     faltando = [k for k in ("usable_kwh", "max_paralelo", "i_cont_a", "tensao_v") if not a[k]]
     if faltando:

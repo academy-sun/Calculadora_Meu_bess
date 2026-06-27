@@ -64,7 +64,7 @@ def _size_module(inversor, modulo, kwp_necessario: float) -> Optional[SolarStrin
     kwp_instalado = round(qty_modulos * wp / 1000, 3)
     cobertura_pct = round(min(kwp_instalado / kwp_necessario * 100, 999.9), 1)
 
-    preco_mod = eff_float(modulo, 'preco')
+    preco_mod = (eff_float(modulo, 'price') or eff_float(modulo, 'preco'))
     preco_modulos_total = round(preco_mod * qty_modulos, 2) if preco_mod else 0.0
 
     return SolarStringsResult(
@@ -110,7 +110,7 @@ def size_solar_strings(
         modulo, r = item
         penalty = 0 if r.kwp_instalado <= kwp_nec * 1.2 else 1000
         distance = abs(r.kwp_instalado - kwp_nec)
-        preco_mod = eff_float(modulo, 'preco')
+        preco_mod = (eff_float(modulo, 'price') or eff_float(modulo, 'preco'))
         preco_total = preco_mod * r.qty_modulos if preco_mod else float('inf')
         return (penalty, distance, preco_total)
 

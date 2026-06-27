@@ -70,9 +70,19 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props
     if (k === 'nome') setSelectedId(null)
   }
 
-  async function handleInsert() {
+  function resetForm() {
+    setSearch('')
+    setSelectedId(null)
+    setF({ ...EMPTY, tensao: defaultTensao })
+  }
+
+  async function handleInsert(closeAfter: boolean) {
     setError(null)
-    if (!f.nome.trim()) { setError('Informe o nome da carga.'); return }
+    if (!f.nome.trim()) {
+      if (closeAfter) { onClose(); return }  // "Finalizar" com form vazio → só fecha
+      setError('Informe o nome da carga.')
+      return
+    }
     const num = (s: string) => parseFloat(s) || 0
     const row: LoadRowInput = {
       nome: f.nome.trim(),
@@ -96,7 +106,8 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props
         })
       }
       onInsert(row)
-      onClose()
+      if (closeAfter) onClose()
+      else resetForm()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao inserir carga')
     }
@@ -168,9 +179,13 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props
           <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">
             Cancelar
           </button>
-          <button onClick={handleInsert} disabled={createLoad.isPending}
+          <button onClick={() => handleInsert(false)} disabled={createLoad.isPending}
+            className="rounded-lg border-2 border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5 disabled:opacity-50">
+            {createLoad.isPending ? 'Salvando…' : 'Inserir e adicionar outra'}
+          </button>
+          <button onClick={() => handleInsert(true)} disabled={createLoad.isPending}
             className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50">
-            {createLoad.isPending ? 'Salvando…' : 'Inserir'}
+            Finalizar
           </button>
         </div>
       </div>

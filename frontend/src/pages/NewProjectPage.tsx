@@ -52,7 +52,6 @@ export function NewProjectPage() {
   const tipoInstalacao: 'monofasico' | 'trifasico' =
     padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
   const [autonomia, setAutonomia] = useState('4')
-  const [dod, setDod] = useState('90')
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
@@ -77,13 +76,13 @@ export function NewProjectPage() {
   const [arbTarifaPonta, setArbTarifaPonta] = useState('2.50')
   const [arbTarifaForaPonta, setArbTarifaForaPonta] = useState('0.30')
 
+  // Pn (kVA) = qtd × pnom / fp / 1000 ; Pp (kVA) = Pn × IP/IN ; E (kWh) = qtd × pnom × h / 1000
+  const rowPn = (r: BackupRow) => (r.qtd * r.pnom_w) / (r.fp || 1) / 1000
+  const rowPp = (r: BackupRow) => rowPn(r) * (r.ip_in || 1)
+  const rowE = (r: BackupRow) => (r.qtd * r.pnom_w * r.tdia_h) / 1000
   const subtotais = backupRows.reduce(
-    (a, r) => ({
-      pnom: a.pnom + r.qtd * r.pnom_w,
-      pico: a.pico + r.qtd * r.pnom_w * r.ip_in,
-      energia: a.energia + (r.qtd * r.pnom_w * r.tdia_h) / 1000,
-    }),
-    { pnom: 0, pico: 0, energia: 0 },
+    (a, r) => ({ pn: a.pn + rowPn(r), pp: a.pp + rowPp(r), energia: a.energia + rowE(r) }),
+    { pn: 0, pp: 0, energia: 0 },
   )
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -112,7 +111,6 @@ export function NewProjectPage() {
       payload.tipo_instalacao = tipoInstalacao
       payload.padrao_entrada = padraoEntrada
       payload.autonomia_horas = parseFloat(autonomia)
-      payload.dod_percent = parseFloat(dod)
       payload.eficiencia_roundtrip = 90
       const consumoNum = parseFloat(consumoMensal)
       if (consumoNum > 0 && hspMedia) {
@@ -168,7 +166,7 @@ export function NewProjectPage() {
   // ── Step: Dados ─────────────────────────────────────────────────────────────
   if (step === 'dados') {
     return (
-      <div className="p-6 max-w-2xl">
+      <div className="p-6 max-w-5xl">
         <button onClick={() => setStep('tipo')} className="mb-4 text-sm text-gray-500 hover:text-primary">← Voltar</button>
         <h1 className="mb-1 text-2xl font-bold">
           {tipo === 'backup' ? 'Backup de Energia' : 'Arbitragem Tarifária'}
@@ -202,9 +200,9 @@ export function NewProjectPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Autonomia (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
-                <Field label="DoD (%)" value={dod} onChange={setDod} placeholder="90" required />
+              <div className="max-w-xs">
+                <Field label="Autonomia desejada (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
+                <p className="mt-1 text-xs text-gray-400">A profundidade de descarga (DoD) vem do datasheet da bateria.</p>
               </div>
 
               {/* ── Solar (opcional) ───────────────────────────────────────── */}
@@ -264,7 +262,7 @@ export function NewProjectPage() {
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr className="text-left text-gray-500">
-                          {['Equipamento','Categoria','Qtd','Pot (W)','Uso (h)','FP','FD','IP/IN','Tensão','Fase',''].map(h => (
+                          {['Equipamento','Categoria','Qtd','Pot (W)','Uso (h)','FP','FD','IP/IN','Tensão','Fase','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
                             <th key={h} className="px-2 py-2 font-medium">{h}</th>
                           ))}
                         </tr>
@@ -292,6 +290,9 @@ export function NewProjectPage() {
                                 <option value="monofasico">Mono</option><option value="trifasico">Tri</option>
                               </select>
                             </td>
+                            <td className="px-2 py-1 text-right tabular-nums text-gray-700">{rowPn(row).toFixed(2)}</td>
+                            <td className="px-2 py-1 text-right tabular-nums text-gray-700">{rowPp(row).toFixed(2)}</td>
+                            <td className="px-2 py-1 text-right tabular-nums text-gray-700">{rowE(row).toFixed(2)}</td>
                             <td className="px-1 py-1">
                               <button type="button" onClick={() => removeBackupRow(row.id)}
                                 className="text-red-400 hover:text-red-600 text-sm">✕</button>
@@ -301,11 +302,11 @@ export function NewProjectPage() {
                       </tbody>
                       <tfoot>
                         <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-700">
-                          <td className="px-2 py-2" colSpan={11}>
-                            Subtotais — Pot. nominal: {(subtotais.pnom / 1000).toFixed(2)} kVA
-                            {' · '}Pot. pico: {(subtotais.pico / 1000).toFixed(2)} kVA
-                            {' · '}Energia/dia: {subtotais.energia.toFixed(2)} kWh
-                          </td>
+                          <td className="px-2 py-2 text-right" colSpan={10}>TOTAIS</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{subtotais.pn.toFixed(2)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{subtotais.pp.toFixed(2)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{subtotais.energia.toFixed(2)}</td>
+                          <td />
                         </tr>
                       </tfoot>
                     </table>
@@ -442,7 +443,9 @@ export function NewProjectPage() {
                 <td className="px-3 py-1">{result.total_dmn_kva}</td>
                 <td className="px-3 py-1">{result.total_pp_kva}</td>
                 <td className="px-3 py-1">{result.total_dmp_kva}</td>
-                <td className="px-3 py-1">{result.capacidade_kwh} kWh</td>
+                <td className="px-3 py-1">
+                  {result.backup_rows.reduce((s, r) => s + (r.e_eps_kwh ?? 0), 0).toFixed(2)} kWh
+                </td>
               </tr>
             </tbody>
           </table>
@@ -574,20 +577,6 @@ export function NewProjectPage() {
                 })}
               </p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {result?.alternativas && result.alternativas.length > 0 && (
-        <div className="mb-4">
-          <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Alternativas</p>
-          <div className="space-y-2">
-            {result.alternativas.map((k, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
-                <span>{k.marca} — {k.bateria_modelo} + {k.inversor_modelo}</span>
-                <span className="font-medium">R$ {k.preco_total.toLocaleString('pt-BR')}</span>
-              </div>
-            ))}
           </div>
         </div>
       )}
