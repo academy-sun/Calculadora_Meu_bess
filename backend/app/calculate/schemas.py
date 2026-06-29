@@ -92,6 +92,8 @@ class KitItem(BaseModel):
     qtd: int
     preco_unitario: float
     preco_total: float
+    energia_unit_kwh: Optional[float] = None   # bateria: energia útil por unidade
+    potencia_unit_kw: Optional[float] = None   # inversor: potência de pico por unidade
 
 
 class KitInfo(BaseModel):

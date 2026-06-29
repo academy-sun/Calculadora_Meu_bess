@@ -278,9 +278,11 @@ def build_kits(
 
             itens = [
                 {"nome": _tit(inv), "tipo": "inversor", "qtd": qtd_inv,
-                 "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2)},
+                 "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2),
+                 "potencia_unit_kw": round(ia["peak_power_kw"], 2)},
                 {"nome": _tit(bat), "tipo": "bateria", "qtd": n,
-                 "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2)},
+                 "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2),
+                 "energia_unit_kwh": round(ba["usable_kwh"], 2)},
             ]
             if n_jbw > 0:
                 itens.append({"nome": "Caixa de junção (JBW)", "tipo": "acessorio", "qtd": n_jbw,

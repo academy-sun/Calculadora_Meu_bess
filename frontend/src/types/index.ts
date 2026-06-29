@@ -262,6 +262,8 @@ export interface KitItem {
   qtd: number
   preco_unitario: number
   preco_total: number
+  energia_unit_kwh?: number
+  potencia_unit_kw?: number
 }
 
 export interface SolarDimensionamento {
