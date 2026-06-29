@@ -262,8 +262,15 @@ export interface KitItem {
   qtd: number
   preco_unitario: number
   preco_total: number
+  // bateria (por unidade)
   energia_unit_kwh?: number
-  potencia_unit_kw?: number
+  corrente_pico_a?: number
+  tensao_v?: number
+  // inversor (por unidade)
+  potencia_inversao_kw?: number
+  potencia_pico_kw?: number
+  corrente_entrada_a?: number
+  entradas_bateria?: number
 }
 
 export interface SolarDimensionamento {
@@ -288,6 +295,7 @@ export interface CalculateResponse {
   calculado_em: string
   capacidade_kwh: number
   potencia_kw: number
+  energia_necessaria_kwh?: number
 
   // Backup
   backup_rows?: BackupRowResult[]

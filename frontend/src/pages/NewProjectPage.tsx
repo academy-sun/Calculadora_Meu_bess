@@ -52,7 +52,7 @@ export function NewProjectPage() {
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const tipoInstalacao: 'monofasico' | 'trifasico' =
     padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
-  const [autonomia, setAutonomia] = useState('4')
+  const [autonomia, setAutonomia] = useState('1')   // dias de autonomia
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
@@ -111,7 +111,7 @@ export function NewProjectPage() {
       }))
       payload.tipo_instalacao = tipoInstalacao
       payload.padrao_entrada = padraoEntrada
-      payload.autonomia_horas = parseFloat(autonomia)
+      payload.autonomia_dias = parseFloat(autonomia)
       payload.eficiencia_roundtrip = 90
       const consumoNum = parseFloat(consumoMensal)
       if (consumoNum > 0 && hspMedia) {
@@ -200,11 +200,6 @@ export function NewProjectPage() {
                 </div>
               </div>
 
-              <div className="max-w-xs">
-                <Field label="Autonomia desejada (h)" value={autonomia} onChange={setAutonomia} placeholder="4" required />
-                <p className="mt-1 text-xs text-gray-400">A profundidade de descarga (DoD) vem do datasheet da bateria.</p>
-              </div>
-
               {/* ── Solar (opcional) ───────────────────────────────────────── */}
               <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 space-y-3">
                 <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
@@ -262,7 +257,7 @@ export function NewProjectPage() {
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr className="text-left text-gray-500">
-                          {['Equipamento','Categoria','Qtd','Pot (W)','Uso (h)','FP','FD','IP/IN','Tensão','Fase','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
+                          {['Equipamento','Categoria','Qtd','Pot (W)','Uso diário (h)','FP','FD','IP/IN','Tensão','Fase','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
                             <th key={h} className="px-2 py-2 font-medium">{h}</th>
                           ))}
                         </tr>
@@ -316,6 +311,23 @@ export function NewProjectPage() {
                     Nenhuma carga adicionada. Clique em <strong>Adicionar carga</strong>.
                   </p>
                 )}
+              </div>
+
+              {/* ── Dias de autonomia (destaque) ──────────────────────────── */}
+              <div className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/[0.04] p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-display text-base font-bold text-ink">Dias de autonomia</p>
+                  <p className="mt-0.5 text-xs text-ink/55">
+                    Quantos dias o sistema deve atender com o perfil de uso diário acima.
+                    A energia necessária = consumo diário das cargas × dias.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="number" min={1} step={1} value={autonomia}
+                    onChange={e => setAutonomia(e.target.value)}
+                    className="w-24 rounded-xl border border-primary/30 bg-white px-3 py-2 text-center font-mono text-lg font-semibold tabular-nums text-primary focus:border-primary focus:outline-none" />
+                  <span className="text-sm font-medium text-ink/60">{Number(autonomia) === 1 ? 'dia' : 'dias'}</span>
+                </div>
               </div>
             </>
           )}

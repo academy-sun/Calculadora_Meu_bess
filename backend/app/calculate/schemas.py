@@ -54,7 +54,8 @@ class CalculateRequest(BaseModel):
     cargas_backup: Optional[list[BackupLoadRow]] = None
     tipo_instalacao: Optional[Literal["monofasico", "trifasico"]] = None
     padrao_entrada: Optional[Literal["mono_127", "mono_220", "tri_127_220", "tri_220_380"]] = None
-    autonomia_horas: Optional[float] = None
+    autonomia_horas: Optional[float] = None      # legado
+    autonomia_dias: Optional[float] = None        # dias de autonomia (multiplica a energia diária)
     dod_percent: Optional[float] = None
     eficiencia_roundtrip: Optional[float] = None
     tensao_instalacao_v: Optional[float] = None
@@ -92,8 +93,15 @@ class KitItem(BaseModel):
     qtd: int
     preco_unitario: float
     preco_total: float
-    energia_unit_kwh: Optional[float] = None   # bateria: energia útil por unidade
-    potencia_unit_kw: Optional[float] = None   # inversor: potência de pico por unidade
+    # bateria (por unidade)
+    energia_unit_kwh: Optional[float] = None
+    corrente_pico_a: Optional[float] = None
+    tensao_v: Optional[float] = None
+    # inversor (por unidade)
+    potencia_inversao_kw: Optional[float] = None   # potência nominal de saída/EPS
+    potencia_pico_kw: Optional[float] = None       # potência de pico (partida)
+    corrente_entrada_a: Optional[float] = None     # corrente máx por entrada de bateria
+    entradas_bateria: Optional[int] = None
 
 
 class KitInfo(BaseModel):
@@ -140,6 +148,7 @@ class CalculateResponse(BaseModel):
 
     capacidade_kwh: float
     potencia_kw: float
+    energia_necessaria_kwh: Optional[float] = None   # E_BAT exigida (cargas × dias)
 
     # Backup-specific
     backup_rows: Optional[list[BackupRowResult]] = None

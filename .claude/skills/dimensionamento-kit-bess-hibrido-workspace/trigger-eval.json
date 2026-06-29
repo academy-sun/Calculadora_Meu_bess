@@ -1,0 +1,20 @@
+[
+  {"query": "preciso reescrever o compatibility.py pra limitar a quantidade de baterias por inversor conforme o datasheet", "should_trigger": true},
+  {"query": "qual inversor WEG e quantas baterias pra uma casa monofásica com ar-condicionado e geladeira no backup?", "should_trigger": true},
+  {"query": "que campos eu preciso cadastrar no produto pra calculadora conseguir montar o kit BESS certo?", "should_trigger": true},
+  {"query": "to montando o kit mas não sei se a saída EPS do inversor atende uma carga 127V", "should_trigger": true},
+  {"query": "como calcular a potência de pico das cargas pro dimensionamento do inversor híbrido", "should_trigger": true},
+  {"query": "a corrente máxima da entrada de bateria limita a potência? como considero isso no cálculo do kit", "should_trigger": true},
+  {"query": "cliente trifásico 380v quer backup pra câmara fria, qual SIW400H e quantos módulos de bateria", "should_trigger": true},
+  {"query": "como o levantamento de carga com IP/IN e fator de demanda entra no dimensionamento da bateria", "should_trigger": true},
+  {"query": "o kit ta misturando inversor de uma marca com bateria de outra, qual a regra de compatibilidade de tensão", "should_trigger": true},
+  {"query": "preciso saber quantas caixas de junção o kit precisa se eu colocar 3 baterias num inversor trifásico", "should_trigger": true},
+  {"query": "o sync ta classificando inversor trifásico 220v como híbrido, arruma a cascata de classificação", "should_trigger": false},
+  {"query": "adiciona um filtro de faixa de preço na tabela de produtos do frontend", "should_trigger": false},
+  {"query": "cria a migration pra coluna needs_review na meubess_products", "should_trigger": false},
+  {"query": "dimensiona as strings de módulos fotovoltaicos pro inversor on-grid considerando a tensão de mppt", "should_trigger": false},
+  {"query": "como funciona a autenticação JWT do supabase no backend", "should_trigger": false},
+  {"query": "preciso paginar a resposta da API da meubess no sync.py", "should_trigger": false},
+  {"query": "qual tarifa de energia usar pra calcular o payback da arbitragem tarifária", "should_trigger": false},
+  {"query": "o gráfico do dashboard ta sem label nos eixos, arruma o recharts", "should_trigger": false}
+]

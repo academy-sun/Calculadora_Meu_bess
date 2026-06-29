@@ -19,14 +19,23 @@ export function ProductPicker({ onAdd, onClose }: { onAdd: (item: KitItem) => vo
 
   function add(p: MeuBESSProduct) {
     const preco = p.price ?? 0
+    const tipo = (p.tipo_manual ?? p.tipo_auto ?? 'item') as string
+    const isBateria = tipo === 'bateria'
     onAdd({
       nome: p.title ?? p.meubess_id,
-      tipo: (p.tipo_manual ?? p.tipo_auto ?? 'item') as string,
+      tipo,
       qtd: 1,
       preco_unitario: preco,
       preco_total: preco,
-      energia_unit_kwh: p.usable_capacity_kwh,
-      potencia_unit_kw: p.peak_power_kw,
+      // bateria
+      energia_unit_kwh: isBateria ? p.usable_capacity_kwh : undefined,
+      corrente_pico_a: isBateria ? (p.peak_discharge_current_a ?? p.max_continuous_current_a) : undefined,
+      tensao_v: isBateria ? p.nominal_voltage_v : undefined,
+      // inversor
+      potencia_inversao_kw: !isBateria ? (p.max_eps_power ?? p.max_output_power ?? p.power) : undefined,
+      potencia_pico_kw: !isBateria ? p.peak_power_kw : undefined,
+      corrente_entrada_a: !isBateria ? p.battery_input_max_current_a : undefined,
+      entradas_bateria: !isBateria ? p.battery_inputs : undefined,
     })
     onClose()
   }

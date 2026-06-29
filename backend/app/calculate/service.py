@@ -87,6 +87,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         capacidade_kwh = 0.0
         potencia_kw = 0.0
+        energia_necessaria_kwh = None
         economia_mensal = None
         economia_anual = None
         kit_selecionado = None
@@ -117,20 +118,22 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 for c in req.cargas_backup
             ]
 
-            autonomia_h = req.autonomia_horas or 4.0
+            # Autonomia agora em DIAS: a tabela de cargas já traz o uso diário (tdia_h),
+            # então E_EPS já é a energia de 1 dia. Multiplicamos pelos dias desejados.
+            autonomia_dias = req.autonomia_dias or 1.0
 
             backup_result = calculate_backup(BackupInput(
                 cargas=cargas_engine,
                 tipo_instalacao=req.tipo_instalacao or "monofasico",
                 dod_percent=req.dod_percent or 90.0,
-                autonomia_h=autonomia_h,
+                autonomia_h=autonomia_dias * 24.0,
                 eficiencia_roundtrip=req.eficiencia_roundtrip or 90.0,
             ))
 
-            # E_BAT = soma(E_EPS_i) × autonomia / 24
-            # total_e_eps é energia diária total das cargas; escala para a janela de autonomia
-            energy_backup_kwh = round(backup_result.total_e_eps * autonomia_h / 24.0, 3)
+            # E_BAT = energia diária das cargas (total_e_eps) × dias de autonomia
+            energy_backup_kwh = round(backup_result.total_e_eps * autonomia_dias, 3)
             capacidade_kwh = energy_backup_kwh
+            energia_necessaria_kwh = energy_backup_kwh
             potencia_kw = backup_result.total_pp
 
             tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
@@ -321,6 +324,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             calculado_em=calculado_em,
             capacidade_kwh=capacidade_kwh,
             potencia_kw=potencia_kw,
+            energia_necessaria_kwh=energia_necessaria_kwh,
             backup_rows=backup_rows,
             total_pn_kva=backup_result.total_pn if backup_result else None,
             total_dmn_kva=backup_result.total_dmn if backup_result else None,

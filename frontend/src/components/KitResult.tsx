@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ElementType } from 'react'
-import { AlertTriangle, Plus, Trash2, Battery, Gauge, Clock } from 'lucide-react'
+import { AlertTriangle, Plus, Trash2, Battery, Gauge, Zap, Percent } from 'lucide-react'
 import type { CalculateResponse, KitItem } from '@/types'
 import { ProductPicker } from '@/components/ProductPicker'
 
@@ -30,25 +30,43 @@ export function KitResult({ result }: { result: CalculateResponse }) {
   const remove = (i: number) => setItens(prev => prev.filter((_, idx) => idx !== i))
   const addItem = (it: KitItem) => setItens(prev => [...prev, it])
 
-  // Métricas recalculadas
+  // ── Métricas recalculadas ao vivo a partir do kit editado ───────────────────
   const energiaTotal = itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
-  const potenciaMax = itens.reduce((s, it) => s + (it.potencia_unit_kw ?? 0) * it.qtd, 0)
-  const cargaKw = result.total_pp_kva ?? result.potencia_kw ?? 0
-  const autonomiaH = cargaKw > 0 ? energiaTotal / cargaKw : null
+
+  // Cobertura de energia: quanto o kit entrega da energia necessária (E_BAT)
+  const energiaNecessaria = result.energia_necessaria_kwh ?? result.capacidade_kwh ?? 0
+  const coberturaPct = energiaNecessaria > 0 ? (energiaTotal / energiaNecessaria) * 100 : null
+
+  // Potência total de inversão = soma da potência nominal de saída dos inversores
+  const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
+
+  // Potência máxima de partida = pico dos inversores, LIMITADO pela bateria / corrente de entrada.
+  // (a potência também pode ser limitada pela corrente da bateria ou da entrada do inversor)
+  const picoInversores = itens.reduce((s, it) => s + (it.potencia_pico_kw ?? 0) * it.qtd, 0)
+  const correnteBaterias = itens.reduce((s, it) => s + (it.corrente_pico_a ?? 0) * it.qtd, 0)
+  const correnteEntradas = itens.reduce((s, it) => s + (it.corrente_entrada_a ?? 0) * (it.entradas_bateria ?? 0) * it.qtd, 0)
+  const tensaoBat = itens.find(it => it.tensao_v)?.tensao_v ?? 0
+  const limiteDcKw = tensaoBat > 0 && correnteBaterias > 0 && correnteEntradas > 0
+    ? (Math.min(correnteBaterias, correnteEntradas) * tensaoBat) / 1000
+    : Infinity
+  const potenciaPartida = picoInversores > 0 ? Math.min(picoInversores, limiteDcKw) : 0
+
   const totalKit = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
 
   return (
     <div className="mt-10">
-      <div className="mb-5 flex items-baseline justify-between">
+      <div className="mb-5">
         <h2 className="font-display text-2xl font-bold tracking-tight">Kit dimensionado</h2>
-        <span className="font-mono text-sm tabular-nums text-ink/50">{brl(totalKit)}</span>
       </div>
 
-      {/* 3 métricas-chave */}
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Metric icon={Battery} label="Energia total" value={`${num(energiaTotal, 2)}`} unit="kWh" />
-        <Metric icon={Gauge} label="Potência máxima" value={`${num(potenciaMax, 1)}`} unit="kW" accent />
-        <Metric icon={Clock} label="Tempo de autonomia" value={autonomiaH != null ? num(autonomiaH, 1) : '—'} unit="h" />
+      {/* Métricas-chave (recalculadas ao vivo conforme o kit é editado) */}
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric icon={Battery} label="Energia total" value={num(energiaTotal, 2)} unit="kWh" />
+        <Metric icon={Percent} label="Cobertura de energia"
+          value={coberturaPct != null ? num(coberturaPct, 1) : '—'} unit="%" accent
+          warn={coberturaPct != null && coberturaPct < 100} />
+        <Metric icon={Zap} label="Potência máx. de partida" value={num(potenciaPartida, 1)} unit="kW" />
+        <Metric icon={Gauge} label="Potência total de inversão" value={num(potenciaInversao, 1)} unit="kW" />
       </div>
 
       {/* Tabela de itens editável */}
@@ -107,13 +125,6 @@ export function KitResult({ result }: { result: CalculateResponse }) {
         </table>
       </div>
 
-      {/* Detalhes técnicos compactos */}
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-xs text-ink/55">
-        {kit.distribuicao_baterias && <span>Distribuição das baterias: <strong className="text-ink/75">{kit.distribuicao_baterias.join(' + ')}</strong> por entrada</span>}
-        {kit.n_caixas_juncao != null && <span>Caixas de junção: <strong className="text-ink/75">{kit.n_caixas_juncao}</strong></span>}
-        {kit.qtd_inversores != null && <span>Inversores: <strong className="text-ink/75">{kit.qtd_inversores}</strong></span>}
-      </div>
-
       {/* Geração solar */}
       {solar && (
         <div className="mt-4 rounded-2xl border border-accent/30 bg-accent/[0.06] p-4">
@@ -144,17 +155,23 @@ export function KitResult({ result }: { result: CalculateResponse }) {
   )
 }
 
-function Metric({ icon: Icon, label, value, unit, accent }: {
-  icon: ElementType; label: string; value: string; unit: string; accent?: boolean
+function Metric({ icon: Icon, label, value, unit, accent, warn }: {
+  icon: ElementType; label: string; value: string; unit: string; accent?: boolean; warn?: boolean
 }) {
+  // cobertura abaixo de 100% destaca em âmbar (subdimensionado)
+  const tone = warn ? 'amber' : accent ? 'primary' : 'ink'
+  const ring = tone === 'amber' ? 'border-accent/40 bg-accent/[0.06]'
+    : tone === 'primary' ? 'border-primary/30 bg-primary/[0.04]' : 'border-ink/10 bg-white'
+  const valColor = tone === 'amber' ? 'text-accent-dark' : tone === 'primary' ? 'text-primary' : 'text-ink'
+  const iconColor = tone === 'amber' ? 'text-accent-dark' : tone === 'primary' ? 'text-primary' : ''
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-5 ${accent ? 'border-primary/30 bg-primary/[0.04]' : 'border-ink/10 bg-white'} shadow-card`}>
+    <div className={`relative overflow-hidden rounded-2xl border p-5 ${ring} shadow-card`}>
       <div className="mb-3 flex items-center gap-2 text-ink/45">
-        <Icon size={15} className={accent ? 'text-primary' : ''} />
+        <Icon size={15} className={iconColor} />
         <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
       </div>
       <div className="flex items-baseline gap-1.5">
-        <span className={`font-mono text-3xl font-semibold tabular-nums ${accent ? 'text-primary' : 'text-ink'}`}>{value}</span>
+        <span className={`font-mono text-3xl font-semibold tabular-nums ${valColor}`}>{value}</span>
         <span className="font-mono text-sm text-ink/40">{unit}</span>
       </div>
     </div>
