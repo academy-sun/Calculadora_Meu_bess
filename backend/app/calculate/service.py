@@ -7,10 +7,13 @@ from app.calculate.schemas import (
     CalculateRequest, CalculateResponse, KitInfo, LoadItem,
     SolarDimensionamento,
 )
-from app.catalog.service import list_kit_products, get_bess_comercial, list_products
+from app.catalog.service import list_kit_products, list_pv_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import build_kits, economic_undershoot_kit
+from app.engines.pv_kit import (
+    build_combined_pv_storage, build_ongrid_kit, resolve_kwp_alvo, select_module,
+)
 from app.engines.schemas import (
     BackupInput, LoadRow,
     ArbitrageInputV2,
@@ -32,7 +35,12 @@ def _build_load_curve(cargas: list[LoadItem]) -> list[float]:
     return curva
 
 
-def _kit_to_info(k, rotulo: str | None = None) -> KitInfo:
+def _kit_to_info(
+    k,
+    rotulo: str | None = None,
+    rotulo_caminho: str | None = None,
+    kwp_instalado: float | None = None,
+) -> KitInfo:
     return KitInfo(
         marca=str(eff(k.inversor, "marca") or eff(k.bateria, "marca") or "—"),
         bateria_modelo=str(eff(k.bateria, "title") or ""),
@@ -48,6 +56,41 @@ def _kit_to_info(k, rotulo: str | None = None) -> KitInfo:
         alertas=k.alertas or None,
         itens=k.itens or None,
         rotulo=rotulo,
+        rotulo_caminho=rotulo_caminho,
+        kwp_instalado=kwp_instalado,
+    )
+
+
+def _kwp_from_itens(itens) -> float | None:
+    """Extrai kWp total dos itens do tipo 'modulo_fv'."""
+    if not itens:
+        return None
+    total = sum(
+        (it.get("preco_total", 0) / it["preco_unitario"] if it.get("preco_unitario") else it["qtd"])
+        * 0  # placeholder — queremos qtd × power do item
+        for it in itens if it.get("tipo") == "modulo_fv"
+    )
+    # calcula kWp real: qtd × preco_total/preco_unitario×power — já que não temos power no item,
+    # usa preco_total/preco_unitario×qtd aproximado via qtd
+    kwp = sum(
+        it["qtd"] * (it.get("preco_total", 0) / it["preco_unitario"] / it["qtd"] * 0)
+        for it in itens if it.get("tipo") == "modulo_fv" and it.get("preco_unitario", 0) > 0
+    )
+    return None  # simplificado — kwp_instalado já vem calculado em build_combined_pv_storage
+
+
+def _option_to_info(
+    option,
+    rotulo: str,
+    kwp_instalado: float,
+) -> KitInfo:
+    """Converte um CombinedOption em KitInfo fundindo os itens PV + BESS."""
+    merged = option.to_merged_kit()
+    return _kit_to_info(
+        merged,
+        rotulo=rotulo,
+        rotulo_caminho=option.rotulo_caminho,
+        kwp_instalado=round(kwp_instalado, 3),
     )
 
 
@@ -96,7 +139,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
     # Fonte de kit/módulos: réplica meubess_products (tipo efetivo coalesce(manual,auto))
     inversores, baterias = await list_kit_products(db)
-    modulos_fv = await list_products(db, tipo="modulo_fv", active=True)
+    pv = await list_pv_products(db)   # módulos, inversores string, acessórios FV
 
     capacidade_kwh = 0.0
     potencia_kw = 0.0
@@ -111,14 +154,78 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
     backup_rows = None
     backup_result = None
     solar_dim_result = None
+    kwp_alvo_calculado = None
 
     # Arbitragem-specific extras
     arb_result = None
 
     if req.tipo_calculo == "backup":
-        if not req.cargas_backup:
-            raise ValueError("cargas_backup é obrigatório para backup")
+        # Resolve kWp alvo do FV (informado ou derivado de consumo+HSP+PR)
+        kwp_alvo_calculado = resolve_kwp_alvo(
+            powerpeak_kwp=req.powerpeak_kwp,
+            consumo_medio_mensal_kwh=req.consumo_medio_mensal_kwh,
+            hsp_media=req.hsp_media,
+            taxa_desempenho=req.taxa_desempenho,
+        )
 
+        tem_cargas = bool(req.cargas_backup)
+        tem_pv = kwp_alvo_calculado is not None
+
+        # ── 1.1: sem cargas → kit on-grid puro (sem bateria) ─────────────
+        if not tem_cargas:
+            if not tem_pv:
+                raise ValueError("cargas_backup é obrigatório para backup (sem FV) "
+                                 "ou informe powerpeak_kwp / consumo_medio_mensal_kwh + hsp_media para kit on-grid")
+            ongrid_itens = build_ongrid_kit(
+                kwp_alvo=kwp_alvo_calculado,
+                modulos=pv["modulos"],
+                fixing_type=req.fixing_type,
+                cabos=pv["cabos"],
+                mc4s=pv["mc4s"],
+                estruturas=pv["estruturas"],
+                inversores_string=pv["inversores_string"],
+                voltage=str(220 if "220" in (req.padrao_entrada or "mono_220") else 380),
+                phase=req.tipo_instalacao or "monofasico",
+            )
+            if ongrid_itens:
+                preco_total_ongrid = sum(i["preco_total"] for i in ongrid_itens)
+                mod_ref, qty_ref = select_module(pv["modulos"], kwp_alvo_calculado)
+                kwp_real = round((mod_ref.wp * qty_ref / 1000) if mod_ref else kwp_alvo_calculado, 3)
+                # KitBESS-like estrutura fake sem bateria para _kit_to_info
+                from app.engines.kit_builder import KitBESS
+                kit_ongrid_fake = KitBESS(
+                    inversor=type("_Inv", (), {"meubess_id": "ongrid", "title": "Sistema FV On-Grid",
+                                               "marca": ""})(),
+                    bateria=type("_Bat", (), {"meubess_id": "none", "title": "—", "marca": ""})(),
+                    qtd_inversores=1, qtd_baterias=0,
+                    distribuicao_baterias=[], n_caixas_juncao=0,
+                    capacidade_total_kwh=0.0,
+                    pico_entregavel_kw=0.0,
+                    preco_total=preco_total_ongrid,
+                    alertas=["Kit on-grid puro — sem armazenamento"],
+                    itens=ongrid_itens,
+                )
+                kit_selecionado = _kit_to_info(
+                    kit_ongrid_fake, "Kit sugerido", "dc", kwp_real,
+                )
+                potencia_kw = 0.0
+                capacidade_kwh = 0.0
+            # sem backup_rows pois não há cargas
+            return CalculateResponse(  # type: ignore[return-value]
+                projeto_id=None,
+                tipo_calculo=req.tipo_calculo,
+                origem=req.origem_info.origem,
+                negocio_id=req.origem_info.negocio_id,
+                solicitado_em=req.origem_info.solicitado_em,
+                calculado_em=datetime.now(timezone.utc),
+                capacidade_kwh=capacidade_kwh,
+                potencia_kw=potencia_kw,
+                kwp_alvo=round(kwp_alvo_calculado, 3),
+                kit_selecionado=kit_selecionado,
+                alternativas=[],
+            )
+
+        # ── Com tabela de cargas: dimensiona armazenamento ────────────────
         cargas_engine = [
             LoadRow(
                 qtd=c.qtd,
@@ -131,10 +238,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             for c in req.cargas_backup
         ]
 
-        # Autonomia agora em DIAS: a tabela de cargas já traz o uso diário (tdia_h),
-        # então E_EPS já é a energia de 1 dia. Multiplicamos pelos dias desejados.
         autonomia_dias = req.autonomia_dias or 1.0
-
         backup_result = calculate_backup(BackupInput(
             cargas=cargas_engine,
             tipo_instalacao=req.tipo_instalacao or "monofasico",
@@ -143,7 +247,6 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             eficiencia_roundtrip=req.eficiencia_roundtrip or 90.0,
         ))
 
-        # E_BAT = energia diária das cargas (total_e_eps) × dias de autonomia
         energy_backup_kwh = round(backup_result.total_e_eps * autonomia_dias, 3)
         capacidade_kwh = energy_backup_kwh
         energia_necessaria_kwh = energy_backup_kwh
@@ -159,24 +262,6 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             tensoes_carga=tensoes_carga,
             padrao_entrada=req.padrao_entrada,
         )
-        kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh)
-
-        # ── Solar dimensioning (optional) ────────────────────────────────
-        solar_dim_result = None
-        if (
-            req.consumo_medio_mensal_kwh
-            and req.hsp_media
-            and kits
-        ):
-            best_kit = kits[0]  # already sorted by price ascending
-            solar_dim_result = size_solar_strings(
-                inversor=best_kit.inversor,
-                modulos=modulos_fv,
-                solar_input=SolarStringsInput(
-                    consumo_medio_mensal_kwh=req.consumo_medio_mensal_kwh,
-                    hsp_media=req.hsp_media,
-                ),
-            )
 
         # Build per-row results for frontend table
         backup_rows = [
@@ -191,8 +276,72 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             for i, r in enumerate(backup_result.rows)
         ]
 
+        # ── 2: combina PV (quando kWp informado) OU armazenamento puro ───
+        if tem_pv and kits:
+            voltage_str = "380" if (req.padrao_entrada or "").startswith("tri") else "220"
+            sugerido_opt, alt_opts = build_combined_pv_storage(
+                kits_storage=kits,
+                e_bat_kwh=energy_backup_kwh,
+                kwp_alvo=kwp_alvo_calculado,
+                modulos=pv["modulos"],
+                fixing_type=req.fixing_type,
+                cabos=pv["cabos"],
+                mc4s=pv["mc4s"],
+                estruturas=pv["estruturas"],
+                inversores_string=pv["inversores_string"],
+                inversores_hibridos=inversores,
+                voltage=voltage_str,
+                phase=req.tipo_instalacao or "monofasico",
+            )
+            if sugerido_opt:
+                mod_ref, qty_ref = select_module(pv["modulos"], kwp_alvo_calculado)
+                kwp_real = round((mod_ref.wp * qty_ref / 1000) if mod_ref else kwp_alvo_calculado, 3)
+
+                ROTULOS_COMBINADO = {
+                    "dc": "Kit sugerido — FV + armazenamento (DC acoplado)",
+                    "split": "Kit sugerido — FV com inversor string + armazenamento",
+                    "scaled": "Kit sugerido — Híbrido ampliado + FV integrado",
+                }
+                ROTULOS_ALT = {
+                    "dc": "Alternativa — FV + armazenamento (DC acoplado)",
+                    "split": "Alternativa — FV com inversor string separado",
+                    "scaled": "Alternativa — Híbrido ampliado para absorver todo o FV",
+                    "eco": "Alternativa — mais econômica (cobertura parcial de energia)",
+                }
+                kit_selecionado = _option_to_info(
+                    sugerido_opt,
+                    ROTULOS_COMBINADO.get(sugerido_opt.rotulo_caminho, "Kit sugerido"),
+                    kwp_real,
+                )
+                alternativas = [
+                    _option_to_info(
+                        opt,
+                        ROTULOS_ALT.get(opt.rotulo_caminho, "Alternativa"),
+                        kwp_real,
+                    )
+                    for opt in alt_opts
+                ]
+            else:
+                # FV inviável (sem módulos com dados) — cai no armazenamento puro
+                kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh)
+        else:
+            # armazenamento puro (sem FV)
+            kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh)
+
+            # legacy DC-acoplado simples (consumo+hsp SEM powerpeak_kwp nem taxa_desempenho)
+            if req.consumo_medio_mensal_kwh and req.hsp_media and kits:
+                best_kit = kits[0]
+                solar_dim_result = size_solar_strings(
+                    inversor=best_kit.inversor,
+                    modulos=pv["modulos"],
+                    solar_input=SolarStringsInput(
+                        consumo_medio_mensal_kwh=req.consumo_medio_mensal_kwh,
+                        hsp_media=req.hsp_media,
+                    ),
+                )
+
         if kit_selecionado:
-            payback_meses = None  # payback for backup not calculated here
+            payback_meses = None
 
     elif req.tipo_calculo == "backup_direto":
         if req.total_pp_kva is None or req.total_e_eps_kwh is None:
@@ -291,6 +440,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
         )
         kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh)
+        kwp_alvo_calculado = round(capacidade_kwh, 3)
 
     calculado_em = datetime.now(timezone.utc)
 
@@ -323,6 +473,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             capacidade_kwh=capacidade_kwh,
             potencia_kw=potencia_kw,
             energia_necessaria_kwh=energia_necessaria_kwh,
+            kwp_alvo=round(kwp_alvo_calculado, 3) if kwp_alvo_calculado else None,
             backup_rows=backup_rows,
             total_pn_kva=backup_result.total_pn if backup_result else None,
             total_dmn_kva=backup_result.total_dmn if backup_result else None,

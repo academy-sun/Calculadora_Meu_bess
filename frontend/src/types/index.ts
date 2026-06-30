@@ -256,6 +256,8 @@ export interface KitInfo {
   alertas?: string[]
   itens?: KitItem[]
   rotulo?: string
+  rotulo_caminho?: string
+  kwp_instalado?: number
 }
 
 export interface KitItem {
@@ -319,6 +321,7 @@ export interface CalculateResponse {
   payback_meses?: number
   alternativas: KitInfo[]
   solar_dimensionamento?: SolarDimensionamento | null
+  kwp_alvo?: number
 }
 
 // ── Salvar cotação (persistência sob demanda) ──────────────────────────────────

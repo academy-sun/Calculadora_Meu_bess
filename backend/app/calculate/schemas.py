@@ -57,6 +57,11 @@ class CalculateRequest(BaseModel):
     autonomia_horas: Optional[float] = None      # legado
     autonomia_dias: Optional[float] = None        # dias de autonomia (multiplica a energia diária)
     dod_percent: Optional[float] = None
+
+    # ── Sistema fotovoltaico (on-grid + armazenamento) ────────────────────────
+    powerpeak_kwp: Optional[float] = None          # kWp pré-dimensionado (ex: vindo do CRM)
+    taxa_desempenho: Optional[float] = None        # performance ratio (0.0–1.0); default 0.8
+    fixing_type: Optional[str] = None             # tipo de estrutura (ex: "tile_ceramic", "ground_pratyc")
     eficiencia_roundtrip: Optional[float] = None
     tensao_instalacao_v: Optional[float] = None
 
@@ -122,6 +127,8 @@ class KitInfo(BaseModel):
     alertas: Optional[list[str]] = None
     itens: Optional[list[KitItem]] = None
     rotulo: Optional[str] = None   # "Kit sugerido" | "Alternativa — outra composição" | "Alternativa — mais econômica"
+    rotulo_caminho: Optional[str] = None   # "dc" | "split" | "scaled" (só em kits combinados FV+BESS)
+    kwp_instalado: Optional[float] = None  # kWp FV instalado no kit (para card de resultado)
 
 
 class SolarDimensionamento(BaseModel):
@@ -150,6 +157,7 @@ class CalculateResponse(BaseModel):
     capacidade_kwh: float
     potencia_kw: float
     energia_necessaria_kwh: Optional[float] = None   # E_BAT exigida (cargas × dias)
+    kwp_alvo: Optional[float] = None                 # kWp FV calculado/informado (para o card de resultado)
 
     # Backup-specific
     backup_rows: Optional[list[BackupRowResult]] = None

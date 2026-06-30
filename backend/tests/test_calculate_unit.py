@@ -216,12 +216,16 @@ def _make_backup_direto_req(**kwargs):
     return CalculateRequest(**{**defaults, **kwargs})
 
 
+_EMPTY_PV = dict(modulos=[], inversores_string=[], cabos=[], mc4s=[], estruturas=[])
+
+
 def _mock_db_and_catalog():
     """Retorna (db_mock, patches) para usar em testes de service."""
     db = AsyncMock()
     patches = [
         patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], []))),
         patch("app.calculate.service.list_products", new=AsyncMock(return_value=[])),
+        patch("app.calculate.service.list_pv_products", new=AsyncMock(return_value=_EMPTY_PV)),
     ]
     return db, patches
 
@@ -233,7 +237,7 @@ def test_backup_direto_missing_total_pp_kva_raises():
     req = _make_backup_direto_req(total_pp_kva=None)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1]:
+    with patches[0], patches[1], patches[2]:
         with pytest.raises(ValueError, match="total_pp_kva"):
             _run(run_calculation(db, req))
 
@@ -245,7 +249,7 @@ def test_backup_direto_missing_total_e_eps_kwh_raises():
     req = _make_backup_direto_req(total_e_eps_kwh=None)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1]:
+    with patches[0], patches[1], patches[2]:
         with pytest.raises(ValueError, match="total_e_eps_kwh"):
             _run(run_calculation(db, req))
 
@@ -257,7 +261,7 @@ def test_backup_direto_zero_e_eps_raises():
     req = _make_backup_direto_req(total_e_eps_kwh=0.0)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1]:
+    with patches[0], patches[1], patches[2]:
         with pytest.raises(ValueError, match="maior que zero"):
             _run(run_calculation(db, req))
 
@@ -270,7 +274,7 @@ def test_backup_direto_valid_returns_response():
     req = _make_backup_direto_req()
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1]:
+    with patches[0], patches[1], patches[2]:
         result = _run(run_calculation(db, req))
 
     assert isinstance(result, CalculateResponse)

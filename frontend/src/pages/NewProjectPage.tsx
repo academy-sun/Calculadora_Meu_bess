@@ -58,6 +58,12 @@ export function NewProjectPage() {
   const [lastPayload, setLastPayload] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // ── Sistema fotovoltaico (FV) ──────────────────────────────────────────────
+  const [powerpeakKwp, setPowerpeakKwp] = useState('')      // kWp pré-dimensionado (CRM)
+  const [taxaDesempenho, setTaxaDesempenho] = useState('0.80')
+  const [fixingType, setFixingType] = useState('')
+  const [pv_ativo, setPvAtivo] = useState(false)  // se o bloco FV está expandido
+
   // ── 3 opções de kit (sugerido + até 2 alternativas) — edição local por opção ──
   const [itensSugerido, setItensSugerido] = useState<KitItem[]>([])
   const [itensAlternativas, setItensAlternativas] = useState<KitItem[][]>([])
@@ -194,6 +200,12 @@ export function NewProjectPage() {
         payload.consumo_medio_mensal_kwh = consumoNum
         payload.hsp_media = hspMedia
       }
+      // ── FV opcional ────────────────────────────────────────────────────────
+      const kwpNum = parseFloat(powerpeakKwp)
+      const prNum = parseFloat(taxaDesempenho)
+      if (kwpNum > 0) payload.powerpeak_kwp = kwpNum
+      if (prNum > 0 && prNum <= 1) payload.taxa_desempenho = prNum
+      if (fixingType) payload.fixing_type = fixingType
     } else {
       payload.consumo_ponta_kwh = arbConsumoPonta.map(v => parseFloat(v) || 0)
       payload.demanda_ponta_kw  = arbDemandaPonta.map(v => parseFloat(v) || 0)
@@ -314,13 +326,93 @@ export function NewProjectPage() {
                 </div>
               </div>
 
+              {/* ── FV: kWp + estrutura (expansível) ──────────────────── */}
+              <div className="rounded-2xl border border-ink/10 bg-white p-4 shadow-card space-y-3">
+                <button type="button" onClick={() => setPvAtivo(v => !v)}
+                  className="flex w-full items-center justify-between text-left">
+                  <div>
+                    <p className="font-display text-sm font-bold text-ink">☀️ Sistema fotovoltaico (opcional)</p>
+                    <p className="text-xs text-ink/50">Inclua FV para receber kit completo on-grid + armazenamento</p>
+                  </div>
+                  <span className="text-ink/40 text-xs">{pv_ativo ? '▲ ocultar' : '▼ configurar'}</span>
+                </button>
+                {pv_ativo && (
+                  <div className="space-y-3 pt-2 border-t border-ink/10">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-ink/60">Potência FV (kWp) — se já dimensionada</label>
+                        <input type="number" step="0.1" min={0} value={powerpeakKwp}
+                          onChange={e => setPowerpeakKwp(e.target.value)}
+                          placeholder="ex: 6.5 (ou deixe em branco para calcular)"
+                          className="w-full rounded-xl border border-ink/15 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                        <p className="mt-1 text-[11px] text-ink/40">Se não informado, calcula pelo consumo médio + HSP acima</p>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-ink/60">Taxa de desempenho (PR)</label>
+                        <input type="number" step="0.01" min={0.5} max={1} value={taxaDesempenho}
+                          onChange={e => setTaxaDesempenho(e.target.value)}
+                          className="w-full rounded-xl border border-ink/15 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                        <p className="mt-1 text-[11px] text-ink/40">Performance ratio: 0.75–0.85 para sistemas típicos</p>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-ink/60">Tipo de estrutura de fixação</label>
+                      <select value={fixingType} onChange={e => setFixingType(e.target.value)}
+                        className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none">
+                        <option value="">Selecionar (opcional)</option>
+                        <option value="tile_ceramic">Telha cerâmica</option>
+                        <option value="tile_fiber_wood">Telha fibrocimento (terça madeira)</option>
+                        <option value="tile_fiber_metal">Telha fibrometálica</option>
+                        <option value="tile_metal_mini">Telha metálica — mini trilho baixo</option>
+                        <option value="tile_metal_mini_high">Telha metálica — mini trilho alto</option>
+                        <option value="tile_metal_long">Telha metálica ondulada</option>
+                        <option value="tile_zipped">Telha zipada</option>
+                        <option value="slab_portrait">Laje (retrato)</option>
+                        <option value="ground_pratyc">Solo — Pratyc</option>
+                        <option value="ground_ccs">Solo — CCS</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── 1.2: Alerta de incoerência (cargas × consumo médio) ─── */}
+              {(() => {
+                const energiaDiaria = subtotais.energia   // kWh/dia das cargas
+                const consumoNum = parseFloat(consumoMensal)
+                const incoerente = backupRows.length > 0 && consumoNum > 0 && consumoNum < energiaDiaria * 30
+                return incoerente ? (
+                  <div className="rounded-xl border border-accent/40 bg-accent/[0.08] px-4 py-3 text-sm text-accent-dark">
+                    ⚠ O consumo médio mensal informado ({consumoNum} kWh) é menor que a energia
+                    diária das cargas × 30 ({(energiaDiaria * 30).toFixed(1)} kWh).
+                    Verifique se os dados estão consistentes.
+                  </div>
+                ) : null
+              })()}
+
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <label className="block text-sm font-medium text-gray-700">Cargas da instalação</label>
-                  <button type="button" onClick={() => setShowAddLoad(true)}
-                    className="flex items-center gap-1 rounded-lg border-2 border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                    <Plus size={16} /> Adicionar carga
-                  </button>
+                  <div className="flex gap-2">
+                    {/* ── 1.3: Dimensionar pelo consumo médio ──────────── */}
+                    {parseFloat(consumoMensal) > 0 && (
+                      <button type="button"
+                        onClick={() => {
+                          const consumoNum = parseFloat(consumoMensal)
+                          const pnomW = Math.round((consumoNum / 30 / 24) * 1000)
+                          insertRow({ nome: 'Consumo médio (estimado)', categoria: 'Estimado',
+                            qtd: 1, pnom_w: pnomW, fp: 1, fd: 1, ip_in: 1, tdia_h: 24,
+                            tensao: tipoInstalacao === 'trifasico' ? '380' : '220', fase: tipoInstalacao })
+                        }}
+                        className="flex items-center gap-1 rounded-lg border border-primary/40 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                        📊 Dimensionar pelo consumo médio
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setShowAddLoad(true)}
+                      className="flex items-center gap-1 rounded-lg border-2 border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                      <Plus size={16} /> Adicionar carga
+                    </button>
+                  </div>
                 </div>
 
                 {loadsError && (

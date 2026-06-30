@@ -70,6 +70,35 @@ async def list_products(
     return list(result.scalars().all())
 
 
+async def list_pv_products(
+    db: AsyncSession,
+) -> dict:
+    """Retorna os produtos necessários para montar um kit FV:
+    modulos (modulo_fv), inversores_string, cabos CC, conectores MC4 e estruturas."""
+    modulos = await list_products(db, tipo="modulo_fv", active=True)
+    inversores_string = await list_products(db, tipo="inversor_string", active=True)
+    acessorios = await list_products(db, tipo="acessorio", active=True)
+
+    cabos = [
+        a for a in acessorios
+        if "cabo" in (a.category_title or "").lower() or "cabo" in (a.title or "").lower()
+    ]
+    mc4s = [
+        a for a in acessorios
+        if "mc4" in (a.category_title or "").lower() or "mc4" in (a.title or "").lower()
+        or "conector" in (a.title or "").lower()
+    ]
+    estruturas = [a for a in acessorios if (a.groups or "").lower() in ("structure", "estrutura")]
+
+    return dict(
+        modulos=modulos,
+        inversores_string=inversores_string,
+        cabos=cabos,
+        mc4s=mc4s,
+        estruturas=estruturas,
+    )
+
+
 async def list_kit_products(
     db: AsyncSession,
 ) -> tuple[list[MeuBESSProduct], list[MeuBESSProduct]]:
