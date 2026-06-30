@@ -7,6 +7,41 @@ import { ProductPicker } from '@/components/ProductPicker'
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: number, d = 1) => v.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
 
+/**
+ * Réplica exata de `_distribuir` + `_pico_dc_kw` em kit_builder.py (backend): distribui as
+ * baterias uniformemente entre as entradas (1 slot por entrada física, cada um com seu próprio
+ * limite de corrente do inversor a que pertence), trunca a corrente por entrada e converte em kW.
+ * Mantida idêntica ao motor — qualquer aproximação aqui pode causar erro de dimensionamento.
+ */
+function calcPotenciaPartidaKw(itens: KitItem[]): number {
+  const inversores = itens.filter(it => it.tipo === 'inversor' && it.potencia_pico_kw != null)
+  const baterias = itens.filter(it => it.tipo === 'bateria' && it.corrente_pico_a != null && it.tensao_v != null)
+  const picoInvTotal = inversores.reduce((s, inv) => s + (inv.potencia_pico_kw ?? 0) * inv.qtd, 0)
+  if (inversores.length === 0 || baterias.length === 0) return picoInvTotal
+
+  // um slot por entrada física de bateria, carregando o limite de corrente do seu inversor
+  const slots: number[] = []
+  for (const inv of inversores) {
+    const nEntradas = (inv.entradas_bateria ?? 0) * inv.qtd
+    for (let i = 0; i < nEntradas; i++) slots.push(inv.corrente_entrada_a ?? 0)
+  }
+  if (slots.length === 0) return picoInvTotal
+
+  const nBaterias = baterias.reduce((s, b) => s + b.qtd, 0)
+  const correntePico = baterias[0].corrente_pico_a ?? 0
+  const tensao = baterias[0].tensao_v ?? 0
+
+  // _distribuir(n, n_entradas): base + extra nos primeiros `extra` slots
+  const base = Math.floor(nBaterias / slots.length)
+  const extra = nBaterias % slots.length
+  const dist = slots.map((_, i) => base + (i < extra ? 1 : 0))
+
+  const totalA = dist.reduce((s, n, i) => s + (n > 0 ? Math.min(n * correntePico, slots[i]) : 0), 0)
+  const picoDc = (totalA * tensao) / 1000
+
+  return Math.min(picoDc, picoInvTotal)
+}
+
 export function KitResult({ result }: { result: CalculateResponse }) {
   const kit = result.kit_selecionado
   const solar = result.solar_dimensionamento
@@ -40,16 +75,9 @@ export function KitResult({ result }: { result: CalculateResponse }) {
   // Potência total de inversão = soma da potência nominal de saída dos inversores
   const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
 
-  // Potência máxima de partida = pico dos inversores, LIMITADO pela bateria / corrente de entrada.
-  // (a potência também pode ser limitada pela corrente da bateria ou da entrada do inversor)
-  const picoInversores = itens.reduce((s, it) => s + (it.potencia_pico_kw ?? 0) * it.qtd, 0)
-  const correnteBaterias = itens.reduce((s, it) => s + (it.corrente_pico_a ?? 0) * it.qtd, 0)
-  const correnteEntradas = itens.reduce((s, it) => s + (it.corrente_entrada_a ?? 0) * (it.entradas_bateria ?? 0) * it.qtd, 0)
-  const tensaoBat = itens.find(it => it.tensao_v)?.tensao_v ?? 0
-  const limiteDcKw = tensaoBat > 0 && correnteBaterias > 0 && correnteEntradas > 0
-    ? (Math.min(correnteBaterias, correnteEntradas) * tensaoBat) / 1000
-    : Infinity
-  const potenciaPartida = picoInversores > 0 ? Math.min(picoInversores, limiteDcKw) : 0
+  // Potência máxima de partida = pico dos inversores, LIMITADO pela distribuição real das
+  // baterias entre as entradas (igual ao motor — ver calcPotenciaPartidaKw).
+  const potenciaPartida = calcPotenciaPartidaKw(itens)
 
   const totalKit = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
 
