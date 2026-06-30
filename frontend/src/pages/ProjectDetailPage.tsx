@@ -2,7 +2,14 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useProject } from '@/hooks/useProjects'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { KitResult } from '@/components/KitResult'
-import type { KitInfo, KitItem, SolarDimensionamento } from '@/types'
+import type { BackupLoadRow, BackupRowResult, KitInfo, KitItem, SolarDimensionamento } from '@/types'
+
+const PADRAO_LABEL: Record<string, { l: string; s: string }> = {
+  mono_127: { l: 'Monofásico', s: '127 V' },
+  mono_220: { l: 'Monofásico', s: '220 V' },
+  tri_127_220: { l: 'Trifásico', s: '127/220 V' },
+  tri_220_380: { l: 'Trifásico', s: '220/380 V' },
+}
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -58,6 +65,12 @@ export function ProjectDetailPage() {
   const solar = pm?.solar_dimensionamento as SolarDimensionamento | null | undefined
   const economiaMensal = pm?.economia_mensal_rs as number | undefined
   const economiaAnual = pm?.economia_anual_rs as number | undefined
+  const padraoEntrada = pm?.padrao_entrada as string | undefined
+  const autonomiaDias = pm?.autonomia_dias as number | undefined
+  const cargasBackup = (pm?.cargas_backup ?? []) as BackupLoadRow[]
+  const backupRows = (pm?.backup_rows ?? []) as BackupRowResult[]
+  const totalPnKva = pm?.total_pn_kva as number | undefined
+  const totalPpKva = pm?.total_pp_kva as number | undefined
 
   // itens estáticos — visualização de cotação salva, edição acontece via "Editar cotação"
   const itens: KitItem[] = kitSelecionado?.itens ?? []
@@ -87,6 +100,76 @@ export function ProjectDetailPage() {
         <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
           {economiaMensal && <>Economia mensal: <strong>R$ {economiaMensal.toLocaleString('pt-BR')}</strong></>}
           {economiaAnual && <> · Anual: <strong>R$ {economiaAnual.toLocaleString('pt-BR')}</strong></>}
+        </div>
+      )}
+
+      {(padraoEntrada || autonomiaDias != null) && (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-ink/10 bg-white p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/45">Padrão de entrada da unidade</p>
+            <p className="font-display text-base font-bold text-ink">
+              {padraoEntrada
+                ? `${PADRAO_LABEL[padraoEntrada]?.l ?? padraoEntrada} — ${PADRAO_LABEL[padraoEntrada]?.s ?? ''}`
+                : '—'}
+            </p>
+          </div>
+          {autonomiaDias != null && (
+            <div className="sm:text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/45">Dias de autonomia</p>
+              <p className="font-mono text-lg font-semibold text-primary">
+                {autonomiaDias} {autonomiaDias === 1 ? 'dia' : 'dias'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {cargasBackup.length > 0 && (
+        <div className="mb-6">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink/45">Cargas da instalação</p>
+          <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-card">
+            <table className="w-full text-xs">
+              <thead className="bg-ink/[0.03]">
+                <tr className="text-left text-ink/45">
+                  {['Equipamento', 'Qtd', 'Pot (W)', 'Uso diário (h)', 'FP', 'FD', 'IP/IN', 'Tensão', 'Pn (kVA)', 'Pp (kVA)', 'E (kWh)'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink/[0.06]">
+                {cargasBackup.map((r, i) => {
+                  const calc = backupRows[i]
+                  return (
+                    <tr key={i}>
+                      <td className="px-3 py-2 font-medium text-ink">{r.nome}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.qtd}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.pnom_w}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.tdia_h}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.fp}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.fd}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.ip_in}</td>
+                      <td className="px-3 py-2 text-center tabular-nums">{r.tensao ?? '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{calc ? calc.pn_kva.toFixed(2) : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{calc ? calc.pp_kva.toFixed(2) : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{calc ? calc.e_eps_kwh.toFixed(2) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              {backupRows.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-ink/15 bg-ink/[0.03] font-semibold text-ink/70">
+                    <td colSpan={8} className="px-3 py-2.5 text-right text-[10px] uppercase tracking-wide">Totais</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{totalPnKva != null ? totalPnKva.toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{totalPpKva != null ? totalPpKva.toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {backupRows.reduce((s, r) => s + r.e_eps_kwh, 0).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
       )}
 

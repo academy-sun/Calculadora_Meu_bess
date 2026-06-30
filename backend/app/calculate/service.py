@@ -10,7 +10,7 @@ from app.calculate.schemas import (
 from app.catalog.service import list_kit_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
-from app.engines.kit_builder import build_kits
+from app.engines.kit_builder import build_kits, economic_undershoot_kit
 from app.engines.schemas import (
     BackupInput, LoadRow,
     ArbitrageInputV2,
@@ -59,24 +59,16 @@ def _select_kits(kits, e_bat_kwh: float) -> tuple[KitInfo | None, list[KitInfo]]
     - Sugerido: o mais barato (mesma regra de sempre).
     - Alternativa — outra composição: próximo kit mais barato com par inversor/bateria
       diferente do sugerido (já garantido, pois cada kit é um par distinto).
-    - Alternativa — mais econômica: dentre os kits com cobertura de energia < 100%
-      (não atinge a energia necessária), a que mais se aproxima de 100% sem atingir.
+    - Alternativa — mais econômica: variante com MENOS baterias que o mínimo suficiente
+      (todo kit em `kits` já cobre 100% da energia por construção — ver
+      economic_undershoot_kit), a mais barata que mais se aproxima de 100% sem atingir.
     """
     if not kits:
         return None, []
 
     sugerido = kits[0]
     alt_composicao = kits[1] if len(kits) > 1 else None
-
-    def cobertura(k) -> float:
-        return (k.capacidade_total_kwh / e_bat_kwh) if e_bat_kwh else 0.0
-
-    usados = {id(sugerido)} | ({id(alt_composicao)} if alt_composicao else set())
-    candidatos_economicos = [k for k in kits if id(k) not in usados and cobertura(k) < 1.0]
-    alt_economica = (
-        max(candidatos_economicos, key=lambda k: (cobertura(k), -k.preco_total))
-        if candidatos_economicos else None
-    )
+    alt_economica = economic_undershoot_kit(kits, e_bat_kwh)
 
     alternativas = []
     if alt_composicao:

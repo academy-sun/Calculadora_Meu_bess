@@ -179,6 +179,95 @@ def _attrs_bateria(bat) -> tuple[dict, str | None]:
     return a, None
 
 
+def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn) -> KitBESS:
+    """Monta o KitBESS (itens, distribuição, preço, pico) para uma combinação já
+    validada de inversor/bateria/quantidades — reutilizado tanto pela montagem normal
+    (n suficiente) quanto pela variante econômica (n menor que o suficiente, ver
+    economic_undershoot_kit)."""
+    dist = _distribuir(n, n_entradas)
+    pico_dc = _pico_dc_kw(dist, ia["i_input_a"], ba["i_pico_a"], ba["tensao_v"])
+    pico_inv_total = ia["peak_power_kw"] * qtd_inv
+    n_jbw = sum(1 for x in dist if x >= 2)
+
+    itens = [
+        {"nome": titulo_fn(inv), "tipo": "inversor", "qtd": qtd_inv,
+         "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2),
+         "potencia_inversao_kw": round(ia["eps_nominal_kw"], 2),
+         "potencia_pico_kw": round(ia["peak_power_kw"], 2),
+         "corrente_entrada_a": round(ia["i_input_a"], 2),
+         "entradas_bateria": ia["battery_inputs"]},
+        {"nome": titulo_fn(bat), "tipo": "bateria", "qtd": n,
+         "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2),
+         "energia_unit_kwh": round(ba["usable_kwh"], 2),
+         "corrente_pico_a": round(ba["i_pico_a"], 2),
+         "tensao_v": round(ba["tensao_v"], 2)},
+    ]
+    if n_jbw > 0:
+        itens.append({"nome": "Caixa de junção (JBW)", "tipo": "acessorio", "qtd": n_jbw,
+                      "preco_unitario": 0.0, "preco_total": 0.0})
+
+    return KitBESS(
+        inversor=inv,
+        bateria=bat,
+        qtd_inversores=qtd_inv,
+        qtd_baterias=n,
+        distribuicao_baterias=dist,
+        n_caixas_juncao=n_jbw,
+        capacidade_total_kwh=round(ba["usable_kwh"] * n, 2),
+        pico_entregavel_kw=round(min(pico_dc, pico_inv_total), 2),
+        preco_total=round(ba["preco"] * n + ia["preco"] * qtd_inv, 2),
+        alertas=alertas,
+        itens=itens,
+    )
+
+
+def economic_undershoot_kit(kits: list[KitBESS], e_bat_kwh: float) -> KitBESS | None:
+    """
+    A montagem normal sempre escolhe o MENOR n de baterias que já é suficiente
+    (n_energia = ceil(e_bat_kwh / usable_kwh)) — logo, por construção, todo kit em
+    `kits` tem cobertura de energia ≥ 100%. Não existe naturalmente uma opção abaixo
+    disso na lista.
+
+    Esta função gera essa opção de propósito: para cada par inversor×bateria já
+    validado em `kits`, testa quantidades MENORES que o mínimo suficiente (n_under <
+    qtd_baterias) e devolve a mais barata cuja cobertura mais se aproxima de 100%
+    sem atingir — a "alternativa mais econômica" pedida pelo usuário.
+    """
+    if not kits or not e_bat_kwh or e_bat_kwh <= 0:
+        return None
+
+    def _tit(p):
+        return eff(p, "title") or str(getattr(p, "meubess_id", "?"))
+
+    melhor: KitBESS | None = None
+    melhor_cobertura = -1.0
+    for k in kits:
+        ia, motivo = _attrs_inversor(k.inversor)
+        if motivo:
+            continue
+        ba, motivo_b = _attrs_bateria(k.bateria)
+        if motivo_b:
+            continue
+        n_entradas = ia["battery_inputs"] * k.qtd_inversores
+
+        for n in range(1, k.qtd_baterias):
+            cobertura = (ba["usable_kwh"] * n) / e_bat_kwh
+            if cobertura >= 1.0:
+                continue
+            preco = ba["preco"] * n + ia["preco"] * k.qtd_inversores
+            melhor_preco = melhor.preco_total if melhor else None
+            mais_proximo = cobertura > melhor_cobertura + 1e-9
+            empate_mais_barato = (
+                abs(cobertura - melhor_cobertura) <= 1e-9
+                and melhor_preco is not None and preco < melhor_preco
+            )
+            if mais_proximo or empate_mais_barato:
+                melhor = _montar_kit(k.inversor, k.bateria, k.qtd_inversores, n, ia, ba, n_entradas, list(k.alertas), _tit)
+                melhor_cobertura = cobertura
+
+    return melhor
+
+
 def build_kits(
     inversores: list,
     baterias: list,
@@ -267,45 +356,12 @@ def build_kits(
                     f"energia exige {n} baterias (máx {cap_bat} neste arranjo)"))
                 continue
 
-            dist = _distribuir(n, n_entradas)
-            pico_dc = _pico_dc_kw(dist, ia["i_input_a"], ba["i_pico_a"], ba["tensao_v"])
-            n_jbw = sum(1 for x in dist if x >= 2)
-
             alertas: list[str] = list(alertas_rede)
             # R6 — carga mono em inversor tri (advisory; precisa da maior carga mono)
             if fase_instalacao == "trifasico" and tensoes_carga:
                 alertas.append("verifique cargas monofásicas ≤ 1/3 da potência (alerta)")
 
-            itens = [
-                {"nome": _tit(inv), "tipo": "inversor", "qtd": qtd_inv,
-                 "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2),
-                 "potencia_inversao_kw": round(ia["eps_nominal_kw"], 2),
-                 "potencia_pico_kw": round(ia["peak_power_kw"], 2),
-                 "corrente_entrada_a": round(ia["i_input_a"], 2),
-                 "entradas_bateria": ia["battery_inputs"]},
-                {"nome": _tit(bat), "tipo": "bateria", "qtd": n,
-                 "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2),
-                 "energia_unit_kwh": round(ba["usable_kwh"], 2),
-                 "corrente_pico_a": round(ba["i_pico_a"], 2),
-                 "tensao_v": round(ba["tensao_v"], 2)},
-            ]
-            if n_jbw > 0:
-                itens.append({"nome": "Caixa de junção (JBW)", "tipo": "acessorio", "qtd": n_jbw,
-                              "preco_unitario": 0.0, "preco_total": 0.0})
-
-            kits.append(KitBESS(
-                inversor=inv,
-                bateria=bat,
-                qtd_inversores=qtd_inv,
-                qtd_baterias=n,
-                distribuicao_baterias=dist,
-                n_caixas_juncao=n_jbw,
-                capacidade_total_kwh=round(ba["usable_kwh"] * n, 2),
-                pico_entregavel_kw=round(min(pico_dc, pico_inv_total), 2),
-                preco_total=round(ba["preco"] * n + ia["preco"] * qtd_inv, 2),
-                alertas=alertas,
-                itens=itens,
-            ))
+            kits.append(_montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, _tit))
 
     kits.sort(key=lambda k: k.preco_total)
     return kits, skipped

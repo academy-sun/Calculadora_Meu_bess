@@ -94,15 +94,46 @@ def test_select_kits_multiple_kits_picks_cheapest_as_sugerido_and_next_as_altern
     assert alts[0].rotulo == "Alternativa — outra composição"
 
 
-def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternative():
-    """Terceira opção: a mais barata que mais se aproxima de 100% de cobertura sem atingir."""
-    sugerido = make_kit(preco=25000.0, capacidade_total_kwh=10.0)       # 100% cobertura
-    composicao = make_kit(marca="FoxESS", preco=30000.0, capacidade_total_kwh=10.0)
-    economica_proxima = make_kit(marca="BYD", preco=18000.0, capacidade_total_kwh=9.0)   # 90%
-    economica_longe = make_kit(marca="Pylon", preco=15000.0, capacidade_total_kwh=6.0)   # 60%
-    kits = [sugerido, composicao, economica_longe, economica_proxima]
+def _make_full_kit(qtd_baterias=4, preco_inv=10000.0, preco_bat=3000.0, usable_kwh=5.0) -> KitBESS:
+    """Kit com produtos cujos atributos completos permitem economic_undershoot_kit
+    recalcular variantes com menos baterias (precisa de peak_power_kw, battery_inputs,
+    usable_capacity_kwh etc. — não só marca/título como o `make_kit` simples)."""
+    inv = _FakeProd(
+        meubess_id="inv", marca="WEG", title="INV",
+        peak_power_kw=20.0, max_eps_power=15.0, battery_inputs=2,
+        battery_input_max_current_a=100.0, max_parallel_units=1, price=preco_inv,
+    )
+    bat = _FakeProd(
+        meubess_id="bat", marca="WEG", title="BAT",
+        usable_capacity_kwh=usable_kwh, max_parallel_batteries=4,
+        max_continuous_current_a=50.0, peak_discharge_current_a=50.0,
+        nominal_voltage_v=51.2, price=preco_bat,
+    )
+    return KitBESS(
+        inversor=inv, bateria=bat,
+        qtd_inversores=1, qtd_baterias=qtd_baterias,
+        distribuicao_baterias=[qtd_baterias // 2, qtd_baterias - qtd_baterias // 2],
+        n_caixas_juncao=0,
+        capacidade_total_kwh=usable_kwh * qtd_baterias,
+        pico_entregavel_kw=20.0,
+        preco_total=preco_inv + preco_bat * qtd_baterias,
+    )
 
-    kit, alts = _select_kits(kits, e_bat_kwh=10.0)
+
+def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternative():
+    """
+    A montagem normal sempre escolhe o menor n suficiente (cobertura ≥ 100% por
+    construção). A "alternativa mais econômica" é sintetizada com MENOS baterias —
+    a que mais se aproxima de 100% de cobertura sem atingir.
+    """
+    sugerido = make_kit(preco=25000.0, capacidade_total_kwh=10.0)
+    composicao = make_kit(marca="FoxESS", preco=30000.0, capacidade_total_kwh=10.0)
+    # usable_kwh=5 × 4 baterias = 20kWh ≥ e_bat_kwh=18 (sugerido pelo motor); variantes
+    # com 1/2/3 baterias (5/10/15 kWh) ficam abaixo — a de 3 (15kWh = 83%) é a mais próxima.
+    kit_completo = _make_full_kit(qtd_baterias=4, preco_inv=10000.0, preco_bat=3000.0, usable_kwh=5.0)
+    kits = [sugerido, composicao, kit_completo]
+
+    kit, alts = _select_kits(kits, e_bat_kwh=18.0)
 
     assert kit.preco_total == 25000.0
     assert len(alts) == 2
@@ -110,7 +141,9 @@ def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternativ
     rotulos = [a.rotulo for a in alts]
     assert "Alternativa — mais econômica" in rotulos
     economica = next(a for a in alts if a.rotulo == "Alternativa — mais econômica")
-    assert economica.preco_total == 18000.0  # a que chega mais perto de 100% sem atingir
+    assert economica.qtd_baterias == 3
+    assert economica.capacidade_total_kwh == 15.0
+    assert economica.preco_total == 10000.0 + 3000.0 * 3
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

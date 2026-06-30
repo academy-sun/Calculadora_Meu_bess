@@ -226,6 +226,7 @@ export interface BackupLoadRow {
   fd: number
   ip_in: number
   tdia_h: number
+  tensao?: string
 }
 
 export interface BackupRowResult {
