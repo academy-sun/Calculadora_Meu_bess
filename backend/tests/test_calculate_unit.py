@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.calculate.schemas import CalculateRequest, CalculateResponse, KitInfo, LoadItem, OrigemInfo
-from app.calculate.service import _build_load_curve, _kits_to_response
+from app.calculate.service import _build_load_curve, _select_kits
 from app.engines.kit_builder import KitBESS
 import uuid
 from datetime import datetime, timezone
@@ -48,7 +48,7 @@ def test_build_load_curve_returns_24_points():
     assert len(curva) == 24
 
 
-# ── _kits_to_response ──────────────────────────────────────────────────────────
+# ── _select_kits ──────────────────────────────────────────────────────────────
 
 class _FakeProd:
     def __init__(self, **kw):
@@ -56,39 +56,61 @@ class _FakeProd:
             setattr(self, k, v)
 
 
-def make_kit(marca="WEG", preco=30000.0) -> KitBESS:
+def make_kit(marca="WEG", preco=30000.0, capacidade_total_kwh=14.3) -> KitBESS:
     bat = _FakeProd(meubess_id="bat", marca=marca, title="BAT")
     inv = _FakeProd(meubess_id="inv", marca=marca, title="INV")
     return KitBESS(
         inversor=inv, bateria=bat,
         qtd_inversores=1, qtd_baterias=1,
         distribuicao_baterias=[1], n_caixas_juncao=0,
-        capacidade_total_kwh=14.3, pico_entregavel_kw=5.0,
+        capacidade_total_kwh=capacidade_total_kwh, pico_entregavel_kw=5.0,
         preco_total=preco,
     )
 
 
-def test_kits_to_response_empty():
-    kit, alts = _kits_to_response([])
+def test_select_kits_empty():
+    kit, alts = _select_kits([], 10.0)
     assert kit is None
     assert alts == []
 
 
-def test_kits_to_response_single_kit():
+def test_select_kits_single_kit():
     k = make_kit()
-    kit, alts = _kits_to_response([k])
+    kit, alts = _select_kits([k], k.capacidade_total_kwh)
     assert kit is not None
     assert kit.marca == "WEG"
+    assert kit.rotulo == "Kit sugerido"
     assert alts == []
 
 
-def test_kits_to_response_multiple_kits():
+def test_select_kits_multiple_kits_picks_cheapest_as_sugerido_and_next_as_alternativa():
     k1 = make_kit(preco=25000.0)
     k2 = make_kit(marca="FoxESS", preco=30000.0)
-    kit, alts = _kits_to_response([k1, k2])
+    kit, alts = _select_kits([k1, k2], k1.capacidade_total_kwh)
     assert kit.preco_total == 25000.0
+    assert kit.rotulo == "Kit sugerido"
     assert len(alts) == 1
     assert alts[0].preco_total == 30000.0
+    assert alts[0].rotulo == "Alternativa — outra composição"
+
+
+def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternative():
+    """Terceira opção: a mais barata que mais se aproxima de 100% de cobertura sem atingir."""
+    sugerido = make_kit(preco=25000.0, capacidade_total_kwh=10.0)       # 100% cobertura
+    composicao = make_kit(marca="FoxESS", preco=30000.0, capacidade_total_kwh=10.0)
+    economica_proxima = make_kit(marca="BYD", preco=18000.0, capacidade_total_kwh=9.0)   # 90%
+    economica_longe = make_kit(marca="Pylon", preco=15000.0, capacidade_total_kwh=6.0)   # 60%
+    kits = [sugerido, composicao, economica_longe, economica_proxima]
+
+    kit, alts = _select_kits(kits, e_bat_kwh=10.0)
+
+    assert kit.preco_total == 25000.0
+    assert len(alts) == 2
+    assert alts[0].preco_total == 30000.0
+    rotulos = [a.rotulo for a in alts]
+    assert "Alternativa — mais econômica" in rotulos
+    economica = next(a for a in alts if a.rotulo == "Alternativa — mais econômica")
+    assert economica.preco_total == 18000.0  # a que chega mais perto de 100% sem atingir
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -161,18 +183,10 @@ def _make_backup_direto_req(**kwargs):
     return CalculateRequest(**{**defaults, **kwargs})
 
 
-def _mock_db_and_catalog(mock_project=None):
+def _mock_db_and_catalog():
     """Retorna (db_mock, patches) para usar em testes de service."""
-    if mock_project is None:
-        mock_project = MagicMock()
-        mock_project.parametros = {}
-        mock_project.id = uuid.uuid4()
-
     db = AsyncMock()
     patches = [
-        patch("app.calculate.service.create_project", new=AsyncMock(return_value=mock_project)),
-        patch("app.calculate.service.mark_project_done", new=AsyncMock()),
-        patch("app.calculate.service.mark_project_error", new=AsyncMock()),
         patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], []))),
         patch("app.calculate.service.list_products", new=AsyncMock(return_value=[])),
     ]
@@ -186,7 +200,7 @@ def test_backup_direto_missing_total_pp_kva_raises():
     req = _make_backup_direto_req(total_pp_kva=None)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with patches[0], patches[1]:
         with pytest.raises(ValueError, match="total_pp_kva"):
             _run(run_calculation(db, req))
 
@@ -198,7 +212,7 @@ def test_backup_direto_missing_total_e_eps_kwh_raises():
     req = _make_backup_direto_req(total_e_eps_kwh=None)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with patches[0], patches[1]:
         with pytest.raises(ValueError, match="total_e_eps_kwh"):
             _run(run_calculation(db, req))
 
@@ -210,7 +224,7 @@ def test_backup_direto_zero_e_eps_raises():
     req = _make_backup_direto_req(total_e_eps_kwh=0.0)
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with patches[0], patches[1]:
         with pytest.raises(ValueError, match="maior que zero"):
             _run(run_calculation(db, req))
 
@@ -223,7 +237,7 @@ def test_backup_direto_valid_returns_response():
     req = _make_backup_direto_req()
     db, patches = _mock_db_and_catalog()
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with patches[0], patches[1]:
         result = _run(run_calculation(db, req))
 
     assert isinstance(result, CalculateResponse)

@@ -254,6 +254,7 @@ export interface KitInfo {
   pico_entregavel_kw?: number
   alertas?: string[]
   itens?: KitItem[]
+  rotulo?: string
 }
 
 export interface KitItem {
@@ -287,7 +288,7 @@ export interface SolarDimensionamento {
 }
 
 export interface CalculateResponse {
-  projeto_id: string
+  projeto_id?: string   // só existe depois que a cotação é salva (POST /projects)
   tipo_calculo: TipoCalculo
   origem: string
   negocio_id?: string
@@ -317,4 +318,12 @@ export interface CalculateResponse {
   payback_meses?: number
   alternativas: KitInfo[]
   solar_dimensionamento?: SolarDimensionamento | null
+}
+
+// ── Salvar cotação (persistência sob demanda) ──────────────────────────────────
+
+export interface SaveQuoteRequest {
+  titulo: string
+  calculo: Record<string, unknown>   // o mesmo payload enviado para /calculate
+  resultado: CalculateResponse        // resultado com kit_selecionado = kit escolhido (editado)
 }

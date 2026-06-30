@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ElementType } from 'react'
-import { AlertTriangle, Plus, Trash2, Battery, Gauge, Zap, Percent } from 'lucide-react'
-import type { CalculateResponse, KitItem } from '@/types'
+import { AlertTriangle, Plus, Trash2, Battery, Gauge, Zap, Percent, CheckCircle2 } from 'lucide-react'
+import type { KitInfo, KitItem, SolarDimensionamento } from '@/types'
 import { ProductPicker } from '@/components/ProductPicker'
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -13,13 +13,12 @@ const num = (v: number, d = 1) => v.toLocaleString('pt-BR', { minimumFractionDig
  * limite de corrente do inversor a que pertence), trunca a corrente por entrada e converte em kW.
  * Mantida idêntica ao motor — qualquer aproximação aqui pode causar erro de dimensionamento.
  */
-function calcPotenciaPartidaKw(itens: KitItem[]): number {
+export function calcPotenciaPartidaKw(itens: KitItem[]): number {
   const inversores = itens.filter(it => it.tipo === 'inversor' && it.potencia_pico_kw != null)
   const baterias = itens.filter(it => it.tipo === 'bateria' && it.corrente_pico_a != null && it.tensao_v != null)
   const picoInvTotal = inversores.reduce((s, inv) => s + (inv.potencia_pico_kw ?? 0) * inv.qtd, 0)
   if (inversores.length === 0 || baterias.length === 0) return picoInvTotal
 
-  // um slot por entrada física de bateria, carregando o limite de corrente do seu inversor
   const slots: number[] = []
   for (const inv of inversores) {
     const nEntradas = (inv.entradas_bateria ?? 0) * inv.qtd
@@ -31,7 +30,6 @@ function calcPotenciaPartidaKw(itens: KitItem[]): number {
   const correntePico = baterias[0].corrente_pico_a ?? 0
   const tensao = baterias[0].tensao_v ?? 0
 
-  // _distribuir(n, n_entradas): base + extra nos primeiros `extra` slots
   const base = Math.floor(nBaterias / slots.length)
   const extra = nBaterias % slots.length
   const dist = slots.map((_, i) => base + (i < extra ? 1 : 0))
@@ -42,41 +40,37 @@ function calcPotenciaPartidaKw(itens: KitItem[]): number {
   return Math.min(picoDc, picoInvTotal)
 }
 
-export function KitResult({ result }: { result: CalculateResponse }) {
-  const kit = result.kit_selecionado
-  const solar = result.solar_dimensionamento
+interface KitResultProps {
+  kit: KitInfo
+  itens: KitItem[]
+  onItensChange: (itens: KitItem[]) => void
+  titulo: string
+  subtitulo?: string
+  energiaNecessariaKwh?: number
+  solar?: SolarDimensionamento | null
+  editable?: boolean
+  onEscolher?: () => void
+  escolhendo?: boolean
+}
 
-  // Kit editável (quantidades, itens, preço unitário) — recalcula tudo ao vivo
-  const [itens, setItens] = useState<KitItem[]>(kit?.itens ?? [])
+export function KitResult({
+  kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, solar,
+  editable = true, onEscolher, escolhendo,
+}: KitResultProps) {
   const [showPicker, setShowPicker] = useState(false)
-  useEffect(() => { setItens(kit?.itens ?? []) }, [kit])
-
-  if (!kit) {
-    return (
-      <div className="mt-10 rounded-2xl border border-dashed border-ink/15 bg-white/60 px-6 py-12 text-center">
-        <p className="font-display text-lg text-ink/70">Nenhum kit compatível</p>
-        <p className="mt-1 text-sm text-ink/50">Ajuste os parâmetros e busque novamente.</p>
-      </div>
-    )
-  }
 
   const patch = (i: number, p: Partial<KitItem>) =>
-    setItens(prev => prev.map((it, idx) => (idx === i ? { ...it, ...p } : it)))
-  const remove = (i: number) => setItens(prev => prev.filter((_, idx) => idx !== i))
-  const addItem = (it: KitItem) => setItens(prev => [...prev, it])
+    onItensChange(itens.map((it, idx) => (idx === i ? { ...it, ...p } : it)))
+  const remove = (i: number) => onItensChange(itens.filter((_, idx) => idx !== i))
+  const addItem = (it: KitItem) => onItensChange([...itens, it])
 
   // ── Métricas recalculadas ao vivo a partir do kit editado ───────────────────
   const energiaTotal = itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
 
-  // Cobertura de energia: quanto o kit entrega da energia necessária (E_BAT)
-  const energiaNecessaria = result.energia_necessaria_kwh ?? result.capacidade_kwh ?? 0
-  const coberturaPct = energiaNecessaria > 0 ? (energiaTotal / energiaNecessaria) * 100 : null
+  const coberturaPct = energiaNecessariaKwh && energiaNecessariaKwh > 0
+    ? (energiaTotal / energiaNecessariaKwh) * 100 : null
 
-  // Potência total de inversão = soma da potência nominal de saída dos inversores
   const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
-
-  // Potência máxima de partida = pico dos inversores, LIMITADO pela distribuição real das
-  // baterias entre as entradas (igual ao motor — ver calcPotenciaPartidaKw).
   const potenciaPartida = calcPotenciaPartidaKw(itens)
 
   const totalKit = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
@@ -84,7 +78,8 @@ export function KitResult({ result }: { result: CalculateResponse }) {
   return (
     <div className="mt-10">
       <div className="mb-5">
-        <h2 className="font-display text-2xl font-bold tracking-tight">Kit dimensionado</h2>
+        <h2 className="font-display text-2xl font-bold tracking-tight">{titulo}</h2>
+        {subtitulo && <p className="mt-0.5 text-sm text-ink/50">{subtitulo}</p>}
       </div>
 
       {/* Métricas-chave (recalculadas ao vivo conforme o kit é editado) */}
@@ -97,7 +92,7 @@ export function KitResult({ result }: { result: CalculateResponse }) {
         <Metric icon={Gauge} label="Potência total de inversão" value={num(potenciaInversao, 1)} unit="kW" />
       </div>
 
-      {/* Tabela de itens editável */}
+      {/* Tabela de itens (editável quando editable=true) */}
       <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-card">
         <table className="w-full text-sm">
           <thead>
@@ -106,7 +101,7 @@ export function KitResult({ result }: { result: CalculateResponse }) {
               <th className="px-4 py-3 w-20 text-center">Qtd</th>
               <th className="px-4 py-3 w-36 text-right">Preço unit.</th>
               <th className="px-4 py-3 w-36 text-right">Total</th>
-              <th className="px-2 py-3 w-10" />
+              {editable && <th className="px-2 py-3 w-10" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-ink/[0.06]">
@@ -117,41 +112,60 @@ export function KitResult({ result }: { result: CalculateResponse }) {
                   <p className="text-xs capitalize text-ink/40">{it.tipo}</p>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <input type="number" min={1} value={it.qtd}
-                    onChange={e => patch(i, { qtd: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-16 rounded-lg border border-ink/15 bg-paper/50 px-2 py-1 text-center font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
+                  {editable ? (
+                    <input type="number" min={1} value={it.qtd}
+                      onChange={e => patch(i, { qtd: Math.max(1, parseInt(e.target.value) || 1) })}
+                      className="w-16 rounded-lg border border-ink/15 bg-paper/50 px-2 py-1 text-center font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
+                  ) : (
+                    <span className="font-mono text-sm tabular-nums text-ink/80">{it.qtd}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <input type="number" step="any" min={0} value={it.preco_unitario}
-                    onChange={e => patch(i, { preco_unitario: parseFloat(e.target.value) || 0 })}
-                    className="w-28 rounded-lg border border-ink/15 bg-paper/50 px-2 py-1 text-right font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
+                  {editable ? (
+                    <input type="number" step="any" min={0} value={it.preco_unitario}
+                      onChange={e => patch(i, { preco_unitario: parseFloat(e.target.value) || 0 })}
+                      className="w-28 rounded-lg border border-ink/15 bg-paper/50 px-2 py-1 text-right font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
+                  ) : (
+                    <span className="font-mono text-sm tabular-nums text-ink/80">{brl(it.preco_unitario)}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-right font-mono tabular-nums text-ink/80">{brl(it.preco_unitario * it.qtd)}</td>
-                <td className="px-2 py-3 text-center">
-                  <button onClick={() => remove(i)} className="text-ink/25 opacity-0 transition hover:text-red-500 group-hover:opacity-100">
-                    <Trash2 size={15} />
-                  </button>
-                </td>
+                {editable && (
+                  <td className="px-2 py-3 text-center">
+                    <button onClick={() => remove(i)} className="text-ink/25 opacity-0 transition hover:text-red-500 group-hover:opacity-100">
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-ink/10">
-              <td colSpan={5} className="px-4 py-2.5">
-                <button onClick={() => setShowPicker(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/5">
-                  <Plus size={15} /> Adicionar item
-                </button>
-              </td>
-            </tr>
+            {editable && (
+              <tr className="border-t border-ink/10">
+                <td colSpan={5} className="px-4 py-2.5">
+                  <button onClick={() => setShowPicker(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/5">
+                    <Plus size={15} /> Adicionar item
+                  </button>
+                </td>
+              </tr>
+            )}
             <tr className="border-t-2 border-ink/15 bg-ink/[0.03]">
               <td colSpan={3} className="px-4 py-3 text-right font-semibold uppercase tracking-wide text-ink/60 text-xs">Total do kit</td>
               <td className="px-4 py-3 text-right font-mono text-base font-bold tabular-nums text-primary">{brl(totalKit)}</td>
-              <td />
+              {editable && <td />}
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {onEscolher && (
+        <button onClick={onEscolher} disabled={escolhendo}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:opacity-50">
+          <CheckCircle2 size={17} /> {escolhendo ? 'Salvando…' : 'Escolher este kit'}
+        </button>
+      )}
 
       {/* Geração solar */}
       {solar && (
@@ -186,7 +200,6 @@ export function KitResult({ result }: { result: CalculateResponse }) {
 function Metric({ icon: Icon, label, value, unit, accent, warn }: {
   icon: ElementType; label: string; value: string; unit: string; accent?: boolean; warn?: boolean
 }) {
-  // cobertura abaixo de 100% destaca em âmbar (subdimensionado)
   const tone = warn ? 'amber' : accent ? 'primary' : 'ink'
   const ring = tone === 'amber' ? 'border-accent/40 bg-accent/[0.06]'
     : tone === 'primary' ? 'border-primary/30 bg-primary/[0.04]' : 'border-ink/10 bg-white'

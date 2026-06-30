@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ElementType } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BatteryCharging, TrendingUp, Plus } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { KitResult } from '@/components/KitResult'
-import { useCalculate } from '@/hooks/useProjects'
+import { SaveQuoteDialog } from '@/components/SaveQuoteDialog'
+import { useCalculate, useProject, useSaveQuote } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
-import type { CalculateResponse } from '@/types'
+import type { CalculateResponse, KitInfo, KitItem } from '@/types'
 
 type TipoCalculo = 'backup' | 'arbitragem'
 
@@ -40,13 +42,83 @@ type BackupRow = {
 
 export function NewProjectPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const editId = searchParams.get('editId')
   const { mutateAsync: calcular, isPending } = useCalculate()
+  const { mutateAsync: salvarCotacao, isPending: isSaving } = useSaveQuote()
+  const { data: editProject } = useProject(editId ?? '')
   const { data: loads, isLoading: loadsLoading, isError: loadsError } = useStandardLoads()
 
   const [step, setStep] = useState<Step>('tipo')
   const [tipo, setTipo] = useState<TipoCalculo>('backup')
   const [result, setResult] = useState<CalculateResponse | null>(null)
+  const [lastPayload, setLastPayload] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // ── 3 opções de kit (sugerido + até 2 alternativas) — edição local por opção ──
+  const [itensSugerido, setItensSugerido] = useState<KitItem[]>([])
+  const [itensAlternativas, setItensAlternativas] = useState<KitItem[][]>([])
+  useEffect(() => {
+    setItensSugerido(result?.kit_selecionado?.itens ?? [])
+    setItensAlternativas((result?.alternativas ?? []).map(a => a.itens ?? []))
+  }, [result])
+
+  // ── Salvar cotação (só ao escolher um kit) ───────────────────────────────────
+  const [pendingChoice, setPendingChoice] = useState<{ kit: KitInfo; itens: KitItem[] } | null>(null)
+
+  async function confirmSaveQuote(titulo: string) {
+    if (!pendingChoice || !result || !lastPayload) return
+    const { kit, itens } = pendingChoice
+    const precoTotal = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
+    const energiaTotal = itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
+    const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
+    const chosenKit: KitInfo = {
+      ...kit,
+      itens,
+      preco_total: precoTotal,
+      capacidade_total_kwh: energiaTotal,
+      potencia_total_kw: potenciaInversao,
+    }
+    const resultado: CalculateResponse = { ...result, kit_selecionado: chosenKit, alternativas: [] }
+    try {
+      const saved = await salvarCotacao({ titulo, calculo: lastPayload, resultado })
+      setPendingChoice(null)
+      navigate(`/projects/${saved.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar cotação')
+    }
+  }
+
+  // ── Editar cotação salva: prefill a partir do histórico ──────────────────────
+  const [prefilled, setPrefilled] = useState(false)
+  useEffect(() => {
+    if (!editProject || prefilled) return
+    const pm = editProject.parametros as Record<string, unknown> | undefined
+    if (!pm) return
+    setTipo((editProject.tipo_calculo as TipoCalculo) || 'backup')
+    setStep('dados')
+    if (Array.isArray(pm.cargas_backup)) {
+      setBackupRows((pm.cargas_backup as Record<string, unknown>[]).map(r => ({
+        id: crypto.randomUUID(),
+        nome: String(r.nome ?? ''),
+        categoria: '',
+        qtd: Number(r.qtd ?? 1),
+        pnom_w: Number(r.pnom_w ?? 0),
+        fp: Number(r.fp ?? 1),
+        fd: Number(r.fd ?? 1),
+        ip_in: Number(r.ip_in ?? 1),
+        tdia_h: Number(r.tdia_h ?? 4),
+        tensao: String(r.tensao ?? '220'),
+        fase: 'monofasico',
+      })))
+    }
+    if (typeof pm.padrao_entrada === 'string') setPadraoEntrada(pm.padrao_entrada)
+    if (typeof pm.autonomia_dias === 'number') setAutonomia(String(pm.autonomia_dias))
+    if (typeof pm.consumo_medio_mensal_kwh === 'number') setConsumoMensal(String(pm.consumo_medio_mensal_kwh))
+    if (typeof pm.hsp_media === 'number') setHspMedia(pm.hsp_media as number)
+    setPrefilled(true)
+  }, [editProject, prefilled])
 
   // ── Backup ──────────────────────────────────────────────────────────────────
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
@@ -127,7 +199,8 @@ export function NewProjectPage() {
 
     try {
       const res = await calcular(payload)
-      setResult(res)  // mostra o kit na mesma página (abaixo do formulário)
+      setResult(res)  // mostra os kits na mesma página (abaixo do formulário)
+      setLastPayload(payload)  // guardado para "Escolher este kit" / "Editar cotação"
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao calcular')
     }
@@ -400,7 +473,46 @@ export function NewProjectPage() {
           />
         )}
 
-        {result && <KitResult result={result} />}
+        {result && (
+          result.kit_selecionado ? (
+            <>
+              <KitResult
+                kit={result.kit_selecionado}
+                itens={itensSugerido}
+                onItensChange={setItensSugerido}
+                titulo="Kit sugerido"
+                energiaNecessariaKwh={result.energia_necessaria_kwh}
+                solar={result.solar_dimensionamento}
+                onEscolher={() => setPendingChoice({ kit: result.kit_selecionado!, itens: itensSugerido })}
+              />
+              {result.alternativas.map((alt, i) => (
+                <KitResult
+                  key={i}
+                  kit={alt}
+                  itens={itensAlternativas[i] ?? []}
+                  onItensChange={its => setItensAlternativas(prev => prev.map((a, idx) => idx === i ? its : a))}
+                  titulo="Kit alternativo"
+                  subtitulo={alt.rotulo}
+                  energiaNecessariaKwh={result.energia_necessaria_kwh}
+                  onEscolher={() => setPendingChoice({ kit: alt, itens: itensAlternativas[i] ?? [] })}
+                />
+              ))}
+            </>
+          ) : (
+            <div className="mt-10 rounded-2xl border border-dashed border-ink/15 bg-white/60 px-6 py-12 text-center">
+              <p className="font-display text-lg text-ink/70">Nenhum kit compatível</p>
+              <p className="mt-1 text-sm text-ink/50">Ajuste os parâmetros e busque novamente.</p>
+            </div>
+          )
+        )}
+
+        {pendingChoice && (
+          <SaveQuoteDialog
+            onConfirm={confirmSaveQuote}
+            onClose={() => setPendingChoice(null)}
+            isPending={isSaving}
+          />
+        )}
       </div>
     )
   }

@@ -121,6 +121,7 @@ class KitInfo(BaseModel):
     pico_entregavel_kw: Optional[float] = None
     alertas: Optional[list[str]] = None
     itens: Optional[list[KitItem]] = None
+    rotulo: Optional[str] = None   # "Kit sugerido" | "Alternativa — outra composição" | "Alternativa — mais econômica"
 
 
 class SolarDimensionamento(BaseModel):
@@ -139,7 +140,7 @@ class SolarDimensionamento(BaseModel):
 # ── Response ─────────────────────────────────────────────────────────────────
 
 class CalculateResponse(BaseModel):
-    projeto_id: str
+    projeto_id: Optional[str] = None   # só existe depois que a cotação é salva (POST /projects)
     tipo_calculo: str
     origem: str
     negocio_id: Optional[str]
@@ -171,3 +172,11 @@ class CalculateResponse(BaseModel):
     alternativas: list[KitInfo] = []
 
     solar_dimensionamento: Optional[SolarDimensionamento] = None
+
+
+# ── Salvar cotação (persistência sob demanda, só quando o usuário escolhe um kit) ──
+
+class SaveQuoteRequest(BaseModel):
+    titulo: str
+    calculo: CalculateRequest      # request original (cargas, autonomia_dias, etc.) — usado em "Editar cotação"
+    resultado: CalculateResponse   # resultado computado, com kit_selecionado = o kit escolhido (já editado pelo usuário)

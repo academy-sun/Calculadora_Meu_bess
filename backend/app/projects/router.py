@@ -5,11 +5,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.auth.schemas import UserInToken
+from app.calculate.schemas import SaveQuoteRequest
 from app.database import get_db
 from app.projects import service
 from app.projects.schemas import BulkDeleteRequest, BulkDeleteResponse, ProjectRead
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+@router.post("", response_model=ProjectRead, status_code=201)
+async def save_quote(
+    body: SaveQuoteRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Salva a cotação — chamado só quando o usuário escolhe um dos kits sugeridos."""
+    return await service.create_quote_project(db, body)
 
 
 @router.get("", response_model=list[ProjectRead])

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiBulkDelete } from '@/lib/api'
-import type { Project, CalculateResponse } from '@/types'
+import type { Project, CalculateResponse, SaveQuoteRequest } from '@/types'
 
 export function useProjects(params?: { origem?: string; negocio_id?: string }) {
   const query = new URLSearchParams()
@@ -27,6 +27,16 @@ export function useCalculate() {
   return useMutation({
     mutationFn: (payload: unknown) =>
       apiPost<CalculateResponse>('/calculate', payload, true),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export function useSaveQuote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: SaveQuoteRequest) => apiPost<Project>('/projects', payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
     },

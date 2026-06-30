@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.calculate.schemas import SaveQuoteRequest
 from app.projects.models import Project
 
 
@@ -32,6 +33,40 @@ async def list_projects(
 
 async def create_project(db: AsyncSession, data: dict) -> Project:
     project = Project(**data)
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def create_quote_project(
+    db: AsyncSession, body: SaveQuoteRequest, user_id: uuid.UUID | None = None
+) -> Project:
+    """
+    Persiste a cotação só agora, quando o usuário escolheu um kit (não em toda busca).
+    `parametros` guarda o request original (cargas, autonomia_dias, etc — usado para
+    "Editar cotação") mesclado com o resultado computado (kit_selecionado já é o kit
+    escolhido, possivelmente com itens editados pelo usuário).
+    """
+    origem_info = body.calculo.origem_info
+    parametros = {
+        **body.calculo.model_dump(mode="json", exclude={"origem_info"}),
+        **body.resultado.model_dump(mode="json", exclude={"projeto_id"}),
+        "titulo": body.titulo,
+    }
+    project = Project(
+        tipo_calculo=body.calculo.tipo_calculo,
+        estado="concluido",
+        parametros=parametros,
+        origem=origem_info.origem,
+        negocio_id=origem_info.negocio_id,
+        negocio_nome=origem_info.negocio_nome,
+        solicitante_id=origem_info.solicitante_id,
+        solicitante_nome=origem_info.solicitante_nome,
+        solicitado_em=origem_info.solicitado_em,
+        calculado_em=datetime.now(timezone.utc),
+        user_id=user_id,
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)
