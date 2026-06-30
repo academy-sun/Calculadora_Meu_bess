@@ -8,7 +8,7 @@ import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { KitResult } from '@/components/KitResult'
 import { SaveQuoteDialog } from '@/components/SaveQuoteDialog'
-import { useCalculate, useProject, useSaveQuote } from '@/hooks/useProjects'
+import { useCalculate, useProject, useSaveQuote, useUpdateQuote } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
 import type { CalculateResponse, KitInfo, KitItem } from '@/types'
 
@@ -46,7 +46,9 @@ export function NewProjectPage() {
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('editId')
   const { mutateAsync: calcular, isPending } = useCalculate()
-  const { mutateAsync: salvarCotacao, isPending: isSaving } = useSaveQuote()
+  const { mutateAsync: salvarCotacao, isPending: isSavingNova } = useSaveQuote()
+  const { mutateAsync: atualizarCotacao, isPending: isSavingEdicao } = useUpdateQuote()
+  const isSaving = isSavingNova || isSavingEdicao
   const { data: editProject } = useProject(editId ?? '')
   const { data: loads, isLoading: loadsLoading, isError: loadsError } = useStandardLoads()
 
@@ -82,7 +84,9 @@ export function NewProjectPage() {
     }
     const resultado: CalculateResponse = { ...result, kit_selecionado: chosenKit, alternativas: [] }
     try {
-      const saved = await salvarCotacao({ titulo, calculo: lastPayload, resultado })
+      const saved = editId
+        ? await atualizarCotacao({ id: editId, payload: { titulo, calculo: lastPayload, resultado } })
+        : await salvarCotacao({ titulo, calculo: lastPayload, resultado })
       setPendingChoice(null)
       navigate(`/projects/${saved.id}`)
     } catch (err) {
@@ -511,6 +515,8 @@ export function NewProjectPage() {
             onConfirm={confirmSaveQuote}
             onClose={() => setPendingChoice(null)}
             isPending={isSaving}
+            isEdicao={!!editId}
+            initialTitulo={editId ? ((editProject?.parametros as Record<string, unknown> | undefined)?.titulo as string | undefined) : undefined}
           />
         )}
       </div>

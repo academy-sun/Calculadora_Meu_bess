@@ -87,7 +87,14 @@ export function ProjectDetailPage() {
         </button>
       </div>
 
-      <h1 className="mb-1 font-display text-2xl font-bold">{titulo}</h1>
+      <h1 className="mb-1 flex items-center gap-2 font-display text-2xl font-bold">
+        {titulo}
+        {project.versao > 1 && (
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-primary">
+            v{project.versao}
+          </span>
+        )}
+      </h1>
       <p className="mb-6 text-sm text-gray-500">
         Solicitado por <span className="font-medium">{project.solicitante_nome}</span> em{' '}
         {new Date(project.solicitado_em).toLocaleString('pt-BR')}

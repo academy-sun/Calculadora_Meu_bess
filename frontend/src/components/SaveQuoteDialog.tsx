@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 
-export function SaveQuoteDialog({ onConfirm, onClose, isPending }: {
+export function SaveQuoteDialog({ onConfirm, onClose, isPending, initialTitulo, isEdicao }: {
   onConfirm: (titulo: string) => void
   onClose: () => void
   isPending?: boolean
+  initialTitulo?: string
+  isEdicao?: boolean
 }) {
-  const [titulo, setTitulo] = useState('')
+  const [titulo, setTitulo] = useState(initialTitulo ?? '')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -18,7 +20,7 @@ export function SaveQuoteDialog({ onConfirm, onClose, isPending }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
       <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-card ring-1 ring-ink/10">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-base font-semibold">Salvar cotação</h3>
+          <h3 className="font-display text-base font-semibold">{isEdicao ? 'Salvar nova versão' : 'Salvar cotação'}</h3>
           <button type="button" onClick={onClose} className="text-ink/40 hover:text-ink"><X size={18} /></button>
         </div>
         <label className="mb-1.5 block text-sm font-medium text-ink/70">Título da cotação</label>

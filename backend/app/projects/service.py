@@ -39,25 +39,27 @@ async def create_project(db: AsyncSession, data: dict) -> Project:
     return project
 
 
-async def create_quote_project(
-    db: AsyncSession, body: SaveQuoteRequest, user_id: uuid.UUID | None = None
-) -> Project:
-    """
-    Persiste a cotação só agora, quando o usuário escolheu um kit (não em toda busca).
-    `parametros` guarda o request original (cargas, autonomia_dias, etc — usado para
+def _build_quote_parametros(body: SaveQuoteRequest) -> dict:
+    """`parametros` guarda o request original (cargas, autonomia_dias, etc — usado para
     "Editar cotação") mesclado com o resultado computado (kit_selecionado já é o kit
-    escolhido, possivelmente com itens editados pelo usuário).
-    """
-    origem_info = body.calculo.origem_info
-    parametros = {
+    escolhido, possivelmente com itens editados pelo usuário)."""
+    return {
         **body.calculo.model_dump(mode="json", exclude={"origem_info"}),
         **body.resultado.model_dump(mode="json", exclude={"projeto_id"}),
         "titulo": body.titulo,
     }
+
+
+async def create_quote_project(
+    db: AsyncSession, body: SaveQuoteRequest, user_id: uuid.UUID | None = None
+) -> Project:
+    """Persiste a cotação só agora, quando o usuário escolheu um kit (não em toda busca)."""
+    origem_info = body.calculo.origem_info
     project = Project(
         tipo_calculo=body.calculo.tipo_calculo,
         estado="concluido",
-        parametros=parametros,
+        versao=1,
+        parametros=_build_quote_parametros(body),
         origem=origem_info.origem,
         negocio_id=origem_info.negocio_id,
         negocio_nome=origem_info.negocio_nome,
@@ -68,6 +70,32 @@ async def create_quote_project(
         user_id=user_id,
     )
     db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def update_quote_project(
+    db: AsyncSession, project_id: uuid.UUID, body: SaveQuoteRequest
+) -> Project | None:
+    """
+    Salva uma cotação editada como NOVA VERSÃO da mesma cotação (não cria um projeto
+    novo) — usado pelo fluxo "Editar cotação" → "Escolher este kit" novamente.
+    """
+    project = await get_project(db, project_id)
+    if not project:
+        return None
+    origem_info = body.calculo.origem_info
+    project.tipo_calculo = body.calculo.tipo_calculo
+    project.parametros = _build_quote_parametros(body)
+    project.origem = origem_info.origem
+    project.negocio_id = origem_info.negocio_id
+    project.negocio_nome = origem_info.negocio_nome
+    project.solicitante_id = origem_info.solicitante_id
+    project.solicitante_nome = origem_info.solicitante_nome
+    project.estado = "concluido"
+    project.versao = (project.versao or 1) + 1
+    project.calculado_em = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(project)
     return project

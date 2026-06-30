@@ -23,6 +23,22 @@ async def save_quote(
     return await service.create_quote_project(db, body)
 
 
+@router.put("/{project_id}", response_model=ProjectRead)
+async def update_quote(
+    project_id: uuid.UUID,
+    body: SaveQuoteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserInToken = Depends(get_current_user),
+):
+    """Salva a cotação editada como nova versão do MESMO projeto (não cria um novo)."""
+    project = await service.get_project(db, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    if current_user.role != "admin" and project.solicitante_id != current_user.sub:
+        raise HTTPException(status_code=403, detail="Sem permissão para editar esta cotação")
+    return await service.update_quote_project(db, project_id, body)
+
+
 @router.get("", response_model=list[ProjectRead])
 async def list_projects(
     origem: str | None = None,

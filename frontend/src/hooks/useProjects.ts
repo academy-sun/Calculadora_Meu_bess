@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiBulkDelete } from '@/lib/api'
+import { apiGet, apiPost, apiPut, apiBulkDelete } from '@/lib/api'
 import type { Project, CalculateResponse, SaveQuoteRequest } from '@/types'
 
 export function useProjects(params?: { origem?: string; negocio_id?: string }) {
@@ -37,6 +37,18 @@ export function useSaveQuote() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: SaveQuoteRequest) => apiPost<Project>('/projects', payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+/** Salva a cotação editada como nova versão do MESMO projeto (não cria um novo). */
+export function useUpdateQuote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: SaveQuoteRequest }) =>
+      apiPut<Project>(`/projects/${id}`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
     },
