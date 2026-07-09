@@ -146,6 +146,77 @@ def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternativ
     assert economica.preco_total == 10000.0 + 3000.0 * 3
 
 
+# ── FV combinado (pv_kit) ──────────────────────────────────────────────────────
+
+def _hybrid_with_mppt() -> object:
+    """Híbrido tipo SIW200H M105 W10: dados de bateria + dados de MPPT (lado PV)."""
+    return _FakeProd(
+        meubess_id="hyb", marca="WEG", title="SIW200H M105 W10",
+        peak_power_kw=12.0, max_eps_power=10.5, battery_inputs=1,
+        battery_input_max_current_a=50.0, max_parallel_units=3, price=11000.0,
+        # lado PV
+        voc_max_voltage=600, mppt_min_voltage=80, string_current=16,
+        qty_mppt=4, qty_inputs_per_mppt=1, short_circuit_current_inverter=20,
+    )
+
+
+def _battery() -> object:
+    return _FakeProd(
+        meubess_id="bat", marca="WEG", title="SBW CB050",
+        usable_capacity_kwh=5.0, max_parallel_batteries=4,
+        max_continuous_current_a=50.0, peak_discharge_current_a=65.0,
+        nominal_voltage_v=51.2, price=6000.0,
+    )
+
+
+def _module_jam() -> object:
+    """Módulo JAM66D46-700: Imp 17.3A > 16A (clipping, não bloqueia); Isc 18.4 < 20 (OK)."""
+    return _FakeProd(
+        meubess_id="mod", marca="JA Solar", title="JAM66D46-700/LB",
+        voc_max_voltage=48.2, max_power_current=17.32, short_circuit_current_module=18.43,
+        power=0.700, price=700.0,
+    )
+
+
+def test_combined_kit_includes_pv_items_when_module_fits_hybrid_dc():
+    """Regressão do bug: Imp>string_current zerava a capacidade CC e o FV sumia.
+    Agora a série cabe na tensão e a Isc do módulo (18.4) < Isc máx da entrada (20),
+    então o híbrido absorve os módulos no DC e o kit combinado traz itens de módulo."""
+    from app.engines.kit_builder import _montar_kit, _attrs_inversor, _attrs_bateria
+    from app.engines.pv_kit import build_combined_pv_storage, dc_capacity_modules, _attrs_modulo
+
+    hyb, bat = _hybrid_with_mppt(), _battery()
+    ia, _ = _attrs_inversor(hyb)
+    ba, _ = _attrs_bateria(bat)
+    base = _montar_kit(hyb, bat, 1, 2, ia, ba, ia["battery_inputs"], [], lambda p: str(p.title))
+
+    mod_attrs = _attrs_modulo(_module_jam())
+    # capacidade CC: floor(600/48.2)=12 série × 1 entrada × 4 MPPT × 1 inv = 48 módulos
+    assert dc_capacity_modules(hyb, 1, mod_attrs) == 48
+
+    sugerido, alts = build_combined_pv_storage(
+        kits_storage=[base],
+        e_bat_kwh=10.0,
+        kwp_alvo=3.5,   # ~5 módulos de 700W → cabe nos 48 do DC
+        modulos=[_module_jam()],
+        fixing_type="tile_ceramic",
+        cabos=[_FakeProd(meubess_id="cabo", title="Cabo CC 6mm", category_title="Cabo CC", price=5.0)],
+        mc4s=[_FakeProd(meubess_id="mc4", title="Conector MC4", category_title="Conector MC4", price=8.5)],
+        estruturas=[_FakeProd(meubess_id="est", title="Estrutura telha cerâmica",
+                              groups="structure", fixing_type="tile_ceramic", fixing_capacity=4, price=300.0)],
+        inversores_string=[],
+        inversores_hibridos=[hyb],
+        voltage="220", phase="monofasico",
+    )
+    assert sugerido is not None
+    assert sugerido.rotulo_caminho == "dc"
+    merged = sugerido.to_merged_kit()
+    tipos = {it["tipo"] for it in merged.itens}
+    assert "modulo_fv" in tipos      # o FV aparece no kit combinado
+    assert "bateria" in tipos        # e a bateria também
+    assert any(it["tipo"] == "acessorio" for it in merged.itens)  # cabos/mc4/estrutura
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_origem_info(**kwargs):

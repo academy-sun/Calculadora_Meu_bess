@@ -47,17 +47,21 @@ interface KitResultProps {
   titulo: string
   subtitulo?: string
   energiaNecessariaKwh?: number
+  kwpInstalado?: number
   solar?: SolarDimensionamento | null
   editable?: boolean
+  collapsible?: boolean
+  defaultOpen?: boolean
   onEscolher?: () => void
   escolhendo?: boolean
 }
 
 export function KitResult({
-  kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, solar,
-  editable = true, onEscolher, escolhendo,
+  kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, kwpInstalado, solar,
+  editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
 }: KitResultProps) {
   const [showPicker, setShowPicker] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
 
   const patch = (i: number, p: Partial<KitItem>) =>
     onItensChange(itens.map((it, idx) => (idx === i ? { ...it, ...p } : it)))
@@ -75,13 +79,8 @@ export function KitResult({
 
   const totalKit = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
 
-  return (
-    <div className="mt-10">
-      <div className="mb-5">
-        <h2 className="font-display text-2xl font-bold tracking-tight">{titulo}</h2>
-        {subtitulo && <p className="mt-0.5 text-sm text-ink/50">{subtitulo}</p>}
-      </div>
-
+  const body = (
+    <>
       {/* Métricas-chave (recalculadas ao vivo conforme o kit é editado) */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric icon={Battery} label="Energia total" value={num(energiaTotal, 2)} unit="kWh" />
@@ -193,6 +192,45 @@ export function KitResult({
       )}
 
       {showPicker && <ProductPicker onAdd={addItem} onClose={() => setShowPicker(false)} />}
+    </>
+  )
+
+  const coberturaBadge = coberturaPct != null && (
+    <span className={`rounded-full px-2 py-0.5 font-mono text-xs font-semibold ${
+      coberturaPct < 100 ? 'bg-accent/15 text-accent-dark' : 'bg-primary/10 text-primary'
+    }`}>{num(coberturaPct, 0)}%</span>
+  )
+
+  // Modo colapsável (lista de opções de kit) — header clicável com resumo
+  if (collapsible) {
+    return (
+      <div className="rounded-2xl border border-ink/10 bg-white shadow-card">
+        <button type="button" onClick={() => setOpen(o => !o)}
+          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left">
+          <div className="min-w-0">
+            <p className="truncate font-display text-base font-bold text-ink">{titulo}</p>
+            {subtitulo && <p className="truncate text-xs text-ink/50">{subtitulo}</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            {kwpInstalado ? <span className="hidden font-mono text-xs text-ink/50 sm:inline">{num(kwpInstalado, 2)} kWp</span> : null}
+            {coberturaBadge}
+            <span className="font-mono text-sm font-semibold tabular-nums text-primary">{brl(totalKit)}</span>
+            <span className="text-sm text-ink/40">{open ? '▲' : '▼'}</span>
+          </div>
+        </button>
+        {open && <div className="border-t border-ink/10 px-5 pb-5 pt-1">{body}</div>}
+      </div>
+    )
+  }
+
+  // Modo aberto (tela de cotação salva)
+  return (
+    <div className="mt-10">
+      <div className="mb-5">
+        <h2 className="font-display text-2xl font-bold tracking-tight">{titulo}</h2>
+        {subtitulo && <p className="mt-0.5 text-sm text-ink/50">{subtitulo}</p>}
+      </div>
+      {body}
     </div>
   )
 }

@@ -72,6 +72,7 @@ class ModuloAttrs:
     produto: object
     voc_v: float    # Voc do módulo em V
     imp_a: float    # Imp (corrente de máxima potência) em A
+    isc_a: float    # Isc (corrente de curto-circuito) em A — limita strings em paralelo
     wp: float       # Potência do módulo em W
     preco: float    # Preço unitário
 
@@ -83,10 +84,13 @@ def _attrs_modulo(modulo) -> ModuloAttrs | None:
     power_kw = eff_float(modulo, "power")
     if voc is None or imp is None or not power_kw or voc <= 0 or imp <= 0 or power_kw <= 0:
         return None
+    # Isc: usa o valor real do datasheet; na ausência, estima ~1.06×Imp (razão típica Isc/Imp)
+    isc = eff_float(modulo, "short_circuit_current_module") or round(imp * 1.06, 2)
     return ModuloAttrs(
         produto=modulo,
         voc_v=voc,
         imp_a=imp,
+        isc_a=isc,
         wp=round(power_kw * 1000, 1),
         preco=_preco(modulo),
     )
@@ -121,23 +125,31 @@ def select_module(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
-    """Quantos módulos (total) a(s) unidade(s) do inversor suportam na entrada CC,
-    respeitando tensão máxima de entrada (Voc) e corrente máxima por MPPT (string_current).
+    """Quantos módulos (total) a(s) unidade(s) do inversor suportam na entrada CC.
 
-    n_serie_max  = floor(voc_max / Voc_módulo)  — string não pode exceder a tensão máxima
-    n_paralelo_max = floor(string_current / Imp)  — corrente por MPPT não pode exceder o limite
-    Capacidade total = n_serie × n_paralelo × qty_mppt × qtd_inv
+    - Série (n_serie) = floor(voc_max / Voc_módulo): string não pode exceder a tensão máx.
+    - Paralelo por MPPT = nº de entradas físicas por MPPT (qty_inputs_per_mppt). O LIMITE
+      DE CORRENTE que bloqueia é a Isc do módulo vs Isc máx da entrada do inversor — se a
+      Isc do módulo excede o limite, o inversor é incompatível (retorna 0). A corrente
+      NOMINAL (string_current vs Imp) só causa clipping de energia, não é bloqueio.
+    - Capacidade total = n_serie × entradas/MPPT × qty_mppt × qtd_inv.
     """
     voc_max = eff_float(inv, "voc_max_voltage")
-    string_a = eff_float(inv, "string_current")
     qty_mppt = eff_int(inv, "qty_mppt")
-    if not voc_max or not string_a or not qty_mppt:
+    inputs_per_mppt = eff_int(inv, "qty_inputs_per_mppt") or 1
+    isc_max = eff_float(inv, "short_circuit_current_inverter")
+    if not voc_max or not qty_mppt:
         return 0
+
     n_serie = math.floor(voc_max / modulo.voc_v)
-    n_para = math.floor(string_a / modulo.imp_a)
-    if n_serie < 1 or n_para < 1:
+    if n_serie < 1:
         return 0
-    return n_serie * n_para * qty_mppt * qtd_inv
+
+    # incompatível se a corrente de curto do módulo excede o limite da entrada (dano real)
+    if isc_max and modulo.isc_a > isc_max:
+        return 0
+
+    return n_serie * inputs_per_mppt * qty_mppt * qtd_inv
 
 
 # ─────────────────────────────────────────────────────────────────────────────

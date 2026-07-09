@@ -61,24 +61,6 @@ def _kit_to_info(
     )
 
 
-def _kwp_from_itens(itens) -> float | None:
-    """Extrai kWp total dos itens do tipo 'modulo_fv'."""
-    if not itens:
-        return None
-    total = sum(
-        (it.get("preco_total", 0) / it["preco_unitario"] if it.get("preco_unitario") else it["qtd"])
-        * 0  # placeholder — queremos qtd × power do item
-        for it in itens if it.get("tipo") == "modulo_fv"
-    )
-    # calcula kWp real: qtd × preco_total/preco_unitario×power — já que não temos power no item,
-    # usa preco_total/preco_unitario×qtd aproximado via qtd
-    kwp = sum(
-        it["qtd"] * (it.get("preco_total", 0) / it["preco_unitario"] / it["qtd"] * 0)
-        for it in itens if it.get("tipo") == "modulo_fv" and it.get("preco_unitario", 0) > 0
-    )
-    return None  # simplificado — kwp_instalado já vem calculado em build_combined_pv_storage
-
-
 def _option_to_info(
     option,
     rotulo: str,
