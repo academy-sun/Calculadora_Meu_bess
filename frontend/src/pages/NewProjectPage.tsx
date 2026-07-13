@@ -64,7 +64,7 @@ export function NewProjectPage() {
   const [taxaDesempenho, setTaxaDesempenho] = useState('0.80')
   const [fixingType, setFixingType] = useState('')
   const [pv_ativo, setPvAtivo] = useState(false)  // se a seção FV está expandida
-  const [backupAtivo, setBackupAtivo] = useState(true)  // se a seção de backup está expandida
+  const [backupAtivo, setBackupAtivo] = useState(false)  // se a seção de backup está expandida
 
   // ── 3 opções de kit (sugerido + até 2 alternativas) — edição local por opção ──
   const [itensSugerido, setItensSugerido] = useState<KitItem[]>([])
@@ -551,13 +551,23 @@ export function NewProjectPage() {
 
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={isPending || (tipo === 'backup' && backupRows.length === 0)}
-            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-          >
-            {isPending ? 'Buscando…' : 'Buscar kits'}
-          </button>
+          {(() => {
+            // Espelha a regra do backend: precisa de cargas de backup OU de um FV
+            // dimensionável (kWp direto ou consumo+cidade+PR) — nunca os dois obrigatórios.
+            const temCargas = backupRows.length > 0
+            const temPv = parseFloat(powerpeakKwp) > 0
+              || (parseFloat(consumoMensal) > 0 && hspMedia != null && parseFloat(taxaDesempenho) > 0)
+            const podeSubmeter = tipo !== 'backup' || temCargas || temPv
+            return (
+              <button
+                type="submit"
+                disabled={isPending || !podeSubmeter}
+                className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              >
+                {isPending ? 'Buscando…' : 'Buscar kits'}
+              </button>
+            )
+          })()}
         </form>
 
         {showAddLoad && (
@@ -593,7 +603,7 @@ export function NewProjectPage() {
                   titulo={alt.rotulo ?? 'Kit alternativo'}
                   energiaNecessariaKwh={result.energia_necessaria_kwh}
                   kwpInstalado={alt.kwp_instalado}
-                  collapsible
+                  collapsible defaultOpen={false}
                   onEscolher={() => setPendingChoice({ kit: alt, itens: itensAlternativas[i] ?? [] })}
                 />
               ))}
