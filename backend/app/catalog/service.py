@@ -20,6 +20,7 @@ async def list_products(
     tipo: str | None = None,
     marca: str | None = None,
     app: str | None = None,
+    view: str | None = None,
     needs_review: bool | None = None,
     titulo: str | None = None,
     potencia_min: float | None = None,
@@ -35,6 +36,11 @@ async def list_products(
     Lista produtos da réplica MeuBESS com filtros opcionais.
 
     `tipo` filtra pelo tipo efetivo = coalesce(tipo_manual, tipo_auto).
+    `view` filtra pela visibilidade do produto na MeuBESS ('kit_ftv', 'only_admins',
+    'only_whs', 'calculator', 'all_includes') — a própria plataforma usa
+    view='kit_ftv' como critério de elegibilidade para composição automática de kit
+    (ver InverterCalc.php/ModuleCalc.php); produtos 'only_admins' são de uso interno
+    e não devem entrar em kits de cliente.
     Potência: só `potencia_min` = "maior que"; só `potencia_max` = "menor que"; ambos = faixa.
     """
     stmt = select(MeuBESSProduct)
@@ -46,6 +52,8 @@ async def list_products(
         stmt = stmt.where(func.lower(MeuBESSProduct.marca).like(f"%{marca.lower()}%"))
     if app:
         stmt = stmt.where(MeuBESSProduct.app.like(f"%{app}%"))
+    if view:
+        stmt = stmt.where(MeuBESSProduct.view == view)
     if needs_review is not None:
         stmt = stmt.where(MeuBESSProduct.needs_review == needs_review)
     if titulo:
@@ -74,10 +82,15 @@ async def list_pv_products(
     db: AsyncSession,
 ) -> dict:
     """Retorna os produtos necessários para montar um kit FV:
-    modulos (modulo_fv), inversores_string, cabos CC, conectores MC4 e estruturas."""
-    modulos = await list_products(db, tipo="modulo_fv", active=True)
-    inversores_string = await list_products(db, tipo="inversor_string", active=True)
-    acessorios = await list_products(db, tipo="acessorio", active=True)
+    modulos (modulo_fv), inversores_string, cabos CC, conectores MC4 e estruturas.
+
+    Restrito a view='kit_ftv' — mesmo critério de elegibilidade que a MeuBESS usa
+    na composição automática (ver list_products); exclui itens 'only_admins'/'only_whs'
+    que não são destinados a kit de cliente (ex.: componentes avulsos de estrutura
+    muito mais baratos que o kit completo correspondente)."""
+    modulos = await list_products(db, tipo="modulo_fv", view="kit_ftv", active=True)
+    inversores_string = await list_products(db, tipo="inversor_string", view="kit_ftv", active=True)
+    acessorios = await list_products(db, tipo="acessorio", view="kit_ftv", active=True)
 
     cabos = [
         a for a in acessorios
@@ -101,14 +114,21 @@ async def list_pv_products(
 
 async def list_kit_products(
     db: AsyncSession,
-) -> tuple[list[MeuBESSProduct], list[MeuBESSProduct]]:
+) -> tuple[list[MeuBESSProduct], list[MeuBESSProduct], list[MeuBESSProduct]]:
     """
-    Retorna (inversores_hibridos, baterias) ativos da réplica para montar kit,
-    pelo tipo efetivo = coalesce(tipo_manual, tipo_auto).
+    Retorna (inversores_hibridos, baterias, caixas_juncao) ativos da réplica para
+    montar kit, pelo tipo efetivo = coalesce(tipo_manual, tipo_auto), restrito a
+    view='kit_ftv' (mesmo critério de elegibilidade que a MeuBESS usa — ver
+    list_products).
     """
-    inversores = await list_products(db, tipo="inversor_hibrido", active=True)
-    baterias = await list_products(db, tipo="bateria", active=True)
-    return inversores, baterias
+    inversores = await list_products(db, tipo="inversor_hibrido", view="kit_ftv", active=True)
+    baterias = await list_products(db, tipo="bateria", view="kit_ftv", active=True)
+    acessorios = await list_products(db, tipo="acessorio", view="kit_ftv", active=True)
+    jbw = [
+        a for a in acessorios
+        if "jbw" in (a.title or "").lower() or "junção" in (a.title or "").lower() or "juncao" in (a.title or "").lower()
+    ]
+    return inversores, baterias, jbw
 
 
 async def get_product(db: AsyncSession, meubess_id: str) -> MeuBESSProduct | None:

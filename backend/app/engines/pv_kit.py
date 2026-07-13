@@ -311,6 +311,7 @@ def _scale_hybrid(
     qty_modulos_alvo: int,
     modulo: ModuloAttrs,
     inversores_hibridos: list,
+    jbw_produtos: list | None = None,
 ) -> KitBESS | None:
     """Caminho B: aumenta potência do híbrido (mais unidades do mesmo modelo OU
     troca para outro modelo maior da mesma marca) até a entrada CC comportar todos os
@@ -334,7 +335,7 @@ def _scale_hybrid(
                     continue  # baterias originais não cabem com esse inversor qtd
                 kit = _montar_kit(
                     base.inversor, base.bateria, qtd_inv, base.qtd_baterias,
-                    ia, ba, n_ent, list(base.alertas), _tit,
+                    ia, ba, n_ent, list(base.alertas), _tit, jbw_produtos,
                 )
                 candidatos.append(kit)
                 break  # menor qtd que já resolve
@@ -358,7 +359,7 @@ def _scale_hybrid(
                 continue
             kit = _montar_kit(
                 inv, base.bateria, 1, base.qtd_baterias,
-                ia2, ba, n_ent, list(base.alertas), _tit,
+                ia2, ba, n_ent, list(base.alertas), _tit, jbw_produtos,
             )
             candidatos.append(kit)
 
@@ -442,6 +443,7 @@ def _build_options_for_base(
     voltage: str | None,
     phase: str | None,
     inversores_hibridos: list,
+    jbw_produtos: list | None = None,
 ) -> list[CombinedOption]:
     """Para um KitBESS base, retorna as opções de combinação PV ordenadas por preço."""
     pv_acc = pv_accessory_itens(qty_modulos, modulo, fixing_type, cabos, mc4s, estruturas)
@@ -464,7 +466,7 @@ def _build_options_for_base(
         opcoes.append(CombinedOption(kit_storage=base, pv_itens=pv_split, rotulo_caminho="split"))
 
     # Caminho B: escala o inversor híbrido para absorver todos os módulos no DC
-    kit_scaled = _scale_hybrid(base, qty_modulos, modulo, inversores_hibridos)
+    kit_scaled = _scale_hybrid(base, qty_modulos, modulo, inversores_hibridos, jbw_produtos)
     if kit_scaled:
         opcoes.append(CombinedOption(kit_storage=kit_scaled, pv_itens=pv_acc, rotulo_caminho="scaled"))
 
@@ -490,6 +492,7 @@ def build_combined_pv_storage(
     inversores_hibridos: list,
     voltage: str | None,
     phase: str | None,
+    jbw_produtos: list | None = None,
 ) -> tuple[CombinedOption | None, list[CombinedOption]]:
     """
     Dimensiona kit combinado FV + armazenamento. Retorna (sugerido, [alt1, alt2]).
@@ -513,7 +516,7 @@ def build_combined_pv_storage(
     base = kits_storage[0]
     opcoes_base = _build_options_for_base(
         base, qty_modulos, mod, kwp_alvo, fixing_type,
-        cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos,
+        cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
     )
     if not opcoes_base:
         return None, []
@@ -527,17 +530,17 @@ def build_combined_pv_storage(
     elif len(kits_storage) > 1:
         alt_base = _build_options_for_base(
             kits_storage[1], qty_modulos, mod, kwp_alvo, fixing_type,
-            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos,
+            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
         )
         if alt_base:
             alternativas.append(alt_base[0])
 
     # alt2 — econômica: reduz baterias, mantém mesmo kWp FV
-    eco_base = economic_undershoot_kit(kits_storage, e_bat_kwh)
+    eco_base = economic_undershoot_kit(kits_storage, e_bat_kwh, jbw_produtos)
     if eco_base:
         eco_opcoes = _build_options_for_base(
             eco_base, qty_modulos, mod, kwp_alvo, fixing_type,
-            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos,
+            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
         )
         if eco_opcoes:
             alternativas.append(eco_opcoes[0])

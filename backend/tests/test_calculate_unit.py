@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.calculate.schemas import CalculateRequest, CalculateResponse, KitInfo, LoadItem, OrigemInfo
 from app.calculate.service import _build_load_curve, _select_kits
-from app.engines.kit_builder import KitBESS
+from app.engines.kit_builder import KitBESS, _montar_kit, _attrs_inversor, _attrs_bateria
 import uuid
 from datetime import datetime, timezone
 import pytest
@@ -144,6 +144,49 @@ def test_select_kits_picks_cheapest_under_100pct_coverage_as_economic_alternativ
     assert economica.qtd_baterias == 3
     assert economica.capacidade_total_kwh == 15.0
     assert economica.preco_total == 10000.0 + 3000.0 * 3
+
+
+# ── Preço real da caixa de junção (JBW) ────────────────────────────────────────
+
+def test_montar_kit_uses_real_jbw_price_when_available():
+    """
+    Regressão: a JBW aparecia sempre com preço R$ 0 (hardcoded) mesmo havendo produto
+    real cadastrado no catálogo (ex.: 'Caixa de Junção - JBW 41DC 50A W0', R$1108,71).
+    _montar_kit agora busca o preço real por marca; sem produto cadastrado, mantém
+    0 mas sinaliza via alerta em vez de aparentar que é gratuita.
+    """
+    inv = _FakeProd(
+        meubess_id="inv", marca="WEG", title="INV",
+        peak_power_kw=20.0, max_eps_power=15.0, battery_inputs=1,
+        battery_input_max_current_a=100.0, max_parallel_units=1, price=10000.0,
+    )
+    bat = _FakeProd(
+        meubess_id="bat", marca="WEG", title="BAT",
+        usable_capacity_kwh=5.0, max_parallel_batteries=4,
+        max_continuous_current_a=50.0, peak_discharge_current_a=50.0,
+        nominal_voltage_v=51.2, price=3000.0,
+    )
+    ia, _ = _attrs_inversor(inv)
+    ba, _ = _attrs_bateria(bat)
+    # n=2 numa única entrada (battery_inputs=1) → distribuição [2] → n_jbw=1
+    n_entradas = ia["battery_inputs"]
+
+    jbw_weg = _FakeProd(meubess_id="jbw", marca="WEG", title="Caixa de Junção - JBW 41DC 50A W0", price=1108.71)
+    jbw_outra_marca = _FakeProd(meubess_id="jbw2", marca="FoxESS", title="Junction Box", price=50.0)
+
+    # Com produto real cadastrado da mesma marca: usa o preço real, não zero.
+    kit_com_preco = _montar_kit(inv, bat, 1, 2, ia, ba, n_entradas, [], lambda p: str(p.title), [jbw_weg, jbw_outra_marca])
+    jbw_item = next(it for it in kit_com_preco.itens if it["tipo"] == "acessorio")
+    assert jbw_item["preco_unitario"] == 1108.71
+    assert jbw_item["preco_total"] == 1108.71
+    assert kit_com_preco.preco_total == 10000.0 + 3000.0 * 2 + 1108.71
+    assert not any("sem preço cadastrado" in a for a in kit_com_preco.alertas)
+
+    # Sem nenhuma JBW cadastrada: mantém 0, mas alerta explicitamente (não esconde o gap).
+    kit_sem_preco = _montar_kit(inv, bat, 1, 2, ia, ba, n_entradas, [], lambda p: str(p.title), [])
+    jbw_item_zero = next(it for it in kit_sem_preco.itens if it["tipo"] == "acessorio")
+    assert jbw_item_zero["preco_unitario"] == 0.0
+    assert any("sem preço cadastrado" in a for a in kit_sem_preco.alertas)
 
 
 # ── FV combinado (pv_kit) ──────────────────────────────────────────────────────
@@ -294,7 +337,7 @@ def _mock_db_and_catalog():
     """Retorna (db_mock, patches) para usar em testes de service."""
     db = AsyncMock()
     patches = [
-        patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], []))),
+        patch("app.calculate.service.list_kit_products", new=AsyncMock(return_value=([], [], []))),
         patch("app.calculate.service.list_products", new=AsyncMock(return_value=[])),
         patch("app.calculate.service.list_pv_products", new=AsyncMock(return_value=_EMPTY_PV)),
     ]

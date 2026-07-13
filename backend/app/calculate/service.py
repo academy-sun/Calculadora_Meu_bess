@@ -76,7 +76,7 @@ def _option_to_info(
     )
 
 
-def _select_kits(kits, e_bat_kwh: float) -> tuple[KitInfo | None, list[KitInfo]]:
+def _select_kits(kits, e_bat_kwh: float, jbw_produtos: list | None = None) -> tuple[KitInfo | None, list[KitInfo]]:
     """
     Seleciona até 3 opções de kit a partir da lista (já ordenada por preço crescente,
     um kit por par inversor×bateria compatível, vindo de build_kits):
@@ -93,7 +93,7 @@ def _select_kits(kits, e_bat_kwh: float) -> tuple[KitInfo | None, list[KitInfo]]
 
     sugerido = kits[0]
     alt_composicao = kits[1] if len(kits) > 1 else None
-    alt_economica = economic_undershoot_kit(kits, e_bat_kwh)
+    alt_economica = economic_undershoot_kit(kits, e_bat_kwh, jbw_produtos)
 
     alternativas = []
     if alt_composicao:
@@ -120,7 +120,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         curva = []
 
     # Fonte de kit/módulos: réplica meubess_products (tipo efetivo coalesce(manual,auto))
-    inversores, baterias = await list_kit_products(db)
+    inversores, baterias, jbw_produtos = await list_kit_products(db)
     pv = await list_pv_products(db)   # módulos, inversores string, acessórios FV
 
     capacidade_kwh = 0.0
@@ -243,6 +243,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             fase_instalacao=req.tipo_instalacao or "monofasico",
             tensoes_carga=tensoes_carga,
             padrao_entrada=req.padrao_entrada,
+            jbw_produtos=jbw_produtos,
         )
 
         # Build per-row results for frontend table
@@ -274,6 +275,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 inversores_hibridos=inversores,
                 voltage=voltage_str,
                 phase=req.tipo_instalacao or "monofasico",
+                jbw_produtos=jbw_produtos,
             )
             if sugerido_opt:
                 mod_ref, qty_ref = select_module(pv["modulos"], kwp_alvo_calculado)
@@ -305,10 +307,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 ]
             else:
                 # FV inviável (sem módulos com dados) — cai no armazenamento puro
-                kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh)
+                kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh, jbw_produtos)
         else:
             # armazenamento puro (sem FV)
-            kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh)
+            kit_selecionado, alternativas = _select_kits(kits, energy_backup_kwh, jbw_produtos)
 
             # legacy DC-acoplado simples (consumo+hsp SEM powerpeak_kwp nem taxa_desempenho)
             if req.consumo_medio_mensal_kwh and req.hsp_media and kits:
@@ -343,8 +345,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             pp_kva=req.total_pp_kva,
             e_bat_kwh=req.total_e_eps_kwh,
             fase_instalacao=req.tipo_instalacao or "monofasico",
+            jbw_produtos=jbw_produtos,
         )
-        kit_selecionado, alternativas = _select_kits(kits, req.total_e_eps_kwh)
+        kit_selecionado, alternativas = _select_kits(kits, req.total_e_eps_kwh, jbw_produtos)
 
     elif req.tipo_calculo == "peak_shaving":
         result: PeakShavingResult = calculate_peak_shaving(PeakShavingInput(
@@ -360,8 +363,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             inversores, baterias,
             pn_kva=0.0, pp_kva=potencia_kw,
             e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
+            jbw_produtos=jbw_produtos,
         )
-        kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh)
+        kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh, jbw_produtos)
 
         if kit_selecionado and economia_mensal:
             payback = kit_selecionado.preco_total / economia_mensal
@@ -420,8 +424,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             inversores, baterias,
             pn_kva=0.0, pp_kva=potencia_kw,
             e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
+            jbw_produtos=jbw_produtos,
         )
-        kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh)
+        kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh, jbw_produtos)
         kwp_alvo_calculado = round(capacidade_kwh, 3)
 
     calculado_em = datetime.now(timezone.utc)

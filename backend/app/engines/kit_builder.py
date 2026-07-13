@@ -179,7 +179,20 @@ def _attrs_bateria(bat) -> tuple[dict, str | None]:
     return a, None
 
 
-def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn) -> KitBESS:
+def _jbw_preco(jbw_produtos: list | None, marca: str) -> tuple[float, str, bool]:
+    """Preço real da caixa de junção no catálogo (mesma marca, senão a mais barata
+    disponível). Retorna (preco, nome, encontrado) — encontrado=False sinaliza que
+    não há JBW cadastrada e o preço 0.0 é um placeholder, não um valor real."""
+    if not jbw_produtos:
+        return 0.0, "Caixa de junção (JBW)", False
+    mesma_marca = [j for j in jbw_produtos if (eff(j, "marca") or "") == marca]
+    candidatos = mesma_marca or jbw_produtos
+    melhor = min(candidatos, key=lambda j: eff_float(j, "price") or eff_float(j, "preco") or float("inf"))
+    preco = eff_float(melhor, "price") or eff_float(melhor, "preco") or 0.0
+    return preco, str(eff(melhor, "title") or "Caixa de junção (JBW)"), preco > 0
+
+
+def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn, jbw_produtos: list | None = None) -> KitBESS:
     """Monta o KitBESS (itens, distribuição, preço, pico) para uma combinação já
     validada de inversor/bateria/quantidades — reutilizado tanto pela montagem normal
     (n suficiente) quanto pela variante econômica (n menor que o suficiente, ver
@@ -202,9 +215,15 @@ def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn) ->
          "corrente_pico_a": round(ba["i_pico_a"], 2),
          "tensao_v": round(ba["tensao_v"], 2)},
     ]
+    preco_jbw_total = 0.0
     if n_jbw > 0:
-        itens.append({"nome": "Caixa de junção (JBW)", "tipo": "acessorio", "qtd": n_jbw,
-                      "preco_unitario": 0.0, "preco_total": 0.0})
+        marca = str(eff(inv, "marca") or eff(bat, "marca") or "")
+        preco_jbw, nome_jbw, jbw_encontrada = _jbw_preco(jbw_produtos, marca)
+        preco_jbw_total = preco_jbw * n_jbw
+        itens.append({"nome": nome_jbw, "tipo": "acessorio", "qtd": n_jbw,
+                      "preco_unitario": round(preco_jbw, 2), "preco_total": round(preco_jbw_total, 2)})
+        if not jbw_encontrada:
+            alertas = [*alertas, "Caixa de junção (JBW) sem preço cadastrado no catálogo — orçamento incompleto"]
 
     return KitBESS(
         inversor=inv,
@@ -215,13 +234,13 @@ def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn) ->
         n_caixas_juncao=n_jbw,
         capacidade_total_kwh=round(ba["usable_kwh"] * n, 2),
         pico_entregavel_kw=round(min(pico_dc, pico_inv_total), 2),
-        preco_total=round(ba["preco"] * n + ia["preco"] * qtd_inv, 2),
+        preco_total=round(ba["preco"] * n + ia["preco"] * qtd_inv + preco_jbw_total, 2),
         alertas=alertas,
         itens=itens,
     )
 
 
-def economic_undershoot_kit(kits: list[KitBESS], e_bat_kwh: float) -> KitBESS | None:
+def economic_undershoot_kit(kits: list[KitBESS], e_bat_kwh: float, jbw_produtos: list | None = None) -> KitBESS | None:
     """
     A montagem normal sempre escolhe o MENOR n de baterias que já é suficiente
     (n_energia = ceil(e_bat_kwh / usable_kwh)) — logo, por construção, todo kit em
@@ -262,7 +281,7 @@ def economic_undershoot_kit(kits: list[KitBESS], e_bat_kwh: float) -> KitBESS | 
                 and melhor_preco is not None and preco < melhor_preco
             )
             if mais_proximo or empate_mais_barato:
-                melhor = _montar_kit(k.inversor, k.bateria, k.qtd_inversores, n, ia, ba, n_entradas, list(k.alertas), _tit)
+                melhor = _montar_kit(k.inversor, k.bateria, k.qtd_inversores, n, ia, ba, n_entradas, list(k.alertas), _tit, jbw_produtos)
                 melhor_cobertura = cobertura
 
     return melhor
@@ -279,6 +298,7 @@ def build_kits(
     tensoes_carga: set[str] | None = None,
     padrao_entrada: str | None = None,
     require_same_brand: bool = True,
+    jbw_produtos: list | None = None,
 ) -> tuple[list[KitBESS], list[SkipReason]]:
     """
     Monta kits viáveis ordenados por preço. `skipped` lista produtos descartados
@@ -361,7 +381,7 @@ def build_kits(
             if fase_instalacao == "trifasico" and tensoes_carga:
                 alertas.append("verifique cargas monofásicas ≤ 1/3 da potência (alerta)")
 
-            kits.append(_montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, _tit))
+            kits.append(_montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, _tit, jbw_produtos))
 
     kits.sort(key=lambda k: k.preco_total)
     return kits, skipped
