@@ -342,7 +342,7 @@ export function NewProjectPage() {
                           className="text-[11px] text-primary hover:underline">↻ recalcular</button>
                       )}
                     </div>
-                    <input type="number" step="0.1" min={0} value={powerpeakKwp}
+                    <input type="number" step="0.01" min={0} value={powerpeakKwp}
                       onChange={e => { setKwpEdited(true); setPowerpeakKwp(e.target.value) }}
                       placeholder="calculada automaticamente"
                       className="w-full rounded-xl border border-ink/15 px-3 py-2 font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
