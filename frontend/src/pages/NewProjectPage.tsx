@@ -196,6 +196,7 @@ export function NewProjectPage() {
         solicitado_em: new Date().toISOString(),
       },
       tipo_calculo: tipo,
+      perfil_usuario: 'admin',   // Aceleradora opera como admin na MeuBESS
     }
 
     if (tipo === 'backup') {

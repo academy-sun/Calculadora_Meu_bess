@@ -49,6 +49,9 @@ class LoadItem(BaseModel):
 class CalculateRequest(BaseModel):
     origem_info: OrigemInfo
     tipo_calculo: Literal["backup", "backup_direto", "peak_shaving", "arbitragem", "solar", "solar_storage"]
+    # Perfil do usuário na MeuBESS — controla quais produtos entram no kit
+    # customer → só kit_ftv; consultor → +only_whs; admin → +only_admins (default)
+    perfil_usuario: Literal["customer", "consultor", "admin"] = "admin"
 
     # ── Backup ────────────────────────────────────────────────────────────────
     cargas_backup: Optional[list[BackupLoadRow]] = None

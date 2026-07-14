@@ -10,6 +10,14 @@ from app.catalog.schemas import (
     ProductBESSCreate, ProductSolarCreate, StandardLoadCreate,
 )
 
+# Hierarquia de permissão MeuBESS (replicada de ModuleCalc.php / InverterCalc.php)
+# customer → só kit_ftv; consultor (wallet) → +only_whs; admin → +only_admins
+_ALLOWED_VIEWS: dict[str, list[str]] = {
+    "customer":  ["kit_ftv"],
+    "consultor": ["kit_ftv", "only_whs"],
+    "admin":     ["kit_ftv", "only_whs", "only_admins"],
+}
+
 
 # ── meubess_products (réplica fiel) ──────────────────────────────────────────
 
@@ -21,6 +29,7 @@ async def list_products(
     marca: str | None = None,
     app: str | None = None,
     view: str | None = None,
+    views: list[str] | None = None,   # filtro IN — tem precedência sobre view
     needs_review: bool | None = None,
     titulo: str | None = None,
     potencia_min: float | None = None,
@@ -52,7 +61,9 @@ async def list_products(
         stmt = stmt.where(func.lower(MeuBESSProduct.marca).like(f"%{marca.lower()}%"))
     if app:
         stmt = stmt.where(MeuBESSProduct.app.like(f"%{app}%"))
-    if view:
+    if views:
+        stmt = stmt.where(MeuBESSProduct.view.in_(views))
+    elif view:
         stmt = stmt.where(MeuBESSProduct.view == view)
     if needs_review is not None:
         stmt = stmt.where(MeuBESSProduct.needs_review == needs_review)
@@ -80,17 +91,17 @@ async def list_products(
 
 async def list_pv_products(
     db: AsyncSession,
+    perfil: str = "admin",
 ) -> dict:
     """Retorna os produtos necessários para montar um kit FV:
     modulos (modulo_fv), inversores_string, cabos CC, conectores MC4 e estruturas.
 
-    Restrito a view='kit_ftv' — mesmo critério de elegibilidade que a MeuBESS usa
-    na composição automática (ver list_products); exclui itens 'only_admins'/'only_whs'
-    que não são destinados a kit de cliente (ex.: componentes avulsos de estrutura
-    muito mais baratos que o kit completo correspondente)."""
-    modulos = await list_products(db, tipo="modulo_fv", view="kit_ftv", active=True)
-    inversores_string = await list_products(db, tipo="inversor_string", view="kit_ftv", active=True)
-    acessorios = await list_products(db, tipo="acessorio", view="kit_ftv", active=True)
+    Filtra pelo perfil do usuário conforme hierarquia MeuBESS (_ALLOWED_VIEWS):
+    customer → kit_ftv; consultor → +only_whs; admin → +only_admins."""
+    allowed = _ALLOWED_VIEWS.get(perfil, _ALLOWED_VIEWS["admin"])
+    modulos = await list_products(db, tipo="modulo_fv", views=allowed, active=True)
+    inversores_string = await list_products(db, tipo="inversor_string", views=allowed, active=True)
+    acessorios = await list_products(db, tipo="acessorio", views=allowed, active=True)
 
     cabos = [
         a for a in acessorios
@@ -114,16 +125,17 @@ async def list_pv_products(
 
 async def list_kit_products(
     db: AsyncSession,
+    perfil: str = "admin",
 ) -> tuple[list[MeuBESSProduct], list[MeuBESSProduct], list[MeuBESSProduct]]:
     """
     Retorna (inversores_hibridos, baterias, caixas_juncao) ativos da réplica para
-    montar kit, pelo tipo efetivo = coalesce(tipo_manual, tipo_auto), restrito a
-    view='kit_ftv' (mesmo critério de elegibilidade que a MeuBESS usa — ver
-    list_products).
+    montar kit, pelo tipo efetivo = coalesce(tipo_manual, tipo_auto), filtrado
+    conforme hierarquia de perfil (_ALLOWED_VIEWS).
     """
-    inversores = await list_products(db, tipo="inversor_hibrido", view="kit_ftv", active=True)
-    baterias = await list_products(db, tipo="bateria", view="kit_ftv", active=True)
-    acessorios = await list_products(db, tipo="acessorio", view="kit_ftv", active=True)
+    allowed = _ALLOWED_VIEWS.get(perfil, _ALLOWED_VIEWS["admin"])
+    inversores = await list_products(db, tipo="inversor_hibrido", views=allowed, active=True)
+    baterias = await list_products(db, tipo="bateria", views=allowed, active=True)
+    acessorios = await list_products(db, tipo="acessorio", views=allowed, active=True)
     jbw = [
         a for a in acessorios
         if "jbw" in (a.title or "").lower() or "junção" in (a.title or "").lower() or "juncao" in (a.title or "").lower()

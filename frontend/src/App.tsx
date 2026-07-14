@@ -11,6 +11,8 @@ import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
 import { CatalogPage } from '@/pages/CatalogPage'
 import { ProductsPage } from '@/pages/ProductsPage'
 import { CatalogLoadsPage } from '@/pages/CatalogLoadsPage'
+import { UsersAdminPage } from '@/pages/UsersAdminPage'
+import { SetPasswordPage } from '@/pages/SetPasswordPage'
 
 export function App() {
   return (
@@ -18,6 +20,7 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/set-password" element={<SetPasswordPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route index element={<NewProjectPage />} />
@@ -28,6 +31,7 @@ export function App() {
                 <Route path="products" element={<ProductsPage />} />
                 <Route path="catalog" element={<CatalogPage />} />
                 <Route path="catalog/loads" element={<CatalogLoadsPage />} />
+                <Route path="admin/users" element={<UsersAdminPage />} />
               </Route>
             </Route>
           </Route>

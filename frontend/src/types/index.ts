@@ -152,6 +152,8 @@ export interface MeuBESSProduct {
   last_synced_at: string
 }
 
+export type PerfilUsuario = 'customer' | 'consultor' | 'admin'
+
 export interface ProductFilters {
   tipo?: string
   marca?: string

@@ -6,6 +6,7 @@ import {
   Zap,
   Package,
   LogOut,
+  Users,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -68,6 +69,7 @@ export function Layout() {
               </p>
               <NavItem to="/products" icon={Package} label="Catálogo MeuBESS" />
               <NavItem to="/catalog/loads" icon={Zap} label="Cargas Padrão" />
+              <NavItem to="/admin/users" icon={Users} label="Usuários" />
             </>
           )}
         </nav>

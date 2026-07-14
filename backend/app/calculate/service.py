@@ -120,8 +120,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         curva = []
 
     # Fonte de kit/módulos: réplica meubess_products (tipo efetivo coalesce(manual,auto))
-    inversores, baterias, jbw_produtos = await list_kit_products(db)
-    pv = await list_pv_products(db)   # módulos, inversores string, acessórios FV
+    perfil = req.perfil_usuario
+    inversores, baterias, jbw_produtos = await list_kit_products(db, perfil=perfil)
+    pv = await list_pv_products(db, perfil=perfil)   # módulos, inversores string, acessórios FV
 
     capacidade_kwh = 0.0
     potencia_kw = 0.0

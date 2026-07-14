@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth.router import router as admin_users_router
 from app.calculate.router import router as calculate_router
 from app.catalog.router import router as catalog_router
 from app.projects.router import router as projects_router
@@ -15,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_users_router)
 app.include_router(catalog_router)
 app.include_router(projects_router)
 app.include_router(calculate_router)
