@@ -1,8 +1,8 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useProject } from '@/hooks/useProjects'
-import { ArrowLeft, Pencil } from 'lucide-react'
+import { ArrowLeft, Pencil, MapPin } from 'lucide-react'
 import { KitResult } from '@/components/KitResult'
-import type { BackupLoadRow, BackupRowResult, KitInfo, KitItem, SolarDimensionamento } from '@/types'
+import type { BackupLoadRow, BackupRowResult, FreteInfo, KitInfo, KitItem, SolarDimensionamento } from '@/types'
 
 const PADRAO_LABEL: Record<string, { l: string; s: string }> = {
   mono_127: { l: 'Monofásico', s: '127 V' },
@@ -71,6 +71,7 @@ export function ProjectDetailPage() {
   const backupRows = (pm?.backup_rows ?? []) as BackupRowResult[]
   const totalPnKva = pm?.total_pn_kva as number | undefined
   const totalPpKva = pm?.total_pp_kva as number | undefined
+  const frete = pm?.frete as FreteInfo | null | undefined
 
   // itens estáticos — visualização de cotação salva, edição acontece via "Editar cotação"
   const itens: KitItem[] = kitSelecionado?.itens ?? []
@@ -180,6 +181,33 @@ export function ProjectDetailPage() {
         </div>
       )}
 
+      {frete && (
+        <div className={`mb-4 flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${
+          frete.tipo === 'fob'
+            ? 'border-amber-100 bg-amber-50/60'
+            : 'border-blue-100 bg-blue-50/60'
+        }`}>
+          <div className="flex items-center gap-2">
+            <MapPin size={14} className={frete.tipo === 'fob' ? 'text-amber-600' : 'text-blue-600'} />
+            <div>
+              <span className={`font-semibold ${frete.tipo === 'fob' ? 'text-amber-700' : 'text-blue-700'}`}>
+                {frete.tipo === 'fob'
+                  ? 'Frete FOB — Retirada no CD'
+                  : `Frete CIF — ${frete.uf}`}
+              </span>
+              <span className={`ml-2 text-xs ${frete.tipo === 'fob' ? 'text-amber-500' : 'text-blue-500'}`}>
+                {frete.tipo === 'fob'
+                  ? `(taxa WEG→CD: ${(frete.percentual * 100).toFixed(0)}%)`
+                  : `(${(frete.percentual * 100).toFixed(1)}% · mín. R$ ${frete.valor_minimo.toLocaleString('pt-BR')})`}
+              </span>
+            </div>
+          </div>
+          <span className={`font-mono font-bold ${frete.tipo === 'fob' ? 'text-amber-700' : 'text-blue-700'}`}>
+            {frete.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </span>
+        </div>
+      )}
+
       {kitSelecionado ? (
         <KitResult
           kit={kitSelecionado}
@@ -188,6 +216,7 @@ export function ProjectDetailPage() {
           titulo="Kit escolhido"
           energiaNecessariaKwh={energiaNecessariaKwh}
           solar={solar}
+          frete={frete}
           editable={false}
         />
       ) : (

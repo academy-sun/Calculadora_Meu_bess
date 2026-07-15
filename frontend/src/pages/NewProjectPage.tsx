@@ -40,6 +40,14 @@ type BackupRow = {
   fase: string
 }
 
+function estimarFreteParaPreco(ref: FreteInfo, preco: number): FreteInfo {
+  if (ref.tipo === 'fob') {
+    return { ...ref, valor: Math.round(preco * ref.percentual * 100) / 100 }
+  }
+  const valorBruto = preco * ref.percentual
+  return { ...ref, valor: Math.round(Math.max(valorBruto, ref.valor_minimo) * 100) / 100 }
+}
+
 function FreteCard({ frete }: { frete: FreteInfo }) {
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   if (frete.tipo === 'fob') {
@@ -107,6 +115,9 @@ export function NewProjectPage() {
     const precoTotal = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
     const energiaTotal = itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
     const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
+    const freteChosenKit = result.frete
+      ? estimarFreteParaPreco(result.frete as FreteInfo, precoTotal)
+      : null
     const chosenKit: KitInfo = {
       ...kit,
       itens,
@@ -114,7 +125,7 @@ export function NewProjectPage() {
       capacidade_total_kwh: energiaTotal,
       potencia_total_kw: potenciaInversao,
     }
-    const resultado: CalculateResponse = { ...result, kit_selecionado: chosenKit, alternativas: [] }
+    const resultado: CalculateResponse = { ...result, kit_selecionado: chosenKit, alternativas: [], frete: freteChosenKit }
     try {
       const saved = editId
         ? await atualizarCotacao({ id: editId, payload: { titulo, calculo: lastPayload, resultado } })
@@ -627,7 +638,6 @@ export function NewProjectPage() {
           result.kit_selecionado ? (
             <div className="mt-8 space-y-3">
               <h2 className="font-display text-xl font-bold tracking-tight text-ink">Opções de kit</h2>
-              {result.frete && <FreteCard frete={result.frete as FreteInfo} />}
               <KitResult
                 kit={result.kit_selecionado}
                 itens={itensSugerido}
@@ -636,22 +646,29 @@ export function NewProjectPage() {
                 energiaNecessariaKwh={result.energia_necessaria_kwh}
                 kwpInstalado={result.kit_selecionado.kwp_instalado}
                 solar={result.solar_dimensionamento}
+                frete={result.frete as FreteInfo | null | undefined}
                 collapsible defaultOpen
                 onEscolher={() => setPendingChoice({ kit: result.kit_selecionado!, itens: itensSugerido })}
               />
-              {result.alternativas.map((alt, i) => (
-                <KitResult
-                  key={i}
-                  kit={alt}
-                  itens={itensAlternativas[i] ?? []}
-                  onItensChange={its => setItensAlternativas(prev => prev.map((a, idx) => idx === i ? its : a))}
-                  titulo={alt.rotulo ?? 'Kit alternativo'}
-                  energiaNecessariaKwh={result.energia_necessaria_kwh}
-                  kwpInstalado={alt.kwp_instalado}
-                  collapsible defaultOpen={false}
-                  onEscolher={() => setPendingChoice({ kit: alt, itens: itensAlternativas[i] ?? [] })}
-                />
-              ))}
+              {result.alternativas.map((alt, i) => {
+                const freteAlt = result.frete
+                  ? estimarFreteParaPreco(result.frete as FreteInfo, alt.preco_total)
+                  : undefined
+                return (
+                  <KitResult
+                    key={i}
+                    kit={alt}
+                    itens={itensAlternativas[i] ?? []}
+                    onItensChange={its => setItensAlternativas(prev => prev.map((a, idx) => idx === i ? its : a))}
+                    titulo={alt.rotulo ?? 'Kit alternativo'}
+                    energiaNecessariaKwh={result.energia_necessaria_kwh}
+                    kwpInstalado={alt.kwp_instalado}
+                    frete={freteAlt}
+                    collapsible defaultOpen={false}
+                    onEscolher={() => setPendingChoice({ kit: alt, itens: itensAlternativas[i] ?? [] })}
+                  />
+                )
+              })}
             </div>
           ) : (
             <div className="mt-10 rounded-2xl border border-dashed border-ink/15 bg-white/60 px-6 py-12 text-center">

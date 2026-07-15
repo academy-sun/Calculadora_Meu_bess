@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ElementType } from 'react'
 import { AlertTriangle, Plus, Trash2, Battery, Gauge, Zap, Percent, CheckCircle2 } from 'lucide-react'
-import type { KitInfo, KitItem, SolarDimensionamento } from '@/types'
+import type { FreteInfo, KitInfo, KitItem, SolarDimensionamento } from '@/types'
 import { ProductPicker } from '@/components/ProductPicker'
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -49,6 +49,7 @@ interface KitResultProps {
   energiaNecessariaKwh?: number
   kwpInstalado?: number
   solar?: SolarDimensionamento | null
+  frete?: FreteInfo | null
   editable?: boolean
   collapsible?: boolean
   defaultOpen?: boolean
@@ -58,7 +59,7 @@ interface KitResultProps {
 
 export function KitResult({
   kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, kwpInstalado, solar,
-  editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
+  frete, editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
 }: KitResultProps) {
   const [showPicker, setShowPicker] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
@@ -151,10 +152,28 @@ export function KitResult({
               </tr>
             )}
             <tr className="border-t-2 border-ink/15 bg-ink/[0.03]">
-              <td colSpan={3} className="px-4 py-3 text-right font-semibold uppercase tracking-wide text-ink/60 text-xs">Total do kit</td>
+              <td colSpan={3} className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-ink/60">Total do kit</td>
               <td className="px-4 py-3 text-right font-mono text-base font-bold tabular-nums text-primary">{brl(totalKit)}</td>
               {editable && <td />}
             </tr>
+            {frete && (
+              <>
+                <tr className="bg-ink/[0.02]">
+                  <td colSpan={3} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-ink/50">
+                    {frete.tipo === 'fob'
+                      ? `Frete FOB — WEG→CD (${(frete.percentual * 100).toFixed(0)}%)`
+                      : `Frete CIF — ${frete.uf} (${(frete.percentual * 100).toFixed(1)}%)`}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm tabular-nums text-ink/70">{brl(frete.valor)}</td>
+                  {editable && <td />}
+                </tr>
+                <tr className="border-t border-ink/15 bg-primary/[0.04]">
+                  <td colSpan={3} className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-ink/70">Total geral (kit + frete)</td>
+                  <td className="px-4 py-3 text-right font-mono text-lg font-bold tabular-nums text-primary">{brl(totalKit + frete.valor)}</td>
+                  {editable && <td />}
+                </tr>
+              </>
+            )}
           </tfoot>
         </table>
       </div>
@@ -214,7 +233,14 @@ export function KitResult({
           <div className="flex shrink-0 items-center gap-3">
             {kwpInstalado ? <span className="hidden font-mono text-xs text-ink/50 sm:inline">{num(kwpInstalado, 2)} kWp</span> : null}
             {coberturaBadge}
-            <span className="font-mono text-sm font-semibold tabular-nums text-primary">{brl(totalKit)}</span>
+            <div className="text-right">
+              <span className="block font-mono text-sm font-semibold tabular-nums text-primary">
+                {frete ? brl(totalKit + frete.valor) : brl(totalKit)}
+              </span>
+              {frete && (
+                <span className="block font-mono text-[10px] tabular-nums text-ink/40">kit {brl(totalKit)}</span>
+              )}
+            </div>
             <span className="text-sm text-ink/40">{open ? '▲' : '▼'}</span>
           </div>
         </button>
