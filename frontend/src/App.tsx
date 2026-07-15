@@ -13,6 +13,7 @@ import { ProductsPage } from '@/pages/ProductsPage'
 import { CatalogLoadsPage } from '@/pages/CatalogLoadsPage'
 import { UsersAdminPage } from '@/pages/UsersAdminPage'
 import { SetPasswordPage } from '@/pages/SetPasswordPage'
+import { PloomesEmbedPage } from '@/pages/PloomesEmbedPage'
 
 export function App() {
   return (
@@ -21,6 +22,7 @@ export function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route path="/embed/ploomes" element={<PloomesEmbedPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route index element={<NewProjectPage />} />
