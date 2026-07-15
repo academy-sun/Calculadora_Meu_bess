@@ -478,6 +478,9 @@ def _build_options_for_base(
 # 9. Orquestrador principal — retorna sugerido + até 2 alternativas
 # ─────────────────────────────────────────────────────────────────────────────
 
+MAX_CANDIDATOS_ARMAZENAMENTO = 20
+
+
 def build_combined_pv_storage(
     *,
     kits_storage: list[KitBESS],
@@ -497,14 +500,24 @@ def build_combined_pv_storage(
     """
     Dimensiona kit combinado FV + armazenamento. Retorna (sugerido, [alt1, alt2]).
 
-    Lógica de seleção (spec do usuário):
-    - sugerido = opção mais barata para o par de armazenamento mais barato (kits_storage[0]).
-      * Se o híbrido absorve todos os módulos no CC → "dc" (kit único integrado).
-      * Se não → "split" vs "scaled", o mais barato vira sugerido.
-    - alt1 = "a outra opção" (split vs scaled) quando ambas existem; senão, próximo
-      par de armazenamento (kits_storage[1]).
+    Lógica de seleção:
+    - Avalia os N pares de armazenamento mais baratos (não só o mais barato isolado,
+      kits_storage[0]) porque o par mais barato PARA BACKUP pode ter um híbrido cuja
+      janela de tensão/MPPT não aceita os módulos FV escolhidos. Nesse caso o
+      "caminho split" força um inversor string quase do tamanho do sistema inteiro
+      (ex.: híbrido de 6kW que não recebe nenhum módulo + string de ~6kW cobrindo
+      100% do FV, para um alvo de 8,5 kWp — dois inversores redundantes). Ao
+      considerar mais candidatos, o sugerido passa a ser a combinação
+      (armazenamento × caminho FV) de MENOR CUSTO TOTAL dentre todos, o que
+      naturalmente prefere um híbrido cuja entrada CC realmente aproveita parte do
+      FV (reduzindo — ou eliminando — o inversor string) sempre que isso for mais
+      barato do que pagar por dois inversores de porte pleno.
+    - sugerido = combinação mais barata dentre os N candidatos avaliados.
+    - alt1 = a próxima opção mais barata que usa um caminho OU par de armazenamento
+      diferente do sugerido (evita repetir a mesma composição).
     - alt2 = opção mais econômica considerando REDUÇÃO de cobertura de energia
-      (economic_undershoot_kit sobre o lado do armazenamento, mesmo kWp alvo de FV).
+      (economic_undershoot_kit sobre TODOS os pares de armazenamento, mesmo kWp
+      alvo de FV) — independente de qual par foi escolhido como sugerido.
     """
     if not kits_storage:
         return None, []
@@ -513,27 +526,28 @@ def build_combined_pv_storage(
     if mod is None:
         return None, []
 
-    base = kits_storage[0]
-    opcoes_base = _build_options_for_base(
-        base, qty_modulos, mod, kwp_alvo, fixing_type,
-        cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
-    )
-    if not opcoes_base:
-        return None, []
-
-    sugerido = opcoes_base[0]
-    alternativas: list[CombinedOption] = []
-
-    # alt1 — "a outra opção" de caminho (split vs scaled) ou próximo par de armazenamento
-    if len(opcoes_base) > 1:
-        alternativas.append(opcoes_base[1])   # o outro caminho (split vs scaled)
-    elif len(kits_storage) > 1:
-        alt_base = _build_options_for_base(
-            kits_storage[1], qty_modulos, mod, kwp_alvo, fixing_type,
+    candidatos = kits_storage[:MAX_CANDIDATOS_ARMAZENAMENTO]
+    todas_opcoes: list[CombinedOption] = []
+    for base in candidatos:
+        todas_opcoes += _build_options_for_base(
+            base, qty_modulos, mod, kwp_alvo, fixing_type,
             cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
         )
-        if alt_base:
-            alternativas.append(alt_base[0])
+    if not todas_opcoes:
+        return None, []
+
+    todas_opcoes.sort(key=lambda o: o.preco_total)
+    sugerido = todas_opcoes[0]
+
+    alternativas: list[CombinedOption] = []
+    for opt in todas_opcoes[1:]:
+        composicao_diferente = (
+            opt.rotulo_caminho != sugerido.rotulo_caminho
+            or opt.kit_storage is not sugerido.kit_storage
+        )
+        if composicao_diferente:
+            alternativas.append(opt)
+            break
 
     # alt2 — econômica: reduz baterias, mantém mesmo kWp FV
     eco_base = economic_undershoot_kit(kits_storage, e_bat_kwh, jbw_produtos)
