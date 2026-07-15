@@ -77,7 +77,12 @@ export function Layout() {
         <div className="border-t border-white/10 pt-3">
           <div className="px-3 py-2">
             <p className="truncate text-xs text-white">{displayName}</p>
-            <p className="text-xs text-slate-400">{isAdmin ? 'Admin' : 'Engenheiro'}</p>
+            <p className="text-xs text-slate-400">
+              {(() => {
+                const r = (user?.user_metadata?.role as string) ?? 'integrador'
+                return r === 'admin' ? 'Admin' : r === 'consultor' ? 'Consultor' : 'Integrador'
+              })()}
+            </p>
           </div>
           <button
             onClick={handleSignOut}

@@ -152,7 +152,14 @@ export interface MeuBESSProduct {
   last_synced_at: string
 }
 
-export type PerfilUsuario = 'customer' | 'consultor' | 'admin'
+export type PerfilUsuario = 'integrador' | 'consultor' | 'admin'
+
+export interface FreteInfo {
+  uf: string
+  valor: number
+  percentual: number
+  valor_minimo: number
+}
 
 export interface ProductFilters {
   tipo?: string
@@ -324,6 +331,7 @@ export interface CalculateResponse {
   alternativas: KitInfo[]
   solar_dimensionamento?: SolarDimensionamento | null
   kwp_alvo?: number
+  frete?: FreteInfo | null
 }
 
 // ── Salvar cotação (persistência sob demanda) ──────────────────────────────────

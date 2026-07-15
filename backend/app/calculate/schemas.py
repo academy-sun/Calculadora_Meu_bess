@@ -49,9 +49,12 @@ class LoadItem(BaseModel):
 class CalculateRequest(BaseModel):
     origem_info: OrigemInfo
     tipo_calculo: Literal["backup", "backup_direto", "peak_shaving", "arbitragem", "solar", "solar_storage"]
-    # Perfil do usuário na MeuBESS — controla quais produtos entram no kit
-    # customer → só kit_ftv; consultor → +only_whs; admin → +only_admins (default)
-    perfil_usuario: Literal["customer", "consultor", "admin"] = "admin"
+    # Perfil do usuário — controla quais produtos entram no kit (espelho da alçada MeuBESS)
+    # integrador → kit_ftv; consultor → +only_whs; admin → +only_admins (default)
+    perfil_usuario: Literal["integrador", "consultor", "admin"] = "admin"
+
+    # UF de entrega (opcional) — usado para estimar frete CIF via ShippingRange
+    uf_entrega: Optional[str] = None
 
     # ── Backup ────────────────────────────────────────────────────────────────
     cargas_backup: Optional[list[BackupLoadRow]] = None
@@ -183,6 +186,8 @@ class CalculateResponse(BaseModel):
     alternativas: list[KitInfo] = []
 
     solar_dimensionamento: Optional[SolarDimensionamento] = None
+
+    frete: Optional[dict] = None   # FreteInfo: {uf, valor, percentual, valor_minimo}
 
 
 # ── Salvar cotação (persistência sob demanda, só quando o usuário escolhe um kit) ──

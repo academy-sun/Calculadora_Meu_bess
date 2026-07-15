@@ -15,7 +15,9 @@ interface AuthUser {
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
-  engineer: 'Engenheiro',
+  consultor: 'Consultor',
+  integrador: 'Integrador',
+  engineer: 'Integrador',  // alias legado
 }
 
 function formatDate(iso?: string) {
@@ -26,7 +28,7 @@ function formatDate(iso?: string) {
 export function UsersAdminPage() {
   const qc = useQueryClient()
   const [showInvite, setShowInvite] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ email: '', nome: '', role: 'engineer' })
+  const [inviteForm, setInviteForm] = useState({ email: '', nome: '', role: 'integrador' })
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState(false)
 
@@ -71,8 +73,11 @@ export function UsersAdminPage() {
   }
 
   function toggleRole(user: AuthUser) {
-    const current = user.user_metadata?.role ?? 'engineer'
-    const next = current === 'admin' ? 'engineer' : 'admin'
+    const current = user.user_metadata?.role ?? 'integrador'
+    const next =
+      current === 'admin' ? 'integrador'
+      : current === 'consultor' ? 'admin'
+      : 'consultor'
     roleMutation.mutate({ id: user.id, role: next })
   }
 
@@ -136,8 +141,9 @@ export function UsersAdminPage() {
                     onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                   >
-                    <option value="engineer">Engenheiro</option>
-                    <option value="admin">Admin</option>
+                    <option value="integrador">Integrador — vê apenas kit_ftv</option>
+                    <option value="consultor">Consultor — vê kit_ftv + only_whs</option>
+                    <option value="admin">Admin — acesso completo</option>
                   </select>
                 </div>
                 {inviteError && (
@@ -216,10 +222,10 @@ export function UsersAdminPage() {
                         <button
                           onClick={() => toggleRole(u)}
                           disabled={roleMutation.isPending}
-                          title={role === 'admin' ? 'Rebaixar para Engenheiro' : 'Promover a Admin'}
+                          title="Alternar papel (integrador → consultor → admin → integrador)"
                           className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40"
                         >
-                          {role === 'admin' ? 'Rebaixar' : 'Tornar admin'}
+                          {role === 'admin' ? '→ Integrador' : role === 'consultor' ? '→ Admin' : '→ Consultor'}
                         </button>
                         <button
                           onClick={() => confirmDelete(u)}

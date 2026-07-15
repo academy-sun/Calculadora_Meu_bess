@@ -12,10 +12,14 @@ from app.catalog.schemas import (
 
 # Hierarquia de permissão MeuBESS (replicada de ModuleCalc.php / InverterCalc.php)
 # customer → só kit_ftv; consultor (wallet) → +only_whs; admin → +only_admins
+# Hierarquia MeuBESS: integrador (kit_ftv) < consultor (+only_whs) < admin (+only_admins)
+# "engineer" e "customer" mantidos como alias de "integrador" para retrocompatibilidade
 _ALLOWED_VIEWS: dict[str, list[str]] = {
-    "customer":  ["kit_ftv"],
-    "consultor": ["kit_ftv", "only_whs"],
-    "admin":     ["kit_ftv", "only_whs", "only_admins"],
+    "integrador": ["kit_ftv"],
+    "engineer":   ["kit_ftv"],   # alias — papel padrão Supabase antes do renomeio
+    "customer":   ["kit_ftv"],   # alias — legado Ploomes
+    "consultor":  ["kit_ftv", "only_whs"],
+    "admin":      ["kit_ftv", "only_whs", "only_admins"],
 }
 
 

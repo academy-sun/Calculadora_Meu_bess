@@ -21,7 +21,13 @@ export function useAuth() {
   const role = (user?.user_metadata?.role as string) ?? 'engineer'
   const isAdmin = role === 'admin'
 
+  // Mapeamento de papel Supabase → perfil_usuario da calculadora
+  const perfil: 'integrador' | 'consultor' | 'admin' =
+    role === 'admin' ? 'admin'
+    : role === 'consultor' ? 'consultor'
+    : 'integrador'
+
   const signOut = () => supabase.auth.signOut()
 
-  return { session, user, loading, isAdmin, signOut }
+  return { session, user, loading, isAdmin, perfil, signOut }
 }

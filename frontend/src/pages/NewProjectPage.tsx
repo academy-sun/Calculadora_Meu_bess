@@ -10,7 +10,7 @@ import { KitResult } from '@/components/KitResult'
 import { SaveQuoteDialog } from '@/components/SaveQuoteDialog'
 import { useCalculate, useProject, useSaveQuote, useUpdateQuote } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
-import type { CalculateResponse, KitInfo, KitItem } from '@/types'
+import type { CalculateResponse, FreteInfo, KitInfo, KitItem } from '@/types'
 
 type TipoCalculo = 'backup' | 'arbitragem'
 
@@ -40,8 +40,21 @@ type BackupRow = {
   fase: string
 }
 
+function FreteCard({ frete }: { frete: FreteInfo }) {
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm">
+      <div>
+        <span className="font-semibold text-blue-700">Frete CIF estimado — {frete.uf}</span>
+        <span className="ml-2 text-blue-500 text-xs">({(frete.percentual * 100).toFixed(1)}% · mín. {brl(frete.valor_minimo)})</span>
+      </div>
+      <span className="font-mono font-bold text-blue-700">{brl(frete.valor)}</span>
+    </div>
+  )
+}
+
 export function NewProjectPage() {
-  const { user } = useAuth()
+  const { user, perfil } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('editId')
@@ -141,6 +154,7 @@ export function NewProjectPage() {
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
   const [cidadeLabel, setCidadeLabel] = useState('')
+  const [ufEntrega, setUfEntrega] = useState('')
   const [showAddLoad, setShowAddLoad] = useState(false)
 
   // Potência FV auto-calculada (consumo ÷ (30 × HSP × PR)) enquanto o usuário não edita à mão
@@ -196,7 +210,8 @@ export function NewProjectPage() {
         solicitado_em: new Date().toISOString(),
       },
       tipo_calculo: tipo,
-      perfil_usuario: 'admin',   // Aceleradora opera como admin na MeuBESS
+      perfil_usuario: perfil,
+      uf_entrega: ufEntrega || undefined,
     }
 
     if (tipo === 'backup') {
@@ -550,6 +565,23 @@ export function NewProjectPage() {
             </>
           )}
 
+          {/* UF de entrega — opcional, para estimativa de frete */}
+          <div className="rounded-xl border border-ink/10 bg-white/60 p-4">
+            <label className="mb-1.5 block text-xs font-semibold text-ink/60">
+              Estado de entrega <span className="font-normal text-ink/40">(opcional — para estimar frete CIF)</span>
+            </label>
+            <select
+              value={ufEntrega}
+              onChange={e => setUfEntrega(e.target.value)}
+              className="w-full rounded-xl border border-ink/15 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="">Sem estimativa de frete</option>
+              {['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(uf => (
+                <option key={uf} value={uf}>{uf}</option>
+              ))}
+            </select>
+          </div>
+
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
           {(() => {
@@ -584,6 +616,7 @@ export function NewProjectPage() {
           result.kit_selecionado ? (
             <div className="mt-8 space-y-3">
               <h2 className="font-display text-xl font-bold tracking-tight text-ink">Opções de kit</h2>
+              {result.frete && <FreteCard frete={result.frete as FreteInfo} />}
               <KitResult
                 kit={result.kit_selecionado}
                 itens={itensSugerido}
