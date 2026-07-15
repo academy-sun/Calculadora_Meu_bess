@@ -176,8 +176,14 @@ export function NewProjectPage() {
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
   const [cidadeLabel, setCidadeLabel] = useState('')
+  const [cidadeUf, setCidadeUf] = useState('')
   const [ufEntrega, setUfEntrega] = useState('')
   const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(null)
+
+  function handleTipoFrete(t: TipoFrete) {
+    setTipoFrete(t)
+    if (t === 'cif' && !ufEntrega && cidadeUf) setUfEntrega(cidadeUf)
+  }
   const [showAddLoad, setShowAddLoad] = useState(false)
 
   // Potência FV auto-calculada (consumo ÷ (30 × HSP × PR)) enquanto o usuário não edita à mão
@@ -360,7 +366,12 @@ export function NewProjectPage() {
                     <label className="mb-1 block text-xs font-semibold text-ink/60">Cidade (HSP)</label>
                     <CityCombobox
                       value={cidadeLabel}
-                      onSelect={city => { setHspMedia(city.hsp); setCidadeLabel(`${city.nome} - ${city.sigla}`) }}
+                      onSelect={city => {
+                        setHspMedia(city.hsp)
+                        setCidadeLabel(`${city.nome} - ${city.sigla}`)
+                        setCidadeUf(city.sigla)
+                        if (tipoFrete === 'cif' && !ufEntrega) setUfEntrega(city.sigla)
+                      }}
                       placeholder="Buscar cidade..."
                     />
                     {hspMedia && <p className="mt-1 text-[11px] text-ink/40">HSP média: {hspMedia} kWh/m²/dia</p>}
@@ -592,7 +603,7 @@ export function NewProjectPage() {
           {/* ── SEÇÃO: Localização e Frete (obrigatório) ─────────────────── */}
           <FreightSection
             tipoFrete={tipoFrete}
-            onTipoFrete={setTipoFrete}
+            onTipoFrete={handleTipoFrete}
             ufEntrega={ufEntrega}
             onUfEntrega={setUfEntrega}
           />
