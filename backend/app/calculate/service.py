@@ -21,7 +21,7 @@ from app.engines.schemas import (
     PeakShavingResult, SolarResult,
     SolarStringsInput,
 )
-from app.engines.shipping import calcular_frete
+from app.engines.shipping import calcular_frete, calcular_frete_fob
 from app.engines.solar_strings import size_solar_strings
 
 
@@ -433,10 +433,12 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
     calculado_em = datetime.now(timezone.utc)
 
-    # Frete CIF estimado por estado (espelho de ShippingCalc::calculateByRange)
     frete_info = None
-    if req.uf_entrega and kit_selecionado:
-        frete_info = calcular_frete(req.uf_entrega, kit_selecionado.preco_total)
+    if kit_selecionado:
+        if req.tipo_frete == "fob":
+            frete_info = calcular_frete_fob(kit_selecionado.preco_total)
+        elif req.tipo_frete == "cif" and req.uf_entrega:
+            frete_info = calcular_frete(req.uf_entrega, kit_selecionado.preco_total)
 
     # Integração com Ploomes (Sync Automático) — apenas notifica, não persiste mais
     # (o Project só é criado quando o usuário escolhe um kit, via POST /projects)

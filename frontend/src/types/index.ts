@@ -154,8 +154,11 @@ export interface MeuBESSProduct {
 
 export type PerfilUsuario = 'integrador' | 'consultor' | 'admin'
 
+export type TipoFrete = 'cif' | 'fob'
+
 export interface FreteInfo {
-  uf: string
+  tipo: TipoFrete
+  uf: string | null
   valor: number
   percentual: number
   valor_minimo: number

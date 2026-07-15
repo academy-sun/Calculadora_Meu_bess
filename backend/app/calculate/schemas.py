@@ -53,8 +53,10 @@ class CalculateRequest(BaseModel):
     # integrador → kit_ftv; consultor → +only_whs; admin → +only_admins (default)
     perfil_usuario: Literal["integrador", "consultor", "admin"] = "admin"
 
-    # UF de entrega (opcional) — usado para estimar frete CIF via ShippingRange
-    uf_entrega: Optional[str] = None
+    # Frete: tipo obrigatório no frontend; backend aceita None para não calcular
+    # (integração Ploomes envia sem tipo_frete → sem frete)
+    tipo_frete: Optional[Literal["cif", "fob"]] = None
+    uf_entrega: Optional[str] = None  # obrigatório quando tipo_frete="cif"
 
     # ── Backup ────────────────────────────────────────────────────────────────
     cargas_backup: Optional[list[BackupLoadRow]] = None

@@ -52,12 +52,6 @@ def _bracket_index(valor: float) -> int:
 
 
 def calcular_frete(uf: str, valor_kit: float) -> dict | None:
-    """
-    Retorna o custo estimado de frete CIF para o estado `uf` com base no valor
-    total do kit, replicando a lógica de ShippingCalc::calculateByRange().
-
-    Retorna None se o UF não for encontrado na tabela.
-    """
     uf = uf.upper().strip()
     if uf not in _RATES:
         return None
@@ -69,8 +63,26 @@ def calcular_frete(uf: str, valor_kit: float) -> dict | None:
     valor_final = max(valor_bruto, custo_minimo)
 
     return {
+        "tipo": "cif",
         "uf": uf,
         "valor": round(valor_final, 2),
         "percentual": percentual,
         "valor_minimo": custo_minimo,
+    }
+
+
+# Taxa de transporte WEG → CD da distribuidora (espelho de calculateFob com fob_whs_kwp_amount=R$20/kWp,
+# adaptado para BESS onde a unidade é kWh de capacidade ao invés de kWp FV).
+# Usamos 1% do valor do kit, que é equivalente para os valores típicos de kits BESS.
+_FOB_PERCENTUAL = 0.01
+
+
+def calcular_frete_fob(valor_kit: float) -> dict:
+    valor = round(valor_kit * _FOB_PERCENTUAL, 2)
+    return {
+        "tipo": "fob",
+        "uf": None,
+        "valor": valor,
+        "percentual": _FOB_PERCENTUAL,
+        "valor_minimo": 0,
     }
