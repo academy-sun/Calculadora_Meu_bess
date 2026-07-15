@@ -73,6 +73,7 @@ def require_admin(user: UserInToken = Depends(get_current_user)) -> UserInToken:
 
 
 def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
-    if not api_key or api_key != settings.api_key_ploomes:
+    valid_keys = {k for k in (settings.api_key_ploomes, settings.api_key_embed) if k}
+    if not api_key or api_key not in valid_keys:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key inválida")
     return api_key
