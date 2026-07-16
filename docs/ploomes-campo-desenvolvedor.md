@@ -76,7 +76,8 @@ Crie um campo do tipo **Desenvolvedor** no formulário do Negócio com o conteú
 
   // ── Escuta o retorno da nossa página ───────────────────────────────
   window.addEventListener('message', function (e) {
-    if (!e.data || e.data.type !== 'meubess:test') return;
+    // 'meubess:test' = spike; 'meubess:saved' = fluxo real (kit enviado à proposta)
+    if (!e.data || (e.data.type !== 'meubess:test' && e.data.type !== 'meubess:saved')) return;
     log('postMessage RECEBIDO', JSON.stringify(e.data));
 
     // ACK de volta para a página embed (prova de canal bidirecional)

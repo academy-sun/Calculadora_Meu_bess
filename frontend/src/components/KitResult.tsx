@@ -55,11 +55,13 @@ interface KitResultProps {
   defaultOpen?: boolean
   onEscolher?: () => void
   escolhendo?: boolean
+  escolherLabel?: string
 }
 
 export function KitResult({
   kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, kwpInstalado, solar,
   frete, editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
+  escolherLabel = 'Escolher este kit',
 }: KitResultProps) {
   const [showPicker, setShowPicker] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
@@ -181,7 +183,7 @@ export function KitResult({
       {onEscolher && (
         <button onClick={onEscolher} disabled={escolhendo}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:opacity-50">
-          <CheckCircle2 size={17} /> {escolhendo ? 'Salvando…' : 'Escolher este kit'}
+          <CheckCircle2 size={17} /> {escolhendo ? 'Salvando…' : escolherLabel}
         </button>
       )}
 

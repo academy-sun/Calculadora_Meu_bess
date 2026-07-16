@@ -21,6 +21,8 @@ type Props = {
   defaultTensao: string
   onInsert: (row: LoadRowInput) => void
   onClose: () => void
+  /** Gravar carga nova no catálogo (exige login). false no embed Ploomes. */
+  persistNew?: boolean
 }
 
 const EMPTY = {
@@ -29,7 +31,7 @@ const EMPTY = {
   fase: 'monofasico', qtd: '1',
 }
 
-export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props) {
+export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose, persistNew = true }: Props) {
   const createLoad = useCreateLoad()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(true)
@@ -97,7 +99,7 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props
       fase: f.fase,
     }
     try {
-      if (isNova) {
+      if (isNova && persistNew) {
         await createLoad.mutateAsync({
           nome: row.nome, categoria: row.categoria || 'Geral',
           potencia_w: row.pnom_w, fator_potencia: row.fp, fator_demanda: row.fd,
@@ -141,7 +143,7 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose }: Props
               ))}
             </div>
           )}
-          {isNova && f.nome.trim() && (
+          {isNova && persistNew && f.nome.trim() && (
             <p className="mt-1 text-xs text-amber-600">Nova carga — será adicionada ao catálogo.</p>
           )}
         </div>

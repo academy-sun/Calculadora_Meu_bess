@@ -13,8 +13,9 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+export async function apiGet<T>(path: string, useApiKey = false): Promise<T> {
   const headers = await getAuthHeaders()
+  if (useApiKey) headers['X-API-Key'] = API_KEY
   const res = await fetch(`${API_URL}${path}`, { headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as { detail?: string }
