@@ -1,7 +1,10 @@
 # API MeuBESS — Documentação Completa
 
-> **Base URL (produção):** `https://<seu-app>.up.railway.app`  
-> Substitua pelo domínio atual do Railway antes de usar.
+> **Base URL (produção):** `https://calculadorameubess-production.up.railway.app`
+
+> ⚠️ **Integração com o Ploomes:** o fluxo de fórmula integrada descrito aqui é
+> **legado**. A integração atual (embed via campo desenvolvedor + write-back)
+> está documentada em [integracao-ploomes-v2.md](integracao-ploomes-v2.md).
 
 ---
 
