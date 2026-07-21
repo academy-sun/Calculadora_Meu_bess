@@ -1,0 +1,3 @@
+# MCP local config — contém credenciais, nunca deve ser commitado
+.mcp.json
+.scratch/

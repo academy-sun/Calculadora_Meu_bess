@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { apiGet, apiPost } from '@/lib/api'
+import { Plus, CheckCircle2 } from 'lucide-react'
 import { useCalculate } from '@/hooks/useProjects'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
@@ -12,102 +11,65 @@ import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '
 /**
  * Página embed para o campo desenvolvedor do Ploomes.
  *
- *   Ploomes → campo desenvolvedor (sandbox) → <iframe src=".../embed/ploomes?deal_id=123">
+ *   Ploomes (formulário da proposta) → campo desenvolvedor (script bridge)
+ *     → <iframe src=".../embed/ploomes?kwp=8.5&uf=PR&fixing_type=tile_ceramic">
  *
- * Sem login Supabase (iframe de terceiro bloqueia cookies/storage) — todas as
- * chamadas usam a API key embutida no build (X-API-Key).
+ * O bridge lê os campos já preenchidos na proposta (Potência adequada, Cidade,
+ * Estrutura) via PloomesDocument e passa os valores por query string — nada de
+ * API/deal_id aqui, o formulário pode nem estar salvo ainda.
  *
- * Fluxo: contexto do negócio (kWp/cidade/UF/estrutura) → cargas de backup +
- * frete → /calculate → kit mais barato → "Enviar para proposta" → /ploomes/pushback
- * (campos + itens no orçamento) → postMessage para o campo desenvolvedor.
+ * Sem login Supabase (iframe de terceiro bloqueia cookies/storage) — a chamada
+ * a /calculate usa a API key embutida no build (X-API-Key).
+ *
+ * Ao escolher um kit, a página NÃO grava nada no Ploomes diretamente — ela só
+ * envia `postMessage({type:'meubess:saved', ...})` para o campo desenvolvedor,
+ * que escreve nos campos da proposta via PloomesDocument (setAttribute +
+ * dispatchEvent), em tempo real, antes de qualquer salvamento.
  */
-
-interface DealContext {
-  deal_id: number
-  titulo?: string | null
-  powerpeak_kwp?: number | null
-  cidade?: string | null
-  uf?: string | null
-  fixing_type?: string | null
-  field_map_configurado: boolean
-  raw_fields: { field_key: string; valor: unknown }[]
-}
-
-interface PushbackReport {
-  campos: { ok: boolean; detalhe?: string | null }
-  produtos: { ok: boolean; detalhe?: string | null; itens: { nome: string; ok: boolean; erro?: string }[] }
-  comentario: { ok: boolean }
-}
 
 type BackupRow = LoadRowInput & { id: string }
 
-const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-
 export function PloomesEmbedPage() {
   const [searchParams] = useSearchParams()
-  const dealIdRaw = searchParams.get('deal_id')
-  const dealId = dealIdRaw && /^\d+$/.test(dealIdRaw) ? parseInt(dealIdRaw, 10) : null
+  const kwpParam = searchParams.get('kwp')
+  const ufParam = searchParams.get('uf')
+  const fixingTypeParam = searchParams.get('fixing_type')
   const perfil = searchParams.get('perfil') ?? 'consultor'
 
   const { mutateAsync: calcular, isPending: calculando } = useCalculate()
 
-  // ── Contexto do negócio ─────────────────────────────────────────────────────
-  const [ctx, setCtx] = useState<DealContext | null>(null)
-  const [ctxError, setCtxError] = useState<string | null>(null)
-  const [ctxLoading, setCtxLoading] = useState(true)
-
-  // ── Formulário ──────────────────────────────────────────────────────────────
-  const [kwp, setKwp] = useState('')
-  const [fixingType, setFixingType] = useState('')
+  // ── Formulário (pré-preenchido pelo bridge via query string) ────────────────
+  const [kwp, setKwp] = useState(kwpParam ?? '')
+  const [fixingType, setFixingType] = useState(fixingTypeParam ?? '')
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const [autonomia, setAutonomia] = useState('1')
   const [rows, setRows] = useState<BackupRow[]>([])
   const [showAddLoad, setShowAddLoad] = useState(false)
-  const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(null)
-  const [ufEntrega, setUfEntrega] = useState('')
+  const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(ufParam ? 'cif' : null)
+  const [ufEntrega, setUfEntrega] = useState(ufParam ?? '')
 
   // ── Resultado / envio ───────────────────────────────────────────────────────
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [enviando, setEnviando] = useState(false)
-  const [report, setReport] = useState<PushbackReport | null>(null)
-
-  useEffect(() => {
-    if (dealId == null) {
-      setCtxError('deal_id ausente ou inválido na URL do iframe')
-      setCtxLoading(false)
-      return
-    }
-    apiGet<DealContext>(`/ploomes/context/${dealId}`, true)
-      .then(c => {
-        setCtx(c)
-        if (c.powerpeak_kwp) setKwp(String(c.powerpeak_kwp))
-        if (c.fixing_type) setFixingType(String(c.fixing_type))
-        if (c.uf) { setTipoFrete('cif'); setUfEntrega(String(c.uf).toUpperCase()) }
-      })
-      .catch(e => setCtxError(e instanceof Error ? e.message : 'Erro ao carregar contexto'))
-      .finally(() => setCtxLoading(false))
-  }, [dealId])
+  const [enviado, setEnviado] = useState(false)
 
   const tipoInstalacao: 'monofasico' | 'trifasico' =
     padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
 
   function handleTipoFrete(t: TipoFrete) {
     setTipoFrete(t)
-    if (t === 'cif' && !ufEntrega && ctx?.uf) setUfEntrega(String(ctx.uf).toUpperCase())
+    if (t === 'cif' && !ufEntrega && ufParam) setUfEntrega(ufParam)
   }
 
   async function handleCalcular() {
     setError(null)
     setResult(null)
-    setReport(null)
+    setEnviado(false)
     const kwpNum = parseFloat(kwp)
     const payload: Record<string, unknown> = {
       origem_info: {
         origem: 'ploomes',
-        // negocio_id omitido de propósito: o comentário no negócio é postado só
-        // no pushback (senão cada clique em "Buscar kits" geraria um comentário)
-        solicitante_id: `ploomes-embed-${dealId}`,
+        solicitante_id: 'ploomes-embed',
         solicitante_nome: 'Ploomes (embed)',
         solicitado_em: new Date().toISOString(),
       },
@@ -136,64 +98,34 @@ export function PloomesEmbedPage() {
     }
   }
 
-  async function enviarParaProposta(kit: KitInfo) {
-    if (dealId == null) return
-    setEnviando(true)
-    setError(null)
-    try {
-      const itens: KitItem[] = kit.itens ?? []
-      const kitPreco = itens.length > 0
-        ? itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
-        : kit.preco_total
-      const frete = result?.frete
-        ? estimarFreteParaPreco(result.frete as FreteInfo, kitPreco)
-        : null
-      const freteDescricao = frete
-        ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
-        : null
+  function aplicarNaProposta(kit: KitInfo) {
+    const itens: KitItem[] = kit.itens ?? []
+    const kitPreco = itens.length > 0
+      ? itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
+      : kit.preco_total
+    const frete = result?.frete
+      ? estimarFreteParaPreco(result.frete as FreteInfo, kitPreco)
+      : null
+    const freteDescricao = frete
+      ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
+      : null
+    const itensTexto = itens
+      .map(it => `${it.qtd}× ${it.nome} — ${it.preco_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`)
+      .join(' | ')
 
-      const rep = await apiPost<PushbackReport>('/ploomes/pushback', {
-        deal_id: dealId,
-        kit_descricao: `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`,
-        kit_preco: kitPreco,
-        frete_valor: frete?.valor ?? null,
-        frete_descricao: freteDescricao,
-        total_geral: kitPreco + (frete?.valor ?? 0),
-        itens: itens.map(it => ({
-          nome: it.nome, qtd: it.qtd, preco_unitario: it.preco_unitario,
-        })),
-      }, true)
-      setReport(rep)
-      window.parent.postMessage({
-        type: 'meubess:saved',
-        deal_id: dealId,
-        kit_preco: kitPreco,
-        frete_valor: frete?.valor ?? null,
-        total_geral: kitPreco + (frete?.valor ?? 0),
-      }, '*')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao enviar para o Ploomes')
-    } finally {
-      setEnviando(false)
-    }
+    window.parent.postMessage({
+      type: 'meubess:saved',
+      kit_descricao: `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`,
+      kit_preco: kitPreco,
+      frete_valor: frete?.valor ?? null,
+      frete_descricao: freteDescricao,
+      total_geral: kitPreco + (frete?.valor ?? 0),
+      itens_texto: itensTexto,
+    }, '*')
+    setEnviado(true)
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
-
-  if (ctxLoading) {
-    return <div className="p-6 text-sm text-gray-500 animate-pulse">Carregando negócio…</div>
-  }
-
-  if (ctxError) {
-    return (
-      <div className="p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="font-semibold">Não foi possível carregar o negócio</p>
-          <p className="mt-1">{ctxError}</p>
-        </div>
-      </div>
-    )
-  }
 
   const freteOk = tipoFrete === 'fob' || (tipoFrete === 'cif' && ufEntrega !== '')
   const temDados = parseFloat(kwp) > 0 || rows.length > 0
@@ -201,35 +133,13 @@ export function PloomesEmbedPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 bg-paper p-4">
-      {/* Cabeçalho */}
-      <div className="rounded-2xl border border-ink/10 bg-white px-5 py-4 shadow-card">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="font-display text-lg font-bold text-ink">Dimensionamento MeuBESS</h1>
-            <p className="text-xs text-ink/50">
-              {ctx?.titulo ?? `Negócio #${dealId}`}
-              {ctx?.cidade && <> · {ctx.cidade}{ctx.uf ? ` - ${ctx.uf}` : ''}</>}
-            </p>
-          </div>
-          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-primary">
-            #{dealId}
-          </span>
-        </div>
-        {ctx && !ctx.field_map_configurado && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
-            ⚠ PLOOMES_FIELD_MAP não configurado no backend — prefill de kWp/estrutura e
-            campos resumo do pushback ficam inativos.
-          </p>
-        )}
-      </div>
-
       {/* Sistema FV */}
       <div className="rounded-2xl border border-ink/10 bg-white px-5 py-4 shadow-card">
         <p className="mb-3 font-display text-base font-bold text-ink">☀️ Sistema fotovoltaico</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-semibold text-ink/60">
-              Potência FV (kWp) {ctx?.powerpeak_kwp ? <span className="font-normal text-ink/40">— do Ploomes</span> : null}
+              Potência FV (kWp) {kwpParam ? <span className="font-normal text-ink/40">— da proposta</span> : null}
             </label>
             <input type="number" step="0.01" min={0} value={kwp}
               onChange={e => setKwp(e.target.value)}
@@ -237,7 +147,9 @@ export function PloomesEmbedPage() {
               className="w-full rounded-xl border border-ink/15 px-3 py-2 font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-ink/60">Tipo de estrutura</label>
+            <label className="mb-1 block text-xs font-semibold text-ink/60">
+              Tipo de estrutura {fixingTypeParam ? <span className="font-normal text-ink/40">— da proposta</span> : null}
+            </label>
             <select value={fixingType} onChange={e => setFixingType(e.target.value)}
               className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none">
               <option value="">Selecionar (opcional)</option>
@@ -352,10 +264,15 @@ export function PloomesEmbedPage() {
       </button>
 
       {/* Resultado */}
-      {result && !report && (
+      {result && (
         result.kit_selecionado ? (
           <div className="space-y-3">
             <h2 className="font-display text-lg font-bold text-ink">Opções de kit</h2>
+            {enviado && (
+              <p className="flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                <CheckCircle2 size={16} /> Kit aplicado à proposta — confira os campos no formulário.
+              </p>
+            )}
             <KitResult
               kit={result.kit_selecionado}
               itens={result.kit_selecionado.itens ?? []}
@@ -367,9 +284,8 @@ export function PloomesEmbedPage() {
               frete={result.frete as FreteInfo | null | undefined}
               editable={false}
               collapsible defaultOpen
-              onEscolher={() => enviarParaProposta(result.kit_selecionado!)}
-              escolhendo={enviando}
-              escolherLabel="Enviar para proposta"
+              onEscolher={() => aplicarNaProposta(result.kit_selecionado!)}
+              escolherLabel="Aplicar à proposta"
             />
             {result.alternativas.map((alt, i) => (
               <KitResult
@@ -383,9 +299,8 @@ export function PloomesEmbedPage() {
                 frete={result.frete ? estimarFreteParaPreco(result.frete as FreteInfo, alt.preco_total) : undefined}
                 editable={false}
                 collapsible defaultOpen={false}
-                onEscolher={() => enviarParaProposta(alt)}
-                escolhendo={enviando}
-                escolherLabel="Enviar para proposta"
+                onEscolher={() => aplicarNaProposta(alt)}
+                escolherLabel="Aplicar à proposta"
               />
             ))}
           </div>
@@ -395,27 +310,6 @@ export function PloomesEmbedPage() {
             <p className="mt-1 text-xs text-ink/50">Ajuste os parâmetros e busque novamente.</p>
           </div>
         )
-      )}
-
-      {/* Relatório do envio */}
-      {report && (
-        <div className="rounded-2xl border border-ink/10 bg-white px-5 py-4 shadow-card">
-          <p className="mb-3 flex items-center gap-2 font-display text-base font-bold text-ink">
-            <CheckCircle2 size={18} className="text-green-600" /> Enviado para o Ploomes
-          </p>
-          <ul className="space-y-1.5 text-sm">
-            <ReportLine ok={report.campos.ok} label="Campos resumo no negócio" detalhe={report.campos.detalhe} />
-            <ReportLine ok={report.produtos.ok} label="Itens no orçamento" detalhe={report.produtos.detalhe} />
-            {report.produtos.itens.filter(i => !i.ok).map((i, idx) => (
-              <li key={idx} className="ml-6 text-xs text-red-600">✕ {i.nome}: {i.erro}</li>
-            ))}
-            <ReportLine ok={report.comentario.ok} label="Comentário no negócio" />
-          </ul>
-          <button type="button" onClick={() => setReport(null)}
-            className="mt-3 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
-            ← Voltar aos kits
-          </button>
-        </div>
       )}
 
       {showAddLoad && (
@@ -428,18 +322,5 @@ export function PloomesEmbedPage() {
         />
       )}
     </div>
-  )
-}
-
-function ReportLine({ ok, label, detalhe }: { ok: boolean; label: string; detalhe?: string | null }) {
-  return (
-    <li className="flex items-start gap-2">
-      {ok
-        ? <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-green-600" />
-        : <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-500" />}
-      <span className={ok ? 'text-ink/80' : 'text-amber-700'}>
-        {label}{detalhe ? <span className="text-xs text-ink/50"> — {detalhe}</span> : null}
-      </span>
-    </li>
   )
 }
