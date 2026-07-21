@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plus, CheckCircle2 } from 'lucide-react'
 import { useCalculate } from '@/hooks/useProjects'
@@ -30,6 +30,11 @@ import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '
 
 type BackupRow = LoadRowInput & { id: string }
 
+// Mesmas fórmulas da tabela de cargas do NewProjectPage (paridade visual)
+const rowPn = (r: BackupRow) => (r.qtd * r.pnom_w) / (r.fp || 1) / 1000
+const rowPp = (r: BackupRow) => rowPn(r) * (r.ip_in || 1)
+const rowE = (r: BackupRow) => (r.qtd * r.pnom_w * r.tdia_h) / 1000
+
 export function PloomesEmbedPage() {
   const [searchParams] = useSearchParams()
   const kwpParam = searchParams.get('kwp')
@@ -54,6 +59,29 @@ export function PloomesEmbedPage() {
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [enviado, setEnviado] = useState(false)
+  const [contextoRecebido, setContextoRecebido] = useState(false)
+
+  // Canal com o campo desenvolvedor: o bridge envia 'ploomes:context' com os
+  // valores ATUAIS da proposta (no load e sempre que o consultor clicar em
+  // "Puxar valores da proposta") — atualiza o formulário sem recarregar o
+  // iframe, preservando as cargas já digitadas.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      const d = e.data
+      if (!d || typeof d !== 'object' || d.type !== 'ploomes:context') return
+      if (d.kwp != null && d.kwp !== '') setKwp(String(d.kwp))
+      if (d.fixing_type) setFixingType(String(d.fixing_type))
+      if (d.uf) {
+        setUfEntrega(String(d.uf).toUpperCase())
+        setTipoFrete(prev => prev ?? 'cif')
+      }
+      setContextoRecebido(true)
+    }
+    window.addEventListener('message', onMessage)
+    // avisa o bridge que a página está pronta para receber o contexto
+    window.parent.postMessage({ type: 'meubess:ready' }, '*')
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   const tipoInstalacao: 'monofasico' | 'trifasico' =
     padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
@@ -102,26 +130,37 @@ export function PloomesEmbedPage() {
 
   function aplicarNaProposta(kit: KitInfo) {
     const itens: KitItem[] = kit.itens ?? []
-    const kitPreco = itens.length > 0
+    // arredonda ANTES de somar/enviar — float sujo (ex. 62822.489999999996) fazia a
+    // máscara de moeda do Ploomes interpretar os dígitos extras como milhares
+    const round2 = (v: number) => Math.round(v * 100) / 100
+    const kitPreco = round2(itens.length > 0
       ? itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
-      : kit.preco_total
+      : kit.preco_total)
     const frete = result?.frete
       ? estimarFreteParaPreco(result.frete as FreteInfo, kitPreco)
       : null
+    const freteValor = frete ? round2(frete.valor) : null
+    const totalGeral = round2(kitPreco + (freteValor ?? 0))
     const freteDescricao = frete
       ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
       : null
     const itensTexto = itens
       .map(it => `${it.qtd}× ${it.nome} — ${it.preco_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`)
       .join(' | ')
+    // string decimal com vírgula, sem milhar — formato que a máscara de moeda
+    // pt-BR do Ploomes interpreta corretamente ao ser "digitado" via script
+    const brStr = (v: number | null) => v == null ? '' : v.toFixed(2).replace('.', ',')
 
     window.parent.postMessage({
       type: 'meubess:saved',
       kit_descricao: `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`,
       kit_preco: kitPreco,
-      frete_valor: frete?.valor ?? null,
+      kit_preco_str: brStr(kitPreco),
+      frete_valor: freteValor,
+      frete_valor_str: brStr(freteValor),
       frete_descricao: freteDescricao,
-      total_geral: kitPreco + (frete?.valor ?? 0),
+      total_geral: totalGeral,
+      total_geral_str: brStr(totalGeral),
       itens_texto: itensTexto,
     }, '*')
     setEnviado(true)
@@ -137,7 +176,14 @@ export function PloomesEmbedPage() {
     <div className="mx-auto max-w-3xl space-y-4 bg-paper p-4">
       {/* Sistema FV */}
       <div className="rounded-2xl border border-ink/10 bg-white px-5 py-4 shadow-card">
-        <p className="mb-3 font-display text-base font-bold text-ink">☀️ Sistema fotovoltaico</p>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="font-display text-base font-bold text-ink">☀️ Sistema fotovoltaico</p>
+          {contextoRecebido && (
+            <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+              ✓ valores da proposta
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs font-semibold text-ink/60">
@@ -188,7 +234,7 @@ export function PloomesEmbedPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50">
                 <tr className="text-left text-gray-500">
-                  {['Equipamento','Qtd','Pot (W)','Uso (h/dia)','Tensão','IP/IN',''].map(h => (
+                  {['Equipamento','Qtd','Pot (W)','Uso (h/dia)','Tensão','IP/IN','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
                     <th key={h} className="px-2 py-2 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -202,6 +248,9 @@ export function PloomesEmbedPage() {
                     <td className="px-2 py-1.5 text-center tabular-nums">{r.tdia_h}</td>
                     <td className="px-2 py-1.5 text-center tabular-nums">{r.tensao} V</td>
                     <td className="px-2 py-1.5 text-center tabular-nums">{r.ip_in}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowPn(r).toFixed(2)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowPp(r).toFixed(2)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowE(r).toFixed(2)}</td>
                     <td className="px-2 py-1.5 text-center">
                       <button type="button" onClick={() => setRows(prev => prev.filter(x => x.id !== r.id))}
                         className="text-red-400 hover:text-red-600">✕</button>
@@ -209,6 +258,15 @@ export function PloomesEmbedPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-700">
+                  <td className="px-2 py-2 text-right" colSpan={6}>TOTAIS</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowPn(r), 0).toFixed(2)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowPp(r), 0).toFixed(2)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowE(r), 0).toFixed(2)}</td>
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           </div>
         ) : (
