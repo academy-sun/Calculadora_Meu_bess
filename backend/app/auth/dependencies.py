@@ -77,3 +77,18 @@ def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
     if not api_key or api_key not in valid_keys:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key inválida")
     return api_key
+
+
+def require_user_or_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    api_key: str | None = Security(api_key_header),
+) -> None:
+    """Endpoints de leitura só-catálogo: aceita sessão Supabase (app interno) OU
+    a API key do embed Ploomes (sem login) — mesmo nível de confiança do /calculate."""
+    valid_keys = {k for k in (settings.api_key_ploomes, settings.api_key_embed) if k}
+    if api_key and api_key in valid_keys:
+        return
+    if credentials:
+        get_current_user(credentials)
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")

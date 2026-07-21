@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plus, CheckCircle2 } from 'lucide-react'
 import { useCalculate } from '@/hooks/useProjects'
+import { useStandardLoads } from '@/hooks/useCatalog'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
@@ -37,6 +38,7 @@ export function PloomesEmbedPage() {
   const perfil = searchParams.get('perfil') ?? 'consultor'
 
   const { mutateAsync: calcular, isPending: calculando } = useCalculate()
+  const { data: loads } = useStandardLoads(true)
 
   // ── Formulário (pré-preenchido pelo bridge via query string) ────────────────
   const [kwp, setKwp] = useState(kwpParam ?? '')
@@ -314,7 +316,7 @@ export function PloomesEmbedPage() {
 
       {showAddLoad && (
         <AddLoadDialog
-          loads={[]}
+          loads={loads ?? []}
           defaultTensao={tipoInstalacao === 'trifasico' ? '380' : '220'}
           onInsert={r => setRows(prev => [...prev, { id: crypto.randomUUID(), ...r }])}
           onClose={() => setShowAddLoad(false)}

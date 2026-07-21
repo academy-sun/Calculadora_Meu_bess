@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user, require_admin
+from app.auth.dependencies import get_current_user, require_admin, require_user_or_api_key
 from app.catalog import service
 from app.catalog import sync as sync_svc
 from app.catalog.schemas import (
@@ -189,7 +189,7 @@ async def delete_solar(
 @router.get("/loads", response_model=list[StandardLoadRead])
 async def get_loads(
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_user_or_api_key),
 ):
     return await service.list_loads(db)
 

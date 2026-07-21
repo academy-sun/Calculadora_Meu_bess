@@ -1,5 +1,32 @@
 # Script do campo desenvolvedor "MeuBESS BESS — Calculadora"
 
+> **v2 — 2026-07-21.** Corrige os bugs encontrados no primeiro teste real:
+> 1. **Potência só apareceu após clicar "recarregar"** — o script lia os
+>    campos antes do Ploomes terminar de popular o formulário
+>    (assíncrono). Fix: `carregarIframe` agora faz *retry* (a cada 400ms,
+>    até 8s) esperando o campo Potência ter valor antes de montar o iframe.
+> 2. **Estrutura não mapeou** — o texto lido do campo provavelmente tinha
+>    espaços diferentes (não-quebráveis) dos que peguei via API. Fix:
+>    normalização (`normalize()`) antes de comparar com a tabela de-para,
+>    e log do valor bruto lido no console para depurar qualquer novo caso.
+> 3. **UF do frete não veio** — mesma causa do item 1 (Cidade não tinha
+>    sido lida a tempo); resolvido pelo mesmo retry.
+> 4. **Catálogo de cargas vazio** — a página embed não buscava o catálogo
+>    (endpoint exigia login). Corrigido no backend: `/catalog/loads` agora
+>    aceita a API key do embed além do login.
+> 5. **"Itens do Kit" ficou em branco; "Valor do Kit"/"Total" com milhar
+>    errado (ex. `62.822.249.999.999,99`); reaplicar um kit não
+>    sobrescreveu os campos.** Causa raiz única para os três: o Ploomes é
+>    construído em React, que não reage a `dispatchEvent` puro sobre um
+>    input controlado — o valor visualmente "gruda"/concatena em vez de
+>    substituir (o mesmo bug que a ADIAS relatou ter). Fix: `writeField`
+>    agora usa o *native value setter* (o truque padrão para escrever em
+>    inputs controlados por React) e limpa o campo antes de escrever o
+>    valor novo. Para o campo "Itens do Kit" (texto multilinha = editor
+>    rich-text no Ploomes, não um `<input>` simples), a função tenta
+>    `input` → `textarea` → `[contenteditable]` nessa ordem e loga qual
+>    encontrou, para ajustarmos se ainda falhar.
+
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), no template de proposta
 **60032074**, logo após o campo "Potência adequada (kWp)".
@@ -52,7 +79,7 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
 ```html
 <div id="mb-widget" style="font-family: sans-serif;">
   <div id="mb-toolbar" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-    <span style="font-size:12px; color:#888;">MeuBESS — Dimensionamento de Armazenamento (BESS)</span>
+    <span id="mb-status" style="font-size:12px; color:#888;">MeuBESS — carregando…</span>
     <button id="mb-reload" type="button" style="font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid #ccc; background:#f5f5f5; cursor:pointer;">↻ Recarregar com valores atuais</button>
   </div>
   <iframe id="mb-iframe" style="width:100%; height:900px; border:1px solid #ddd; border-radius:8px;"></iframe>
@@ -61,6 +88,8 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
 <script>
 (function () {
   var EMBED_BASE = 'https://calculadora-meu-bess.vercel.app/embed/ploomes';
+  var RETRY_INTERVAL_MS = 400;
+  var RETRY_MAX_MS = 8000;
 
   var FIELD_KEYS = {
     cidade: 'quote_5C6A4269-9DC8-412D-AF05-FF686E5EE40A',
@@ -76,9 +105,10 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
   };
 
   // Estrutura Ploomes -> fixing_type da calculadora MeuBESS.
+  // Chaves já normalizadas (ver normalizarTexto) — minúsculo, espaços colapsados.
   // 'Micro Metal' (microinversor) e 'Telhado Shingle' ficam de fora de propósito —
   // sem correspondência hoje; 'Solo Fixo' aproximado para ground_pratyc.
-  var ESTRUTURA_MAP = {
+  var ESTRUTURA_MAP_RAW = {
     'Telhado Cerâmico': 'tile_ceramic',
     'Telhado Fibrocimento Terça Madeira': 'tile_fiber_wood',
     'Telhado Fibrocimento Terça Metálica': 'tile_fiber_metal',
@@ -94,6 +124,19 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
     'Solo Fixo': 'ground_pratyc'
   };
 
+  function normalizarTexto(s) {
+    if (!s) return '';
+    return s
+      .replace(/\s+/g, ' ')          // colapsa espaços repetidos
+      .trim()
+      .toLowerCase();
+  }
+
+  var ESTRUTURA_MAP = {};
+  for (var k in ESTRUTURA_MAP_RAW) {
+    if (ESTRUTURA_MAP_RAW.hasOwnProperty(k)) ESTRUTURA_MAP[normalizarTexto(k)] = ESTRUTURA_MAP_RAW[k];
+  }
+
   function log() {
     try { console.log.apply(console, ['[MeuBESS]'].concat([].slice.call(arguments))); } catch (e) {}
   }
@@ -108,12 +151,55 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
     }
   }
 
+  // Truque padrão para escrever em <input>/<textarea> controlados por React:
+  // usar o SETTER NATIVO do prototype em vez de `el.value = x` — React intercepta
+  // o setter de instância para detectar "mudança real" vs script externo, então
+  // um dispatchEvent puro sobre `el.value` é ignorado ou (pior) concatenado pelo
+  // estado interno do componente ao invés de substituído.
+  function setValorNativo(el, value) {
+    var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    var descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(el, value);
+    } else {
+      el.value = value;
+    }
+  }
+
+  function dispararEventos(el) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function localizarElementoEscrita(key) {
+    var el = PloomesDocument.querySelector("input[name='" + key + "']");
+    if (el) return { el: el, tipo: 'input' };
+    el = PloomesDocument.querySelector("textarea[name='" + key + "']");
+    if (el) return { el: el, tipo: 'textarea' };
+    el = PloomesDocument.querySelector("[data-field-key='" + key + "'] [contenteditable='true']")
+      || PloomesDocument.querySelector("[name='" + key + "'] [contenteditable='true']");
+    if (el) return { el: el, tipo: 'contenteditable' };
+    return null;
+  }
+
   function writeField(key, value) {
+    var achado = localizarElementoEscrita(key);
+    if (!achado) { log('campo não encontrado para escrita:', key); return; }
+    var strVal = value == null ? '' : String(value);
     try {
-      var el = PloomesDocument.querySelector("input[name='" + key + "']");
-      if (!el) { log('campo não encontrado para escrita:', key); return; }
-      el.setAttribute('value', value == null ? '' : String(value));
-      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      if (achado.tipo === 'contenteditable') {
+        achado.el.focus();
+        achado.el.innerHTML = '';
+        achado.el.textContent = strVal;
+        dispararEventos(achado.el);
+      } else {
+        // limpa primeiro — evita concatenação/resíduo de escrita anterior (visto ao reaplicar kit)
+        setValorNativo(achado.el, '');
+        dispararEventos(achado.el);
+        setValorNativo(achado.el, strVal);
+        dispararEventos(achado.el);
+      }
+      log('escrito', key, '(' + achado.tipo + ')', '=', strVal);
     } catch (e) {
       log('erro escrevendo campo', key, e.message);
     }
@@ -121,35 +207,59 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
 
   function extrairUF(cidadeRaw) {
     if (!cidadeRaw) return '';
-    var m = cidadeRaw.match(/-([A-Z]{2})\s*$/);
-    return m ? m[1] : '';
+    var m = cidadeRaw.match(/-([A-Za-z]{2})\s*$/);
+    return m ? m[1].toUpperCase() : '';
   }
 
   function mapEstrutura(estruturaRaw) {
     if (!estruturaRaw) return '';
-    return ESTRUTURA_MAP[estruturaRaw.trim()] || '';
+    var mapeado = ESTRUTURA_MAP[normalizarTexto(estruturaRaw)];
+    if (!mapeado) log('estrutura sem mapeamento:', JSON.stringify(estruturaRaw));
+    return mapeado || '';
   }
 
-  function montarIframeSrc() {
+  function lerContexto() {
     var kwp = readField(FIELD_KEYS.potencia);
     var cidade = readField(FIELD_KEYS.cidade);
     var estrutura = readField(FIELD_KEYS.estrutura);
-    var uf = extrairUF(cidade);
-    var fixingType = mapEstrutura(estrutura);
+    return {
+      kwp: kwp,
+      cidade: cidade,
+      estrutura: estrutura,
+      uf: extrairUF(cidade),
+      fixingType: mapEstrutura(estrutura),
+    };
+  }
 
+  function montarIframeSrc(ctx) {
     var params = [];
-    if (kwp) params.push('kwp=' + encodeURIComponent(kwp));
-    if (uf) params.push('uf=' + encodeURIComponent(uf));
-    if (fixingType) params.push('fixing_type=' + encodeURIComponent(fixingType));
+    if (ctx.kwp) params.push('kwp=' + encodeURIComponent(ctx.kwp));
+    if (ctx.uf) params.push('uf=' + encodeURIComponent(ctx.uf));
+    if (ctx.fixingType) params.push('fixing_type=' + encodeURIComponent(ctx.fixingType));
     params.push('perfil=consultor');
-
-    log('prefill', { kwp: kwp, cidade: cidade, uf: uf, estrutura: estrutura, fixingType: fixingType });
     return EMBED_BASE + '?' + params.join('&');
   }
 
-  function carregarIframe() {
-    var iframe = document.getElementById('mb-iframe');
-    iframe.src = montarIframeSrc();
+  // Espera os campos da proposta serem populados pelo Ploomes (assíncrono) antes
+  // de montar o iframe — sem isso, o primeiro carregamento pega os campos vazios.
+  function carregarIframeComRetry() {
+    var status = document.getElementById('mb-status');
+    var tentativas = 0;
+    var maxTentativas = Math.ceil(RETRY_MAX_MS / RETRY_INTERVAL_MS);
+
+    (function tentar() {
+      var ctx = lerContexto();
+      log('tentativa', tentativas + 1, 'prefill', ctx);
+
+      if (ctx.kwp || tentativas >= maxTentativas) {
+        status.textContent = 'MeuBESS — Dimensionamento de Armazenamento (BESS)';
+        document.getElementById('mb-iframe').src = montarIframeSrc(ctx);
+        return;
+      }
+      tentativas++;
+      status.textContent = 'MeuBESS — aguardando campos da proposta… (' + tentativas + ')';
+      setTimeout(tentar, RETRY_INTERVAL_MS);
+    })();
   }
 
   window.addEventListener('message', function (e) {
@@ -175,8 +285,8 @@ Baseado nas opções reais da conta (12 de 15 mapeadas; ver observações):
     }, 3000);
   });
 
-  document.getElementById('mb-reload').addEventListener('click', carregarIframe);
-  carregarIframe();
+  document.getElementById('mb-reload').addEventListener('click', carregarIframeComRetry);
+  carregarIframeComRetry();
 })();
 </script>
 ```

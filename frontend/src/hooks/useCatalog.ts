@@ -138,10 +138,10 @@ export function useSyncCatalog() {
 
 // ── Standard Loads ────────────────────────────────────────────────────────────
 
-export function useStandardLoads() {
+export function useStandardLoads(useApiKey = false) {
   return useQuery({
     queryKey: ['catalog', 'loads'],
-    queryFn: () => apiGet<StandardLoad[]>('/catalog/loads'),
+    queryFn: () => apiGet<StandardLoad[]>('/catalog/loads', useApiKey),
   })
 }
 
