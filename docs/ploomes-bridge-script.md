@@ -3,6 +3,37 @@
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
 
+## ⚠️ Perfil temporário: `admin` (2026-07-22)
+
+O script está fixo em `?perfil=admin` só para validar o fluxo completo
+(catálogo sem filtro por view) enquanto testamos a integração ponta a ponta.
+**Não é o estado final** — hoje o perfil é um parâmetro de URL, então
+qualquer um que descubra o endereço do embed pode trocar `?perfil=consultor`
+por `?perfil=admin` e ver preço/produtos restritos. Aceitável para o piloto
+interno, não para produção multi-conta.
+
+## Modelo multi-conta (planejado, não implementado)
+
+Decisão: cada base de CRM (cada integrador/empresa que usar essa integração)
+vai ter sua própria API key, cadastrada na plataforma MeuBESS com o perfil
+já embutido no servidor — o parâmetro `?perfil=` da URL deixa de valer.
+
+Fluxo alvo:
+1. Cadastro do integrador na plataforma MeuBESS gera um token com o perfil
+   desejado (integrador/consultor/admin) associado no banco.
+2. Esse token é colado no script do campo desenvolvedor daquela conta
+   Ploomes (troca a `X-API-Key` usada nas chamadas ao embed/backend).
+3. Backend resolve o perfil pela própria key (`API_KEY_EMBED` deixa de ser
+   uma única key global — vira uma tabela `ploomes_accounts` ou similar,
+   key → perfil → talvez PLOOMES_FIELD_MAP por conta), ignorando qualquer
+   `perfil` vindo da URL/query.
+
+Isso também resolve a limitação atual de `PLOOMES_FIELD_MAP` ser uma env
+única — cada conta pode ter suas próprias FieldKeys.
+
+**Não implementado ainda** — fica como próximo passo estrutural depois que
+o fluxo atual (perfil admin fixo) estiver validado.
+
 ## Mudanças da v3 (após 2º teste real, 2026-07-21)
 
 1. **Sem mais retry/espera de 8s.** O modelo agora é sob demanda: um botão
@@ -255,8 +286,12 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     }
   });
 
+  // TEMPORÁRIO — perfil fixo em 'admin' para validar o funcionamento e a
+  // passagem de dados de ponta a ponta (catálogo completo, sem filtro por
+  // view). Antes de ir para produção multi-conta, trocar para perfil por
+  // API key no backend (ver "Modelo multi-conta" no topo do doc).
   document.getElementById('mb-pull').addEventListener('click', puxarValores);
-  document.getElementById('mb-iframe').src = EMBED_BASE + '?perfil=consultor';
+  document.getElementById('mb-iframe').src = EMBED_BASE + '?perfil=admin';
 })();
 </script>
 ```
