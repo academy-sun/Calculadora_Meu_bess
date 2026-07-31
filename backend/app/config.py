@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     ploomes_field_map: str = ""    # JSON: nosso campo → FieldKey da conta (ver app/ploomes/context.py)
     environment: str = "development"
 
-    # Supabase — Admin API (service role key)
-    supabase_url: str = "https://debiageyayshcvbpivdq.supabase.co"
+    # Supabase — Admin API (service role key) e origem do JWKS de autenticação
+    supabase_url: str = "https://vxltorwxvxslhexaaqfs.supabase.co"
     supabase_service_role_key: str = ""
 
     # Plataforma MeuBess — supplier catalog API
