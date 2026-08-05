@@ -1,7 +1,23 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v5)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v6)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v6 (2026-08-05)
+
+A conferência da v5 mostrou que `Itens do Kit` **não existe no DOM** com
+`name=<key>` — os outros cinco campos existem. O cadastro do campo não explica:
+`FormHidden=false`, `Hidden=false`, `Disabled=false`, `ValueEditable=true`.
+
+1. **Localização por rótulo.** Além de `name=<key>` e de qualquer atributo que
+   contenha a key, o script agora acha o controle editável mais próximo do
+   rótulo visível ("MeuBESS BESS — Itens do Kit"). Se o campo estiver na tela
+   com outra assinatura de DOM, isso resolve.
+2. **Diagnóstico profundo** desse campo: procura a key em qualquer atributo de
+   qualquer elemento, diz se o rótulo aparece na tela, conta textareas /
+   contenteditables / iframes e mostra uma amostra. Isso separa as duas
+   hipóteses restantes — campo fora do formulário × campo renderizado de outro
+   jeito.
 
 ## Mudanças da v5 (2026-08-05)
 
@@ -162,6 +178,18 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     itens_kit: 'quote_F026D026-5B7F-44CC-9B98-32635D1A58B5',
   };
 
+  // Rótulo visível de cada campo. Usado como último recurso para localizar o
+  // elemento: o campo multilinha "Itens do Kit" não aparece com name=<key> no
+  // DOM, ao contrário dos de texto e moeda.
+  var FIELD_LABELS = {
+    kit_descricao: 'MeuBESS BESS — Descrição do Kit',
+    kit_valor: 'MeuBESS BESS — Valor do Kit',
+    frete_valor: 'MeuBESS BESS — Frete',
+    frete_modalidade: 'MeuBESS BESS — Modalidade do Frete',
+    total_geral: 'MeuBESS BESS — Total (Kit + Frete)',
+    itens_kit: 'MeuBESS BESS — Itens do Kit',
+  };
+
   // Sem tabela de de:para aqui de propósito — a tradução Estrutura →
   // fixing_type e Cidade → UF mora no embed (frontend/src/lib/ploomesContext.ts),
   // para não precisar recolar este script quando uma conta escrever diferente.
@@ -250,21 +278,64 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function localizarElementoEscrita(key) {
+  // Acha o controle editável mais próximo de um rótulo visível. É assim que se
+  // chega ao campo multilinha, que não expõe name=<key> no DOM.
+  function localizarPorRotulo(rotulo) {
+    if (!rotulo) return null;
+    var alvo = rotulo.replace(/\s+/g, ' ').trim();
+    // compara tambem sem travessao/acento, que variam entre telas
+    var simples = alvo.replace(/[—–-]/g, '-').toLowerCase();
+
+    var todos = PloomesDocument.querySelectorAll('label, span, div, p, td, th, legend');
+    for (var i = 0; i < todos.length; i++) {
+      var txt = (todos[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!txt || txt.length > alvo.length + 15) continue;   // evita casar o container inteiro
+      if (txt.replace(/[—–-]/g, '-').toLowerCase().indexOf(simples) === -1) continue;
+
+      // sobe até 6 níveis procurando um editável dentro do mesmo bloco
+      var node = todos[i];
+      for (var nivel = 0; nivel < 6 && node; nivel++) {
+        var cand = node.querySelector('textarea')
+          || node.querySelector("[contenteditable='true']")
+          || node.querySelector('input:not([type=hidden])');
+        if (cand) {
+          var tipo = cand.tagName === 'TEXTAREA' ? 'textarea'
+            : (cand.getAttribute('contenteditable') === 'true' ? 'contenteditable' : 'input');
+          return { el: cand, tipo: tipo, via: 'rótulo "' + txt + '" (nível ' + nivel + ')' };
+        }
+        node = node.parentElement;
+      }
+    }
+    return null;
+  }
+
+  function localizarElementoEscrita(key, rotulo) {
     var el = PloomesDocument.querySelector("input[name='" + key + "']");
-    if (el) return { el: el, tipo: 'input' };
+    if (el) return { el: el, tipo: 'input', via: 'name' };
     el = PloomesDocument.querySelector("textarea[name='" + key + "']");
-    if (el) return { el: el, tipo: 'textarea' };
+    if (el) return { el: el, tipo: 'textarea', via: 'name' };
     el = PloomesDocument.querySelector("[data-field-key='" + key + "'] [contenteditable='true']")
       || PloomesDocument.querySelector("[name='" + key + "'] [contenteditable='true']");
-    if (el) return { el: el, tipo: 'contenteditable' };
-    return null;
+    if (el) return { el: el, tipo: 'contenteditable', via: 'name' };
+    // qualquer atributo que contenha a key (id, data-*, aria-*)
+    var todos = PloomesDocument.querySelectorAll('textarea, [contenteditable], input');
+    for (var i = 0; i < todos.length; i++) {
+      var attrs = todos[i].attributes;
+      for (var a = 0; a < attrs.length; a++) {
+        if (String(attrs[a].value).indexOf(key) !== -1) {
+          var t = todos[i].tagName === 'TEXTAREA' ? 'textarea'
+            : (todos[i].getAttribute('contenteditable') === 'true' ? 'contenteditable' : 'input');
+          return { el: todos[i], tipo: t, via: 'atributo ' + attrs[a].name };
+        }
+      }
+    }
+    return localizarPorRotulo(rotulo);
   }
 
   // ehHtml=true → o conteúdo é markup e precisa ir como innerHTML. O campo
   // "Itens do Kit" é multilinha e só renderiza HTML; com texto puro fica vazio.
-  function writeField(key, value, ehHtml) {
-    var achado = localizarElementoEscrita(key);
+  function writeField(key, value, ehHtml, rotulo) {
+    var achado = localizarElementoEscrita(key, rotulo);
     if (!achado) { log('escrita: campo não encontrado', key); return; }
     var strVal = value == null ? '' : String(value);
     try {
@@ -344,6 +415,58 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     }
   }
 
+  // Responde à pergunta que sobrou: o campo existe na tela e o script não acha,
+  // ou ele não está no formulário? Procura a key em QUALQUER atributo, procura
+  // o rótulo, e lista os editáveis próximos.
+  function diagnosticoProfundo(key, rotulo) {
+    var out = ['<b>Diagnóstico do Itens do Kit:</b>'];
+
+    var porAtributo = [];
+    var todos = PloomesDocument.querySelectorAll('*');
+    for (var i = 0; i < todos.length; i++) {
+      var attrs = todos[i].attributes;
+      for (var a = 0; a < attrs.length; a++) {
+        if (String(attrs[a].value).indexOf(key) !== -1) {
+          porAtributo.push('<' + todos[i].tagName.toLowerCase() + ' ' + attrs[a].name + '>');
+          break;
+        }
+      }
+      if (porAtributo.length >= 5) break;
+    }
+    out.push('key em algum atributo: ' +
+      (porAtributo.length ? porAtributo.join(', ') : '<b>NÃO aparece em lugar nenhum</b>'));
+
+    var achouRotulo = false;
+    var textos = PloomesDocument.querySelectorAll('label, span, div, p, td, th, legend');
+    for (var j = 0; j < textos.length; j++) {
+      var t = (textos[j].textContent || '').replace(/\s+/g, ' ').trim();
+      if (t && t.length < rotulo.length + 15 && t.indexOf('Itens do Kit') !== -1) { achouRotulo = true; break; }
+    }
+    out.push('rótulo "' + rotulo + '" na tela: ' + (achouRotulo ? '<b>SIM</b>' : '<b>NÃO</b>'));
+
+    var tas = PloomesDocument.querySelectorAll('textarea');
+    var ces = PloomesDocument.querySelectorAll("[contenteditable='true']");
+    var ifr = PloomesDocument.querySelectorAll('iframe');
+    out.push('na página: ' + tas.length + ' textarea, ' + ces.length +
+      ' contenteditable, ' + ifr.length + ' iframe');
+
+    var amostra = [];
+    for (var k = 0; k < tas.length && k < 4; k++) {
+      amostra.push('textarea[name=' + (tas[k].getAttribute('name') || '-') +
+        ' id=' + (tas[k].id || '-') + ']');
+    }
+    for (var m = 0; m < ces.length && m < 4; m++) {
+      amostra.push('editable[class=' + String(ces[m].className || '-').slice(0, 30) + ']');
+    }
+    if (amostra.length) out.push('amostra: <code>' + amostra.join(' | ') + '</code>');
+
+    var porRotulo = localizarPorRotulo(rotulo);
+    out.push('localizar por rótulo: ' +
+      (porRotulo ? '<b>achou ' + porRotulo.tipo + '</b> — ' + porRotulo.via : '<b>não achou</b>'));
+
+    return out.join(' · ');
+  }
+
   // Relê os campos depois de escrever. O "Itens do Kit" saía vazio sem erro
   // nenhum no console; sem esta conferência não dá para saber se o problema é
   // a escrita, o elemento encontrado ou o próprio Ploomes descartando o valor.
@@ -360,7 +483,7 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     for (var nome in esperado) {
       if (!esperado.hasOwnProperty(nome)) continue;
       var key = FIELD_KEYS[nome];
-      var achado = localizarElementoEscrita(key);
+      var achado = localizarElementoEscrita(key, FIELD_LABELS[nome]);
       if (!achado) { linhas.push(nome + ': <b>campo não encontrado no DOM</b>'); continue; }
       var atual = achado.tipo === 'contenteditable'
         ? (achado.el.innerHTML || '')
@@ -368,11 +491,10 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       var tamEsperado = String(esperado[nome] == null ? '' : esperado[nome]).length;
       var ok = String(atual).trim().length > 0;
       linhas.push(nome + ': ' + (ok ? '✓' : '✗ VAZIO') +
-        ' <i>(' + achado.tipo + ', gravado ' + String(atual).length +
-        ' de ' + tamEsperado + ' chars)</i>');
+        ' <i>(' + achado.tipo + ' via ' + (achado.via || '?') + ', gravado ' +
+        String(atual).length + ' de ' + tamEsperado + ' chars)</i>');
     }
-    // dump do elemento do multilinha, que é o problemático
-    linhas.push('<br><b>DOM Itens do Kit:</b> <code>' + dumpCampo(FIELD_KEYS.itens_kit) + '</code>');
+    linhas.push('<br>' + diagnosticoProfundo(FIELD_KEYS.itens_kit, FIELD_LABELS.itens_kit));
     var diag = document.getElementById('mb-diag');
     diag.style.display = 'block';
     diag.innerHTML = linhas.join(' · ');
@@ -391,13 +513,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
     if (d.type === 'meubess:saved') {
       log('resultado recebido', d);
-      writeField(FIELD_KEYS.kit_descricao, d.kit_descricao);
-      writeField(FIELD_KEYS.kit_valor, d.kit_preco_str || d.kit_preco);
-      writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor);
-      writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao);
-      writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral);
+      writeField(FIELD_KEYS.kit_descricao, d.kit_descricao, false, FIELD_LABELS.kit_descricao);
+      writeField(FIELD_KEYS.kit_valor, d.kit_preco_str || d.kit_preco, false, FIELD_LABELS.kit_valor);
+      writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor, false, FIELD_LABELS.frete_valor);
+      writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao, false, FIELD_LABELS.frete_modalidade);
+      writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral, false, FIELD_LABELS.total_geral);
       // multilinha: só renderiza HTML
-      writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html);
+      writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html, FIELD_LABELS.itens_kit);
       conferirEscrita(d);
 
       var btn = document.getElementById('mb-pull');
