@@ -1,3 +1,5 @@
+import traceback
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,10 +27,25 @@ app.include_router(ploomes_router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    print(f"ERRO GLOBAL: {exc}")
+    # Traceback completo no log: sem ele, um NameError num ramo pouco exercitado
+    # chega ao Railway como uma linha solta, sem arquivo nem linha.
+    print(f"ERRO GLOBAL: {exc!r}")
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+    # A resposta de um exception handler NÃO passa pelo CORSMiddleware, então
+    # sem estes cabeçalhos o navegador descarta o 500 e mostra "failed to fetch"
+    # — o erro real fica invisível para quem está testando.
+    origin = request.headers.get("origin")
+    headers = {
+        "Access-Control-Allow-Origin": origin or "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    } if origin else {"Access-Control-Allow-Origin": "*"}
+
     return JSONResponse(
         status_code=500,
         content={"detail": "Erro interno do servidor", "error": str(exc)},
+        headers=headers,
     )
 
 

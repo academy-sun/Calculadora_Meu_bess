@@ -171,3 +171,28 @@ class TestPushback:
 
         assert report["campos"]["ok"] is True
         assert report["produtos"]["itens"] == []
+
+
+# ── CORS no handler global de excecao ─────────────────────────────────────────
+
+def test_erro_500_carrega_cabecalho_cors():
+    """Sem Access-Control-Allow-Origin no 500, o navegador descarta a resposta e
+    mostra "failed to fetch" — o erro real some para quem esta testando."""
+    from fastapi import APIRouter
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    router = APIRouter()
+
+    @router.get("/__boom")
+    async def boom():
+        raise RuntimeError("estouro proposital")
+
+    app.include_router(router)
+    client = TestClient(app, raise_server_exceptions=False)
+    r = client.get("/__boom", headers={"Origin": "https://calculadora-meu-bess.vercel.app"})
+
+    assert r.status_code == 500
+    assert r.headers.get("access-control-allow-origin") == "https://calculadora-meu-bess.vercel.app"
+    assert "estouro proposital" in r.json()["error"]

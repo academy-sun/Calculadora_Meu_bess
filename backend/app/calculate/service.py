@@ -13,7 +13,7 @@ from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import build_kits, economic_undershoot_kit
 from app.engines.pv_kit import (
     build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
-    resolve_kwp_alvo,
+    resolve_kwp_alvo, select_module,
 )
 from app.engines.schemas import (
     BackupInput, LoadRow,

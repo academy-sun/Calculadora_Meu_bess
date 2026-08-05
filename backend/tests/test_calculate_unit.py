@@ -535,3 +535,72 @@ def test_ongrid_sem_dados_de_mppt_nao_inventa_dimensionamento():
     result = _run_ongrid(_make_ongrid_req(), detalhe=mudo)
     assert result.solar_dimensionamento is None
     assert result.kit_selecionado is not None   # o kit continua saindo
+
+
+# ── caminho combinado: cargas + FV ────────────────────────────────────────────
+# Regressao: este ramo nao tinha cobertura nenhuma, e um import removido
+# (select_module) so aparecia em producao — como 500, que o navegador mostrava
+# como "failed to fetch" porque o handler global responde sem cabecalho CORS.
+
+class _FakeCombinedOption:
+    """Minimo que _option_to_info consome de um CombinedOption."""
+    def __init__(self, kit, rotulo_caminho="dc"):
+        self._kit = kit
+        self.rotulo_caminho = rotulo_caminho
+
+    def to_merged_kit(self):
+        return self._kit
+
+
+def _run_combinado(req, sugerido=None, alternativas=()):
+    from app.calculate.service import run_calculation
+
+    kit = make_kit(preco=30000.0, capacidade_total_kwh=10.0)
+    opt = _FakeCombinedOption(kit) if sugerido is None else sugerido
+    db, patches = _mock_db_and_catalog()
+    patches.append(patch("app.calculate.service.build_kits", return_value=([kit], [])))
+    patches.append(patch("app.calculate.service.build_combined_pv_storage",
+                         return_value=(opt, list(alternativas))))
+    with ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        return _run(run_calculation(db, req))
+
+
+def _make_combinado_req(**kwargs):
+    defaults = dict(
+        origem_info=_make_origem_info(),
+        tipo_calculo="backup",
+        powerpeak_kwp=8.5,
+        tipo_instalacao="monofasico",
+        padrao_entrada="mono_220",
+        autonomia_dias=1,
+        dod_percent=90,
+        cargas_backup=[{
+            "nome": "Carga teste", "qtd": 1, "pnom_w": 3000.0,
+            "fp": 1.0, "fd": 1.0, "ip_in": 1.0, "tdia_h": 4.0, "tensao": "220",
+        }],
+    )
+    return CalculateRequest(**{**defaults, **kwargs})
+
+
+def test_combinado_cargas_mais_fv_responde():
+    """Exercita o ramo tem_pv and kits — onde vivia o select_module orfao."""
+    result = _run_combinado(_make_combinado_req())
+    assert isinstance(result, CalculateResponse)
+    assert result.kit_selecionado is not None
+    assert result.kit_selecionado.preco_total == 30000.0
+
+
+def test_combinado_calcula_frete():
+    result = _run_combinado(_make_combinado_req(tipo_frete="cif", uf_entrega="PR"))
+    assert result.frete is not None
+    assert result.frete["uf"] == "PR"
+
+
+def test_combinado_leva_alternativas():
+    kit_alt = make_kit(marca="FoxESS", preco=35000.0, capacidade_total_kwh=12.0)
+    result = _run_combinado(_make_combinado_req(),
+                            alternativas=[_FakeCombinedOption(kit_alt, "split")])
+    assert len(result.alternativas) == 1
+    assert result.alternativas[0].preco_total == 35000.0
