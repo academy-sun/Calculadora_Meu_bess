@@ -195,7 +195,9 @@ export function KitResult({
             <Detail label="Módulo" value={`${solar.modulo_marca} ${solar.modulo_modelo} · ${solar.modulo_wp} Wp`} />
             <Detail label="Configuração" value={`${solar.n_serie}S × ${solar.n_paralelo}P × ${solar.mppt_qty} MPPT`} />
             <Detail label="Potência instalada" value={`${solar.kwp_instalado} kWp`} />
-            <Detail label="Geração / cobertura" value={`${solar.cobertura_pct}% do consumo`} />
+            {/* "do consumo" só valia no caminho legado (consumo + HSP). Com kWp
+                vindo pronto do CRM a base é o alvo, não o consumo. */}
+            <Detail label="Cobertura" value={`${solar.cobertura_pct}% do kWp alvo`} />
             <Detail label="Custo dos módulos" value={brl(solar.preco_modulos_total)} />
           </div>
         </div>
