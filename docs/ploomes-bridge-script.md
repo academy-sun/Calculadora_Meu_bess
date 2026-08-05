@@ -1,7 +1,26 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v4)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v5)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v5 (2026-08-05)
+
+1. **Lê os campos de TEXTO, não os de opção.** `Cidade da proposta`
+   (`quote_53F02E1F…`) e `Estrutura Requisição` (`quote_AB306D98…`) são TypeId 1
+   — texto simples, que o `input[name=…]` entrega direto. Os campos de opção
+   (`Cidade`, `Estrutura`) ficam como fallback. Isso contorna de vez o problema
+   do TypeId 7, em que o input carrega o id da opção e não o texto.
+2. **O bridge não traduz mais nada.** Ele manda o texto cru (`cidade`,
+   `estrutura`) e o de:para passou para dentro da ferramenta
+   (`frontend/src/lib/ploomesContext.ts`). Cada conta de CRM escreve a estrutura
+   de um jeito; ajustar o de:para agora é deploy do embed, não recolar script em
+   cada conta. O `ploomesContext` aceita tanto o valor canônico
+   (`tile_ceramic`) quanto os rótulos do CRM, e tem heurística por palavra-chave
+   para variações não catalogadas.
+3. **Conferência de escrita.** Depois de escrever, o bridge relê cada campo e
+   mostra no painel o que ficou gravado. O campo `Itens do Kit` é o motivo:
+   ele vinha saindo vazio sem nenhum erro visível, então agora o script diz se
+   a escrita pegou ou não, e qual estratégia usou.
 
 ## Mudanças da v4 (após 3º teste real, 2026-07-31)
 
@@ -88,6 +107,14 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
 ## Mapeamento Estrutura → fixing_type
 
+> **Desde a v5 este de:para não está mais no script.** Ele vive em
+> `frontend/src/lib/ploomesContext.ts` e é exercitado por
+> `ploomesContext.test.ts`. A tabela abaixo fica como referência do que o
+> Ploomes escreve. Além destes rótulos, o normalizador aceita o valor canônico
+> direto (o caso do campo `Estrutura Requisição`) e tem heurística por
+> palavra-chave — "Cobertura em telha ceramica portuguesa" cai em
+> `tile_ceramic`. Quando não reconhece, devolve vazio em vez de chutar.
+
 | Ploomes | fixing_type |
 |---|---|
 | Telhado Cerâmico | `tile_ceramic` |
@@ -118,7 +145,12 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   var EMBED_BASE = 'https://calculadora-meu-bess.vercel.app/embed/ploomes';
 
   var FIELD_KEYS = {
+    // ENTRADA — texto primeiro (TypeId 1, o input entrega o valor direto);
+    // os campos de opção (TypeId 7) ficam como fallback.
+    cidade_texto: 'quote_53F02E1F-BFDC-4E72-8A23-6579F5F398DE',
     cidade: 'quote_5C6A4269-9DC8-412D-AF05-FF686E5EE40A',
+    estrutura_texto: 'quote_AB306D98-5217-4349-B346-F676C425622C',
+    estrutura_texto_alt: 'quote_87A55C82-A2FF-4733-8B09-E6EF0078FA01',
     estrutura: 'quote_EBCA6669-E2BF-4413-A1DD-DB502E5373BA',
     potencia: 'quote_75B0AB94-48A6-4FDE-A67B-F09D333CA822',
 
@@ -130,31 +162,9 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     itens_kit: 'quote_F026D026-5B7F-44CC-9B98-32635D1A58B5',
   };
 
-  var ESTRUTURA_MAP_RAW = {
-    'Telhado Cerâmico': 'tile_ceramic',
-    'Telhado Fibrocimento Terça Madeira': 'tile_fiber_wood',
-    'Telhado Fibrocimento Terça Metálica': 'tile_fiber_metal',
-    'Telhado Metálico Ondulado': 'tile_metal_long',
-    'Telhado Metálico Mini Trilho - 0,55m - baixo(2cm)': 'tile_metal_mini',
-    'Telhado Metálico Mini Trilho Longo - 2,40m - baixo(2cm)': 'tile_metal_mini',
-    'Telhado Metálico Mini Trilho - 0,55m - alto(10cm)': 'tile_metal_mini_high',
-    'Telhado Metálico Mini Trilho Longo - 2,40m - alto(10cm)': 'tile_metal_mini_high',
-    'Telhado Zipado': 'tile_zipped',
-    'Laje em Retrato': 'slab_portrait',
-    'Especial Solo Pratyc': 'ground_pratyc',
-    'Solo Fixo Pratyc': 'ground_pratyc',
-    'Solo Fixo': 'ground_pratyc'
-  };
-
-  function normalizarTexto(s) {
-    if (!s) return '';
-    return s.replace(/\s+/g, ' ').trim().toLowerCase();
-  }
-
-  var ESTRUTURA_MAP = {};
-  for (var k in ESTRUTURA_MAP_RAW) {
-    if (ESTRUTURA_MAP_RAW.hasOwnProperty(k)) ESTRUTURA_MAP[normalizarTexto(k)] = ESTRUTURA_MAP_RAW[k];
-  }
+  // Sem tabela de de:para aqui de propósito — a tradução Estrutura →
+  // fixing_type e Cidade → UF mora no embed (frontend/src/lib/ploomesContext.ts),
+  // para não precisar recolar este script quando uma conta escrever diferente.
 
   function log() {
     try { console.log.apply(console, ['[MeuBESS]'].concat([].slice.call(arguments))); } catch (e) {}
@@ -280,15 +290,16 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   }
 
   // ── Contexto da proposta → iframe ──────────────────────────────────────────
-  function extrairUF(cidadeRaw) {
-    if (!cidadeRaw) return '';
-    var m = cidadeRaw.match(/-\s*([A-Za-z]{2})\s*$/);
-    return m ? m[1].toUpperCase() : '';
-  }
-
-  function mapEstrutura(estruturaRaw) {
-    if (!estruturaRaw) return '';
-    return ESTRUTURA_MAP[normalizarTexto(estruturaRaw)] || '';
+  // Tenta uma lista de campos em ordem e devolve o primeiro com valor.
+  function readPrimeiro(chaves) {
+    for (var i = 0; i < chaves.length; i++) {
+      var r = readField(chaves[i]);
+      if (r.valor != null && String(r.valor).trim() !== '') {
+        r.via = r.via + ' [' + chaves[i].slice(6, 14) + ']';
+        return r;
+      }
+    }
+    return { valor: null, via: 'vazio em todos os campos tentados' };
   }
 
   function mostrarDiagnostico(ctx) {
@@ -297,39 +308,74 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     var linhas = [
       '<b>Lido da proposta:</b>',
       'Potência = <code>' + (ctx.kwp || '—') + '</code> <i>(' + ctx.viaKwp + ')</i>',
-      'Cidade = <code>' + (ctx.cidade || '—') + '</code> → UF <b>' + (ctx.uf || '?') + '</b> <i>(' + ctx.viaCidade + ')</i>',
-      'Estrutura = <code>' + (ctx.estrutura || '—') + '</code> → <b>' + (ctx.fixingType || 'sem mapeamento') + '</b> <i>(' + ctx.viaEstrutura + ')</i>'
+      'Cidade = <code>' + (ctx.cidade || '—') + '</code> <i>(' + ctx.viaCidade + ')</i>',
+      'Estrutura = <code>' + (ctx.estrutura || '—') + '</code> <i>(' + ctx.viaEstrutura + ')</i>'
     ];
-    // Quando algo não veio, mostra o DOM cru daquele campo — é o que permite
-    // corrigir o seletor sem mais um ciclo de teste.
-    if (!ctx.uf) linhas.push('<br><b>DOM da Cidade:</b> <code>' + dumpCampo(FIELD_KEYS.cidade) + '</code>');
-    if (!ctx.fixingType) linhas.push('<br><b>DOM da Estrutura:</b> <code>' + dumpCampo(FIELD_KEYS.estrutura) + '</code>');
+    // Quando algo não veio, mostra o DOM cru — é o que permite corrigir o
+    // seletor sem mais um ciclo de teste. A tradução acontece no iframe.
+    if (!ctx.cidade) linhas.push('<br><b>DOM Cidade (texto):</b> <code>' + dumpCampo(FIELD_KEYS.cidade_texto) + '</code>');
+    if (!ctx.estrutura) linhas.push('<br><b>DOM Estrutura (texto):</b> <code>' + dumpCampo(FIELD_KEYS.estrutura_texto) + '</code>');
     diag.innerHTML = linhas.join(' · ');
   }
 
   function puxarValores() {
     var rKwp = readField(FIELD_KEYS.potencia);
-    var rCidade = readField(FIELD_KEYS.cidade);
-    var rEstrutura = readField(FIELD_KEYS.estrutura);
+    var rCidade = readPrimeiro([FIELD_KEYS.cidade_texto, FIELD_KEYS.cidade]);
+    var rEstrutura = readPrimeiro([
+      FIELD_KEYS.estrutura_texto, FIELD_KEYS.estrutura_texto_alt, FIELD_KEYS.estrutura,
+    ]);
     var ctx = {
       kwp: rKwp.valor, viaKwp: rKwp.via,
       cidade: rCidade.valor, viaCidade: rCidade.via,
       estrutura: rEstrutura.valor, viaEstrutura: rEstrutura.via,
     };
-    ctx.uf = extrairUF(ctx.cidade);
-    ctx.fixingType = mapEstrutura(ctx.estrutura);
     log('contexto lido', ctx);
     mostrarDiagnostico(ctx);
 
     var iframe = document.getElementById('mb-iframe');
     if (iframe.contentWindow) {
+      // Texto cru: quem traduz é o embed (ploomesContext.ts).
       iframe.contentWindow.postMessage({
         type: 'ploomes:context',
         kwp: ctx.kwp,
-        uf: ctx.uf,
-        fixing_type: ctx.fixingType,
+        cidade: ctx.cidade,
+        estrutura: ctx.estrutura,
       }, '*');
     }
+  }
+
+  // Relê os campos depois de escrever. O "Itens do Kit" saía vazio sem erro
+  // nenhum no console; sem esta conferência não dá para saber se o problema é
+  // a escrita, o elemento encontrado ou o próprio Ploomes descartando o valor.
+  function conferirEscrita(d) {
+    var esperado = {
+      kit_descricao: d.kit_descricao,
+      kit_valor: d.kit_preco_str || d.kit_preco,
+      frete_valor: d.frete_valor_str || d.frete_valor,
+      frete_modalidade: d.frete_descricao,
+      total_geral: d.total_geral_str || d.total_geral,
+      itens_kit: d.itens_html || d.itens_texto,
+    };
+    var linhas = ['<b>Conferência da escrita:</b>'];
+    for (var nome in esperado) {
+      if (!esperado.hasOwnProperty(nome)) continue;
+      var key = FIELD_KEYS[nome];
+      var achado = localizarElementoEscrita(key);
+      if (!achado) { linhas.push(nome + ': <b>campo não encontrado no DOM</b>'); continue; }
+      var atual = achado.tipo === 'contenteditable'
+        ? (achado.el.innerHTML || '')
+        : (achado.el.value || '');
+      var tamEsperado = String(esperado[nome] == null ? '' : esperado[nome]).length;
+      var ok = String(atual).trim().length > 0;
+      linhas.push(nome + ': ' + (ok ? '✓' : '✗ VAZIO') +
+        ' <i>(' + achado.tipo + ', gravado ' + String(atual).length +
+        ' de ' + tamEsperado + ' chars)</i>');
+    }
+    // dump do elemento do multilinha, que é o problemático
+    linhas.push('<br><b>DOM Itens do Kit:</b> <code>' + dumpCampo(FIELD_KEYS.itens_kit) + '</code>');
+    var diag = document.getElementById('mb-diag');
+    diag.style.display = 'block';
+    diag.innerHTML = linhas.join(' · ');
   }
 
   // ── Retorno do iframe → campos da proposta ─────────────────────────────────
@@ -352,6 +398,7 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral);
       // multilinha: só renderiza HTML
       writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html);
+      conferirEscrita(d);
 
       var btn = document.getElementById('mb-pull');
       var original = btn.innerHTML;

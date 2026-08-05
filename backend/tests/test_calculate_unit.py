@@ -439,15 +439,30 @@ def _make_ongrid_req(**kwargs):
     return CalculateRequest(**{**defaults, **kwargs})
 
 
-def _run_ongrid(req):
-    """Catalogo BESS vazio, mas build_ongrid_kit devolve itens: isola o on-grid."""
+def _ongrid_detalhe():
+    """Modulo de 635 Wp x14 e inversor com 2 MPPT e 600 V de tensao maxima."""
+    from app.engines.pv_kit import ModuloAttrs, OngridPVDetail
+
+    modulo = ModuloAttrs(
+        produto=_FakeProd(marca="WEG", title="Modulo 635W", price=500.0),
+        voc_v=50.0, imp_a=13.0, isc_a=13.8, wp=635.0, preco=500.0,
+    )
+    inversor = _FakeProd(title="Inversor string 8kW", voc_max_voltage=600.0,
+                         qty_mppt=2, power=8.0, price=4402.55)
+    return OngridPVDetail(modulo=modulo, qty_modulos=14,
+                          inversor=inversor, qtd_inversores=1)
+
+
+def _run_ongrid(req, detalhe=None):
+    """Catalogo BESS vazio, mas o kit on-grid devolve itens: isola o caminho."""
     from app.calculate.service import run_calculation
 
     db, patches = _mock_db_and_catalog()
-    patches.append(patch("app.calculate.service.build_ongrid_kit",
-                         return_value=list(_ONGRID_ITENS)))
-    patches.append(patch("app.calculate.service.select_module",
-                         return_value=(_FakeProd(wp=635.0), 14)))
+    patches.append(patch(
+        "app.calculate.service.build_ongrid_kit_detalhado",
+        return_value=(list(_ONGRID_ITENS),
+                      _ongrid_detalhe() if detalhe is None else detalhe),
+    ))
     with ExitStack() as stack:
         for p in patches:
             stack.enter_context(p)
@@ -484,3 +499,39 @@ def test_ongrid_puro_sem_frete_quando_nao_informado():
 def test_ongrid_puro_cif_sem_uf_nao_calcula():
     """CIF sem UF nao deve inventar frete."""
     assert _run_ongrid(_make_ongrid_req(tipo_frete="cif")).frete is None
+
+
+def test_ongrid_puro_preenche_solar_dimensionamento():
+    """O retorno antecipado do on-grid tambem descreve o FV, com os mesmos
+    numeros do kit cotado (14 modulos de 635 Wp = 8.89 kWp)."""
+    result = _run_ongrid(_make_ongrid_req())
+    sd = result.solar_dimensionamento
+    assert sd is not None, "on-grid voltou sem solar_dimensionamento"
+    assert sd.qty_modulos == 14
+    assert sd.modulo_wp == 635.0
+    assert sd.modulo_marca == "WEG"
+    assert sd.kwp_instalado == 8.89
+    assert sd.preco_modulos_total == 7000.0
+    # 600 V / 50 V por modulo = 12 em serie; 2 MPPT cobrem os 14 modulos em 1 paralelo
+    assert (sd.n_serie, sd.n_paralelo, sd.mppt_qty) == (12, 1, 2)
+    # 8.89 instalado sobre 8.5 alvo
+    assert sd.cobertura_pct == 104.6
+
+
+def test_ongrid_solar_dimensionamento_bate_com_kwp_do_kit():
+    """kwp_instalado da ficha e o kwp_instalado do kit sao o mesmo numero."""
+    result = _run_ongrid(_make_ongrid_req())
+    assert result.solar_dimensionamento.kwp_instalado == result.kit_selecionado.kwp_instalado
+
+
+def test_ongrid_sem_dados_de_mppt_nao_inventa_dimensionamento():
+    """Inversor sem qty_mppt/tensao maxima: sem ficha, em vez de numero chutado."""
+    from app.engines.pv_kit import OngridPVDetail
+
+    base = _ongrid_detalhe()
+    mudo = OngridPVDetail(modulo=base.modulo, qty_modulos=14,
+                          inversor=_FakeProd(title="Inversor sem specs"),
+                          qtd_inversores=1)
+    result = _run_ongrid(_make_ongrid_req(), detalhe=mudo)
+    assert result.solar_dimensionamento is None
+    assert result.kit_selecionado is not None   # o kit continua saindo

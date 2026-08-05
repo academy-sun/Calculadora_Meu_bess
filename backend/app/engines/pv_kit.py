@@ -245,19 +245,19 @@ def _preco_itens(itens: list[dict]) -> float:
 # 5. Seleção de inversor string (Caminho A)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _select_string_inverter_for(
+def _pick_string_inverter(
     kwp_pv: float,
     qty_modules: int,
     modulo: ModuloAttrs,
     inversores_string: list,
     voltage: str | None,
     phase: str | None,
-) -> list[dict] | None:
-    """Escolhe o(s) inversor(es) string mais barato(s) que cobrem `kwp_pv` kWp,
-    validando electricamente (capacidade CC ≥ qty_modules) e usando oversizing
-    DC/AC = 1.5 como alvo (mesma convenção da MeuBESS)."""
+):
+    """(inversor, quantidade) escolhidos — critério compartilhado por
+    _select_string_inverter_for (que monta o item) e pelo detalhamento do kit
+    on-grid, para os dois nunca divergirem. Retorna None se nenhum serve."""
     if kwp_pv <= 0 or qty_modules <= 0:
-        return []
+        return None
 
     alvo_ca_kw = kwp_pv / OVERSIZE_DC_AC
     candidatos = []
@@ -292,6 +292,26 @@ def _select_string_inverter_for(
         return None
 
     _, inv_best, qty_best = min(candidatos, key=lambda c: c[0])
+    return inv_best, qty_best
+
+
+def _select_string_inverter_for(
+    kwp_pv: float,
+    qty_modules: int,
+    modulo: ModuloAttrs,
+    inversores_string: list,
+    voltage: str | None,
+    phase: str | None,
+) -> list[dict] | None:
+    """Item do(s) inversor(es) string mais barato(s) que cobrem `kwp_pv` kWp,
+    validando eletricamente (capacidade CC ≥ qty_modules) e usando oversizing
+    DC/AC = 1.5 como alvo (mesma convenção da MeuBESS)."""
+    if kwp_pv <= 0 or qty_modules <= 0:
+        return []
+    escolha = _pick_string_inverter(kwp_pv, qty_modules, modulo, inversores_string, voltage, phase)
+    if escolha is None:
+        return None
+    inv_best, qty_best = escolha
     power_kw = eff_float(inv_best, "power") or 0.0
     item = {
         "nome": _tit(inv_best), "tipo": "inversor_string", "qtd": qty_best,
@@ -372,6 +392,71 @@ def _scale_hybrid(
 # 7. Kit on-grid puro (sem armazenamento)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@dataclass
+class OngridPVDetail:
+    """O que foi de fato escolhido no kit on-grid — base para o solar_dimensionamento."""
+    modulo: ModuloAttrs
+    qty_modulos: int
+    inversor: object
+    qtd_inversores: int
+
+
+def ongrid_string_layout(detalhe: OngridPVDetail) -> tuple[int, int, int] | None:
+    """(n_serie, n_paralelo, mppt_qty) do kit on-grid.
+
+    Deriva da mesma restrição usada em dc_capacity_modules para aceitar o
+    inversor — série limitada pela tensão máxima, paralelo distribuído entre os
+    MPPTs disponíveis. Retorna None se o inversor não expõe os dados.
+    """
+    voc_max = eff_float(detalhe.inversor, "voc_max_voltage")
+    qty_mppt = eff_int(detalhe.inversor, "qty_mppt")
+    if not voc_max or not qty_mppt or detalhe.modulo.voc_v <= 0:
+        return None
+
+    n_serie = math.floor(voc_max / detalhe.modulo.voc_v)
+    if n_serie < 1:
+        return None
+
+    mppt_total = qty_mppt * max(1, detalhe.qtd_inversores)
+    n_paralelo = math.ceil(detalhe.qty_modulos / (n_serie * mppt_total))
+    return n_serie, max(1, n_paralelo), mppt_total
+
+
+def build_ongrid_kit_detalhado(
+    kwp_alvo: float,
+    modulos: list,
+    fixing_type: str | None,
+    cabos: list,
+    mc4s: list,
+    estruturas: list,
+    inversores_string: list,
+    voltage: str | None,
+    phase: str | None,
+) -> tuple[list[dict] | None, OngridPVDetail | None]:
+    """Kit puramente on-grid: módulos + inversor string + acessórios.
+
+    Devolve (itens, detalhe). O detalhe carrega módulo/inversor escolhidos para
+    que o chamador monte o dimensionamento FV sem repetir a seleção.
+    """
+    mod, qty = select_module(modulos, kwp_alvo)
+    if mod is None:
+        return None, None
+
+    inv_itens = _select_string_inverter_for(kwp_alvo, qty, mod, inversores_string, voltage, phase)
+    if inv_itens is None:
+        return None, None
+
+    escolha = _pick_string_inverter(kwp_alvo, qty, mod, inversores_string, voltage, phase)
+    detalhe = (
+        OngridPVDetail(modulo=mod, qty_modulos=qty, inversor=escolha[0], qtd_inversores=escolha[1])
+        if escolha else None
+    )
+
+    itens = pv_accessory_itens(qty, mod, fixing_type, cabos, mc4s, estruturas)
+    itens += inv_itens
+    return itens, detalhe
+
+
 def build_ongrid_kit(
     kwp_alvo: float,
     modulos: list,
@@ -383,18 +468,11 @@ def build_ongrid_kit(
     voltage: str | None,
     phase: str | None,
 ) -> list[dict] | None:
-    """Kit puramente on-grid: módulos + inversor string + acessórios.
-    Retorna lista de itens ou None se inviável."""
-    mod, qty = select_module(modulos, kwp_alvo)
-    if mod is None:
-        return None
-
-    inv_itens = _select_string_inverter_for(kwp_alvo, qty, mod, inversores_string, voltage, phase)
-    if inv_itens is None:
-        return None
-
-    itens = pv_accessory_itens(qty, mod, fixing_type, cabos, mc4s, estruturas)
-    itens += inv_itens
+    """Só os itens do kit on-grid. Ver build_ongrid_kit_detalhado."""
+    itens, _ = build_ongrid_kit_detalhado(
+        kwp_alvo, modulos, fixing_type, cabos, mc4s, estruturas,
+        inversores_string, voltage, phase,
+    )
     return itens
 
 

@@ -12,7 +12,8 @@ from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate
 from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import build_kits, economic_undershoot_kit
 from app.engines.pv_kit import (
-    build_combined_pv_storage, build_ongrid_kit, resolve_kwp_alvo, select_module,
+    build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
+    resolve_kwp_alvo,
 )
 from app.engines.schemas import (
     BackupInput, LoadRow,
@@ -74,6 +75,39 @@ def _option_to_info(
         rotulo=rotulo,
         rotulo_caminho=option.rotulo_caminho,
         kwp_instalado=round(kwp_instalado, 3),
+    )
+
+
+def _solar_dim_ongrid(detalhe, kwp_alvo: float) -> SolarDimensionamento | None:
+    """Dimensionamento FV do kit on-grid puro.
+
+    Monta a partir do que o kit realmente leva (módulo e quantidade escolhidos),
+    não de um redimensionamento paralelo — assim a ficha nunca diverge dos itens
+    cotados. n_serie/n_paralelo vêm da mesma restrição elétrica que aprovou o
+    inversor. Retorna None quando o inversor não expõe os dados de MPPT.
+    """
+    if detalhe is None:
+        return None
+    layout = ongrid_string_layout(detalhe)
+    if layout is None:
+        return None
+    n_serie, n_paralelo, mppt_qty = layout
+
+    mod = detalhe.modulo
+    kwp_instalado = round(mod.wp * detalhe.qty_modulos / 1000, 3)
+    cobertura = round(min(kwp_instalado / kwp_alvo * 100, 999.9), 1) if kwp_alvo > 0 else 0.0
+
+    return SolarDimensionamento(
+        modulo_marca=str(eff(mod.produto, "marca") or "—"),
+        modulo_modelo=str(eff(mod.produto, "title") or ""),
+        modulo_wp=mod.wp,
+        qty_modulos=detalhe.qty_modulos,
+        n_serie=n_serie,
+        n_paralelo=n_paralelo,
+        mppt_qty=mppt_qty,
+        kwp_instalado=kwp_instalado,
+        cobertura_pct=cobertura,
+        preco_modulos_total=round(mod.preco * detalhe.qty_modulos, 2),
     )
 
 
@@ -176,7 +210,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             if not tem_pv:
                 raise ValueError("cargas_backup é obrigatório para backup (sem FV) "
                                  "ou informe powerpeak_kwp / consumo_medio_mensal_kwh + hsp_media para kit on-grid")
-            ongrid_itens = build_ongrid_kit(
+            ongrid_itens, ongrid_detalhe = build_ongrid_kit_detalhado(
                 kwp_alvo=kwp_alvo_calculado,
                 modulos=pv["modulos"],
                 fixing_type=req.fixing_type,
@@ -189,8 +223,11 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             )
             if ongrid_itens:
                 preco_total_ongrid = sum(i["preco_total"] for i in ongrid_itens)
-                mod_ref, qty_ref = select_module(pv["modulos"], kwp_alvo_calculado)
-                kwp_real = round((mod_ref.wp * qty_ref / 1000) if mod_ref else kwp_alvo_calculado, 3)
+                kwp_real = round(
+                    (ongrid_detalhe.modulo.wp * ongrid_detalhe.qty_modulos / 1000)
+                    if ongrid_detalhe else kwp_alvo_calculado,
+                    3,
+                )
                 # KitBESS-like estrutura fake sem bateria para _kit_to_info
                 from app.engines.kit_builder import KitBESS
                 kit_ongrid_fake = KitBESS(
@@ -224,6 +261,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 kit_selecionado=kit_selecionado,
                 alternativas=[],
                 frete=_resolver_frete(req, kit_selecionado),
+                solar_dimensionamento=_solar_dim_ongrid(ongrid_detalhe, kwp_alvo_calculado),
             )
 
         # ── Com tabela de cargas: dimensiona armazenamento ────────────────

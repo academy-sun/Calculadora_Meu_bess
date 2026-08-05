@@ -7,6 +7,7 @@ import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
+import { extrairUF, normalizarFixingType } from '@/lib/ploomesContext'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
 /**
@@ -46,14 +47,17 @@ export function PloomesEmbedPage() {
   const { data: loads } = useStandardLoads(true)
 
   // ── Formulário (pré-preenchido pelo bridge via query string) ────────────────
+  // A query string também passa pelo de:para — o bridge pode mandar o rótulo do
+  // CRM em vez do valor canônico.
+  const ufInicial = extrairUF(ufParam)
   const [kwp, setKwp] = useState(kwpParam ?? '')
-  const [fixingType, setFixingType] = useState(fixingTypeParam ?? '')
+  const [fixingType, setFixingType] = useState<string>(normalizarFixingType(fixingTypeParam))
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const [autonomia, setAutonomia] = useState('1')
   const [rows, setRows] = useState<BackupRow[]>([])
   const [showAddLoad, setShowAddLoad] = useState(false)
-  const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(ufParam ? 'cif' : null)
-  const [ufEntrega, setUfEntrega] = useState(ufParam ?? '')
+  const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(ufInicial ? 'cif' : null)
+  const [ufEntrega, setUfEntrega] = useState(ufInicial)
 
   // ── Resultado / envio ───────────────────────────────────────────────────────
   const [result, setResult] = useState<CalculateResponse | null>(null)
@@ -70,9 +74,16 @@ export function PloomesEmbedPage() {
       const d = e.data
       if (!d || typeof d !== 'object' || d.type !== 'ploomes:context') return
       if (d.kwp != null && d.kwp !== '') setKwp(String(d.kwp))
-      if (d.fixing_type) setFixingType(String(d.fixing_type))
-      if (d.uf) {
-        setUfEntrega(String(d.uf).toUpperCase())
+
+      // O bridge manda o texto cru dos campos (`estrutura`/`cidade`); o de:para
+      // mora aqui para não depender de recolar o script em cada conta de CRM.
+      // `fixing_type`/`uf` continuam aceitos por compatibilidade com a v3.
+      const fixing = normalizarFixingType(d.estrutura ?? d.fixing_type)
+      if (fixing) setFixingType(fixing)
+
+      const uf = extrairUF(d.cidade ?? d.uf)
+      if (uf) {
+        setUfEntrega(uf)
         setTipoFrete(prev => prev ?? 'cif')
       }
       setContextoRecebido(true)
@@ -88,7 +99,7 @@ export function PloomesEmbedPage() {
 
   function handleTipoFrete(t: TipoFrete) {
     setTipoFrete(t)
-    if (t === 'cif' && !ufEntrega && ufParam) setUfEntrega(ufParam)
+    if (t === 'cif' && !ufEntrega && ufInicial) setUfEntrega(ufInicial)
   }
 
   async function handleCalcular() {
