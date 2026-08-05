@@ -409,3 +409,78 @@ def test_existing_backup_tipo_still_works():
     )
     assert req.tipo_calculo == "backup"
     assert req.total_pp_kva is None
+
+
+# ── frete do kit on-grid puro (sem cargas) ────────────────────────────────────
+# Regressao: o ramo "backup sem cargas" retorna cedo, antes do bloco que
+# calculava o frete. Kit on-grid saia sempre sem frete, mesmo com CIF e UF
+# preenchidos — reproduzido em campo com CIF no Acre.
+
+from contextlib import ExitStack
+
+# 7000.00 + 4402.55 = 11402.55, o mesmo valor do kit visto no teste real
+_ONGRID_ITENS = [
+    {"nome": "Modulo 635W", "tipo": "modulo", "qtd": 14,
+     "preco_unitario": 500.0, "preco_total": 7000.0},
+    {"nome": "Inversor string 8kW", "tipo": "inversor_string", "qtd": 1,
+     "preco_unitario": 4402.55, "preco_total": 4402.55},
+]
+_ONGRID_PRECO = 11402.55
+
+
+def _make_ongrid_req(**kwargs):
+    defaults = dict(
+        origem_info=_make_origem_info(),
+        tipo_calculo="backup",
+        powerpeak_kwp=8.5,
+        tipo_instalacao="monofasico",
+        padrao_entrada="mono_220",
+    )
+    return CalculateRequest(**{**defaults, **kwargs})
+
+
+def _run_ongrid(req):
+    """Catalogo BESS vazio, mas build_ongrid_kit devolve itens: isola o on-grid."""
+    from app.calculate.service import run_calculation
+
+    db, patches = _mock_db_and_catalog()
+    patches.append(patch("app.calculate.service.build_ongrid_kit",
+                         return_value=list(_ONGRID_ITENS)))
+    patches.append(patch("app.calculate.service.select_module",
+                         return_value=(_FakeProd(wp=635.0), 14)))
+    with ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        return _run(run_calculation(db, req))
+
+
+def test_ongrid_puro_monta_kit_sem_bateria():
+    result = _run_ongrid(_make_ongrid_req())
+    assert result.kit_selecionado is not None
+    assert result.kit_selecionado.qtd_baterias == 0
+    assert result.kit_selecionado.preco_total == _ONGRID_PRECO
+
+
+def test_ongrid_puro_calcula_frete_cif():
+    """CIF no Acre: 8% de 11402.55 = 912.20, abaixo do minimo de 7900."""
+    result = _run_ongrid(_make_ongrid_req(tipo_frete="cif", uf_entrega="AC"))
+    assert result.frete is not None, "kit on-grid voltou sem frete"
+    assert result.frete["tipo"] == "cif"
+    assert result.frete["uf"] == "AC"
+    assert result.frete["valor"] == 7900.0
+
+
+def test_ongrid_puro_calcula_frete_fob():
+    result = _run_ongrid(_make_ongrid_req(tipo_frete="fob"))
+    assert result.frete is not None
+    assert result.frete["tipo"] == "fob"
+    assert result.frete["valor"] == round(_ONGRID_PRECO * 0.01, 2)
+
+
+def test_ongrid_puro_sem_frete_quando_nao_informado():
+    assert _run_ongrid(_make_ongrid_req()).frete is None
+
+
+def test_ongrid_puro_cif_sem_uf_nao_calcula():
+    """CIF sem UF nao deve inventar frete."""
+    assert _run_ongrid(_make_ongrid_req(tipo_frete="cif")).frete is None

@@ -1,7 +1,23 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v3)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v4)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v4 (após 3º teste real, 2026-07-31)
+
+1. **Leitura de campos de opção (TypeId 7).** `Cidade` e `Estrutura` são campos
+   de opção com tabela de opções; `Potência adequada (kWp)` é decimal. Só o
+   decimal vinha — confirmado pela API: na proposta 601430438 a `Cidade` está
+   gravada como `IntegerValue=607844285` + `ObjectValueName='LONDRINA-PR'`.
+   O `input[name=…]` desses campos carrega o **id**, não o texto. O leitor agora
+   detecta id numérico e cai para o texto visível do container.
+2. **Diagnóstico detalhado.** O painel passa a mostrar *por qual estratégia*
+   cada campo foi lido e, quando falha, despeja todos os elementos que casam
+   com aquele `name` (tag, tipo, value, texto). É essa informação que fecha o
+   ajuste do seletor sem precisar de mais um ciclo de teste.
+3. **`Itens do Kit` escrito como HTML.** O campo é multilinha e só renderiza
+   HTML — texto puro saía vazio. O embed agora manda `itens_html` (`<ul><li>`)
+   e o bridge escreve com `innerHTML`.
 
 ## ⚠️ Perfil temporário: `admin` (2026-07-22)
 
@@ -144,22 +160,71 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     try { console.log.apply(console, ['[MeuBESS]'].concat([].slice.call(arguments))); } catch (e) {}
   }
 
-  // ── Leitura (com fallback de seletor para campos de opções) ────────────────
+  // ── Leitura ────────────────────────────────────────────────────────────────
+  // Campos de opção (TypeId 7 — Cidade, Estrutura) guardam o ID da opção no
+  // input; o texto ("LONDRINA-PR") fica num elemento de exibição ao lado.
+  // Campos decimais (Potência) trazem o valor direto. Daí a cascata abaixo.
+  function ehIdDeOpcao(v) {
+    return /^\d{6,}$/.test(String(v == null ? '' : v).trim());
+  }
+
+  function textoVisivelProximo(el) {
+    var node = el;
+    for (var i = 0; i < 5 && node; i++) {
+      node = node.parentElement;
+      if (!node) break;
+      var txt = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (txt && txt.length > 0 && txt.length < 120) return txt;
+    }
+    return '';
+  }
+
+  // Devolve { valor, via } — 'via' alimenta o painel de diagnóstico.
   function readField(key) {
     try {
-      var el = PloomesDocument.querySelector("input[name='" + key + "']")
-        || PloomesDocument.querySelector("select[name='" + key + "']")
-        || PloomesDocument.querySelector("[name='" + key + "']");
-      if (!el) { log('leitura: elemento não encontrado', key); return null; }
-      if (el.tagName === 'SELECT') {
-        var opt = el.options[el.selectedIndex];
-        return opt ? opt.text : el.value;
+      var todos = [].slice.call(PloomesDocument.querySelectorAll("[name='" + key + "']"));
+      if (!todos.length) return { valor: null, via: 'nenhum elemento com esse name' };
+
+      // 1) <select> nativo: o texto da opção selecionada
+      for (var i = 0; i < todos.length; i++) {
+        if (todos[i].tagName === 'SELECT') {
+          var opt = todos[i].options[todos[i].selectedIndex];
+          if (opt && opt.text) return { valor: opt.text, via: 'select' };
+        }
       }
-      return el.value != null ? el.value : el.textContent;
+      // 2) qualquer elemento cujo value já seja texto (não um id de opção)
+      for (var j = 0; j < todos.length; j++) {
+        var v = todos[j].value;
+        if (v && !ehIdDeOpcao(v)) return { valor: v, via: todos[j].tagName.toLowerCase() + '.value' };
+      }
+      // 3) só sobrou id de opção → pega o texto exibido ao lado
+      for (var k = 0; k < todos.length; k++) {
+        if (ehIdDeOpcao(todos[k].value)) {
+          var txt = textoVisivelProximo(todos[k]);
+          if (txt) return { valor: txt, via: 'texto ao lado (id ' + todos[k].value + ')' };
+          return { valor: null, via: 'só o id ' + todos[k].value + ', sem texto legível' };
+        }
+      }
+      // 4) último recurso: textContent do primeiro
+      var tc = (todos[0].textContent || '').trim();
+      if (tc) return { valor: tc, via: 'textContent' };
+      return { valor: null, via: 'encontrado mas vazio' };
     } catch (e) {
       log('erro lendo campo', key, e.message);
-      return null;
+      return { valor: null, via: 'erro: ' + e.message };
     }
+  }
+
+  // Despeja tudo que casa com um name — usado quando a leitura falha.
+  function dumpCampo(key) {
+    var els = [].slice.call(PloomesDocument.querySelectorAll("[name='" + key + "']"));
+    if (!els.length) return 'nenhum elemento com name=' + key;
+    return els.map(function (el, i) {
+      return '#' + i + ' <' + el.tagName.toLowerCase() + '>' +
+        ' type=' + (el.type || '-') +
+        ' value=' + JSON.stringify(el.value == null ? null : String(el.value).slice(0, 40)) +
+        ' texto=' + JSON.stringify((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40));
+    }).join(' | ');
   }
 
   // ── Escrita (native setter p/ inputs controlados por React) ────────────────
@@ -186,7 +251,9 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     return null;
   }
 
-  function writeField(key, value) {
+  // ehHtml=true → o conteúdo é markup e precisa ir como innerHTML. O campo
+  // "Itens do Kit" é multilinha e só renderiza HTML; com texto puro fica vazio.
+  function writeField(key, value, ehHtml) {
     var achado = localizarElementoEscrita(key);
     if (!achado) { log('escrita: campo não encontrado', key); return; }
     var strVal = value == null ? '' : String(value);
@@ -194,7 +261,8 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       if (achado.tipo === 'contenteditable') {
         achado.el.focus();
         achado.el.innerHTML = '';
-        achado.el.textContent = strVal;
+        if (ehHtml) achado.el.innerHTML = strVal;
+        else achado.el.textContent = strVal;
         dispararEventos(achado.el);
         achado.el.blur();
       } else {
@@ -226,18 +294,27 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   function mostrarDiagnostico(ctx) {
     var diag = document.getElementById('mb-diag');
     diag.style.display = 'block';
-    diag.innerHTML =
-      '<b>Lido da proposta:</b> ' +
-      'Potência = <code>' + (ctx.kwp || '—') + '</code> · ' +
-      'Cidade = <code>' + (ctx.cidade || '—') + '</code> → UF <b>' + (ctx.uf || '?') + '</b> · ' +
-      'Estrutura = <code>' + (ctx.estrutura || '—') + '</code> → <b>' + (ctx.fixingType || 'sem mapeamento') + '</b>';
+    var linhas = [
+      '<b>Lido da proposta:</b>',
+      'Potência = <code>' + (ctx.kwp || '—') + '</code> <i>(' + ctx.viaKwp + ')</i>',
+      'Cidade = <code>' + (ctx.cidade || '—') + '</code> → UF <b>' + (ctx.uf || '?') + '</b> <i>(' + ctx.viaCidade + ')</i>',
+      'Estrutura = <code>' + (ctx.estrutura || '—') + '</code> → <b>' + (ctx.fixingType || 'sem mapeamento') + '</b> <i>(' + ctx.viaEstrutura + ')</i>'
+    ];
+    // Quando algo não veio, mostra o DOM cru daquele campo — é o que permite
+    // corrigir o seletor sem mais um ciclo de teste.
+    if (!ctx.uf) linhas.push('<br><b>DOM da Cidade:</b> <code>' + dumpCampo(FIELD_KEYS.cidade) + '</code>');
+    if (!ctx.fixingType) linhas.push('<br><b>DOM da Estrutura:</b> <code>' + dumpCampo(FIELD_KEYS.estrutura) + '</code>');
+    diag.innerHTML = linhas.join(' · ');
   }
 
   function puxarValores() {
+    var rKwp = readField(FIELD_KEYS.potencia);
+    var rCidade = readField(FIELD_KEYS.cidade);
+    var rEstrutura = readField(FIELD_KEYS.estrutura);
     var ctx = {
-      kwp: readField(FIELD_KEYS.potencia),
-      cidade: readField(FIELD_KEYS.cidade),
-      estrutura: readField(FIELD_KEYS.estrutura),
+      kwp: rKwp.valor, viaKwp: rKwp.via,
+      cidade: rCidade.valor, viaCidade: rCidade.via,
+      estrutura: rEstrutura.valor, viaEstrutura: rEstrutura.via,
     };
     ctx.uf = extrairUF(ctx.cidade);
     ctx.fixingType = mapEstrutura(ctx.estrutura);
@@ -273,7 +350,8 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor);
       writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao);
       writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral);
-      writeField(FIELD_KEYS.itens_kit, d.itens_texto);
+      // multilinha: só renderiza HTML
+      writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html);
 
       var btn = document.getElementById('mb-pull');
       var original = btn.innerHTML;

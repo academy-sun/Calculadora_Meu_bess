@@ -144,16 +144,34 @@ export function PloomesEmbedPage() {
     const freteDescricao = frete
       ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
       : null
-    const itensTexto = itens
-      .map(it => `${it.qtd}× ${it.nome} — ${it.preco_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`)
-      .join(' | ')
+    const linhasItens = itens.map(
+      it => `${it.qtd}× ${it.nome} — ${it.preco_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`
+    )
+    const itensTexto = linhasItens.join(' | ')
+    // O campo "Itens do Kit" no Ploomes é multilinha e só renderiza conteúdo
+    // HTML — texto puro com \n ou " | " sai vazio na proposta.
+    const escaparHtml = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const itensHtml = linhasItens.length > 0
+      ? `<ul>${linhasItens.map(l => `<li>${escaparHtml(l)}</li>`).join('')}</ul>`
+      : ''
+
+    // Kit sem bateria (on-grid puro): o template híbrido produzia
+    // "— — Sistema FV On-Grid + 0× —", porque marca/bateria vêm vazias.
+    const semBateria = !kit.qtd_baterias || !kit.bateria_modelo || kit.bateria_modelo === '—'
+    const kwpTxt = kit.kwp_instalado
+      ? `${kit.kwp_instalado.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kWp`
+      : null
+    const kitDescricao = semBateria
+      ? [kit.inversor_modelo || 'Sistema FV On-Grid', kwpTxt].filter(Boolean).join(' — ')
+      : `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`
     // string decimal com vírgula, sem milhar — formato que a máscara de moeda
     // pt-BR do Ploomes interpreta corretamente ao ser "digitado" via script
     const brStr = (v: number | null) => v == null ? '' : v.toFixed(2).replace('.', ',')
 
     window.parent.postMessage({
       type: 'meubess:saved',
-      kit_descricao: `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`,
+      kit_descricao: kitDescricao,
       kit_preco: kitPreco,
       kit_preco_str: brStr(kitPreco),
       frete_valor: freteValor,
@@ -162,6 +180,7 @@ export function PloomesEmbedPage() {
       total_geral: totalGeral,
       total_geral_str: brStr(totalGeral),
       itens_texto: itensTexto,
+      itens_html: itensHtml,
     }, '*')
     setEnviado(true)
   }

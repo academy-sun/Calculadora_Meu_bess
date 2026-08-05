@@ -77,6 +77,22 @@ def _option_to_info(
     )
 
 
+def _resolver_frete(req: CalculateRequest, kit: KitInfo | None) -> dict | None:
+    """Frete do kit escolhido.
+
+    Compartilhado pelo retorno antecipado do on-grid puro (sem cargas) e pelo
+    fluxo principal. Antes só o fluxo principal calculava, então kit on-grid
+    saía sempre sem frete — inclusive com CIF e UF preenchidos.
+    """
+    if not kit:
+        return None
+    if req.tipo_frete == "fob":
+        return calcular_frete_fob(kit.preco_total)
+    if req.tipo_frete == "cif" and req.uf_entrega:
+        return calcular_frete(req.uf_entrega, kit.preco_total)
+    return None
+
+
 def _select_kits(kits, e_bat_kwh: float, jbw_produtos: list | None = None) -> tuple[KitInfo | None, list[KitInfo]]:
     """
     Seleciona até 3 opções de kit a partir da lista (já ordenada por preço crescente,
@@ -207,6 +223,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 kwp_alvo=round(kwp_alvo_calculado, 3),
                 kit_selecionado=kit_selecionado,
                 alternativas=[],
+                frete=_resolver_frete(req, kit_selecionado),
             )
 
         # ── Com tabela de cargas: dimensiona armazenamento ────────────────
@@ -433,12 +450,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
     calculado_em = datetime.now(timezone.utc)
 
-    frete_info = None
-    if kit_selecionado:
-        if req.tipo_frete == "fob":
-            frete_info = calcular_frete_fob(kit_selecionado.preco_total)
-        elif req.tipo_frete == "cif" and req.uf_entrega:
-            frete_info = calcular_frete(req.uf_entrega, kit_selecionado.preco_total)
+    frete_info = _resolver_frete(req, kit_selecionado)
 
     # Integração com Ploomes (Sync Automático) — apenas notifica, não persiste mais
     # (o Project só é criado quando o usuário escolhe um kit, via POST /projects)
