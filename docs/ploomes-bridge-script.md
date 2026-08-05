@@ -1,7 +1,27 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v6)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v7)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v7 (2026-08-05) — a causa do "Itens do Kit" vazio
+
+O campo é um **TinyMCE**, não um campo de texto. Um editor rico é montado
+*sobre* um `<textarea>` que fica escondido; o conteúdo visível mora num
+**iframe** do próprio editor. A v6 achava esse textarea e escrevia nele — daí o
+log dizer "escrito (textarea)" com o HTML certo e a tela continuar vazia. A
+sincronização textarea↔editor é de mão única: o editor lê o textarea na
+inicialização e escreve de volta ao salvar, nunca o contrário.
+
+A v7 escreve no editor:
+
+1. `window.tinymce.setContent()` quando a API do TinyMCE está acessível — é o
+   caminho bom, porque sincroniza o textarea de apoio e dispara os eventos que
+   o Ploomes escuta.
+2. Se não estiver, escreve direto no `body` do iframe do editor (`<id>_ifr`) e
+   mantém o textarea de apoio coerente, que é de onde o Ploomes salva.
+
+A conferência passou a **ler do editor**, não do textarea — senão ela diria ✓
+justamente no caso em que a tela está vazia, que foi o que aconteceu.
 
 ## Mudanças da v6 (2026-08-05)
 
@@ -358,6 +378,65 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     return localizarPorRotulo(rotulo);
   }
 
+  // ── Editor rico (TinyMCE) ──────────────────────────────────────────────────
+  // O campo "Itens do Kit" é um TinyMCE montado sobre um <textarea> escondido.
+  // Escrever no textarea NÃO funciona: o editor só copia dele para si na
+  // inicialização, e depois só escreve de volta ao salvar. O conteúdo visível
+  // mora num iframe do próprio editor. Por isso escrevemos no editor.
+  function editorRico(el) {
+    var win = PloomesDocument.defaultView;
+    var id = el.id || el.getAttribute('id');
+
+    // 1) API do TinyMCE — caminho bom: sincroniza e dispara os eventos certos
+    try {
+      var tiny = win && win.tinymce;
+      if (tiny) {
+        var ed = (id && tiny.get) ? tiny.get(id) : null;
+        if (!ed && tiny.editors) {
+          for (var i = 0; i < tiny.editors.length; i++) {
+            var cand = tiny.editors[i];
+            if (cand.getElement && cand.getElement() === el) { ed = cand; break; }
+          }
+        }
+        if (ed) return { tipo: 'tinymce', ed: ed, el: el };
+      }
+    } catch (e) { log('tinymce inacessível:', e.message); }
+
+    // 2) iframe do editor — o TinyMCE nomeia como <id do textarea> + "_ifr"
+    if (id) {
+      var ifr = PloomesDocument.getElementById(id + '_ifr');
+      if (ifr && ifr.contentDocument && ifr.contentDocument.body) {
+        return { tipo: 'iframe', ifr: ifr, el: el };
+      }
+    }
+    return null;
+  }
+
+  function escreverNoEditor(rico, html) {
+    if (rico.tipo === 'tinymce') {
+      rico.ed.setContent(html);
+      if (rico.ed.save) rico.ed.save();          // devolve para o textarea de apoio
+      if (rico.ed.fire) rico.ed.fire('change');
+      return 'tinymce.setContent';
+    }
+    var doc = rico.ifr.contentDocument;
+    doc.body.innerHTML = html;
+    try {
+      var W = rico.ifr.contentWindow;
+      doc.body.dispatchEvent(new W.Event('input', { bubbles: true }));
+      doc.body.dispatchEvent(new W.Event('change', { bubbles: true }));
+    } catch (e) {}
+    // mantém o textarea de apoio coerente, que é de onde o Ploomes salva
+    setValorNativo(rico.el, html);
+    dispararEventos(rico.el);
+    return 'iframe do editor';
+  }
+
+  function lerDoEditor(rico) {
+    if (rico.tipo === 'tinymce') return rico.ed.getContent() || '';
+    return (rico.ifr.contentDocument.body.innerHTML) || '';
+  }
+
   // ehHtml=true → o conteúdo é markup e precisa ir como innerHTML. O campo
   // "Itens do Kit" é multilinha e só renderiza HTML; com texto puro fica vazio.
   function writeField(key, value, ehHtml, rotulo) {
@@ -365,6 +444,15 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     if (!achado) { log('escrita: campo não encontrado', key); return; }
     var strVal = value == null ? '' : String(value);
     try {
+      // textarea coberto por um editor rico: escrever nele não muda nada na
+      // tela, o conteúdo visível está no editor.
+      var rico = achado.tipo === 'textarea' ? editorRico(achado.el) : null;
+      if (rico) {
+        var comoFoi = escreverNoEditor(rico, strVal);
+        achado.rico = rico;
+        log('escrito', key, '(' + comoFoi + ')', '=', strVal);
+        return;
+      }
       if (achado.tipo === 'contenteditable') {
         achado.el.focus();
         achado.el.innerHTML = '';
@@ -490,6 +578,19 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     out.push('localizar por rótulo: ' +
       (porRotulo ? '<b>achou ' + porRotulo.tipo + '</b> — ' + porRotulo.via : '<b>não achou</b>'));
 
+    // estado do editor rico: é o que decide se a escrita chega à tela
+    var alvo = localizarElementoEscrita(key, rotulo);
+    if (alvo && alvo.tipo === 'textarea') {
+      var r = editorRico(alvo.el);
+      out.push('editor rico sobre o textarea: ' +
+        (r ? '<b>' + r.tipo + '</b> (id ' + (alvo.el.id || '-') + ')'
+           : '<b>nenhum</b> (id ' + (alvo.el.id || '-') + ')'));
+      var win = PloomesDocument.defaultView;
+      var temTiny = false;
+      try { temTiny = !!(win && win.tinymce); } catch (e) {}
+      out.push('window.tinymce acessível: <b>' + (temTiny ? 'sim' : 'não') + '</b>');
+    }
+
     return out.join(' · ');
   }
 
@@ -511,13 +612,25 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       var key = FIELD_KEYS[nome];
       var achado = localizarElementoEscrita(key, FIELD_LABELS[nome]);
       if (!achado) { linhas.push(nome + ': <b>campo não encontrado no DOM</b>'); continue; }
-      var atual = achado.tipo === 'contenteditable'
-        ? (achado.el.innerHTML || '')
-        : (achado.el.value || '');
+
+      // num editor rico, o textarea pode estar certo e a tela vazia — o que
+      // vale conferir é o conteúdo do editor
+      var rico = achado.tipo === 'textarea' ? editorRico(achado.el) : null;
+      var atual, onde;
+      if (rico) {
+        atual = lerDoEditor(rico);
+        onde = 'editor ' + rico.tipo;
+      } else if (achado.tipo === 'contenteditable') {
+        atual = achado.el.innerHTML || '';
+        onde = 'contenteditable';
+      } else {
+        atual = achado.el.value || '';
+        onde = achado.tipo;
+      }
       var tamEsperado = String(esperado[nome] == null ? '' : esperado[nome]).length;
       var ok = String(atual).trim().length > 0;
       linhas.push(nome + ': ' + (ok ? '✓' : '✗ VAZIO') +
-        ' <i>(' + achado.tipo + ' via ' + (achado.via || '?') + ', gravado ' +
+        ' <i>(' + onde + ' via ' + (achado.via || '?') + ', gravado ' +
         String(atual).length + ' de ' + tamEsperado + ' chars)</i>');
     }
     linhas.push('<br>' + diagnosticoProfundo(FIELD_KEYS.itens_kit, FIELD_LABELS.itens_kit));
