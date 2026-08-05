@@ -11,8 +11,10 @@ A conferência da v5 mostrou que `Itens do Kit` **não existe no DOM** com
 
 1. **Localização por rótulo.** Além de `name=<key>` e de qualquer atributo que
    contenha a key, o script agora acha o controle editável mais próximo do
-   rótulo visível ("MeuBESS BESS — Itens do Kit"). Se o campo estiver na tela
-   com outra assinatura de DOM, isso resolve.
+   rótulo visível. Tenta o nome completo ("MeuBESS BESS — Itens do Kit") e
+   depois só a parte distintiva ("Itens do Kit"), porque o formulário pode
+   mostrar o rótulo encurtado. Se o campo estiver na tela com outra assinatura
+   de DOM, isso resolve.
 2. **Diagnóstico profundo** desse campo: procura a key em qualquer atributo de
    qualquer elemento, diz se o rótulo aparece na tela, conta textareas /
    contenteditables / iframes e mostra uma amostra. Isso separa as duas
@@ -278,32 +280,56 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function achatar(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim().replace(/[—–-]/g, '-').toLowerCase();
+  }
+
+  // Variações do rótulo a tentar: o nome completo e, depois, só a parte
+  // distintiva depois do travessão — o formulário pode mostrar apenas
+  // "Itens do Kit" em vez de "MeuBESS BESS — Itens do Kit".
+  function variacoesDeRotulo(rotulo) {
+    if (!rotulo) return [];
+    var v = [rotulo];
+    var partes = rotulo.split(/[—–]/);
+    if (partes.length > 1) {
+      var curto = partes[partes.length - 1].trim();
+      if (curto.length >= 4) v.push(curto);
+    }
+    return v;
+  }
+
   // Acha o controle editável mais próximo de um rótulo visível. É assim que se
   // chega ao campo multilinha, que não expõe name=<key> no DOM.
   function localizarPorRotulo(rotulo) {
-    if (!rotulo) return null;
-    var alvo = rotulo.replace(/\s+/g, ' ').trim();
-    // compara tambem sem travessao/acento, que variam entre telas
-    var simples = alvo.replace(/[—–-]/g, '-').toLowerCase();
-
+    var variantes = variacoesDeRotulo(rotulo);
     var todos = PloomesDocument.querySelectorAll('label, span, div, p, td, th, legend');
-    for (var i = 0; i < todos.length; i++) {
-      var txt = (todos[i].textContent || '').replace(/\s+/g, ' ').trim();
-      if (!txt || txt.length > alvo.length + 15) continue;   // evita casar o container inteiro
-      if (txt.replace(/[—–-]/g, '-').toLowerCase().indexOf(simples) === -1) continue;
 
-      // sobe até 6 níveis procurando um editável dentro do mesmo bloco
-      var node = todos[i];
-      for (var nivel = 0; nivel < 6 && node; nivel++) {
-        var cand = node.querySelector('textarea')
-          || node.querySelector("[contenteditable='true']")
-          || node.querySelector('input:not([type=hidden])');
-        if (cand) {
-          var tipo = cand.tagName === 'TEXTAREA' ? 'textarea'
-            : (cand.getAttribute('contenteditable') === 'true' ? 'contenteditable' : 'input');
-          return { el: cand, tipo: tipo, via: 'rótulo "' + txt + '" (nível ' + nivel + ')' };
+    for (var v = 0; v < variantes.length; v++) {
+      var alvo = achatar(variantes[v]);
+      if (!alvo) continue;
+      for (var i = 0; i < todos.length; i++) {
+        var txt = (todos[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if (!txt) continue;
+        // o elemento tem que ser o rótulo, não um container que o engloba
+        if (achatar(txt).length > alvo.length + 15) continue;
+        if (achatar(txt).indexOf(alvo) === -1) continue;
+
+        // sobe até 6 níveis procurando um editável dentro do mesmo bloco
+        var node = todos[i];
+        for (var nivel = 0; nivel < 6 && node; nivel++) {
+          var cand = node.querySelector('textarea')
+            || node.querySelector("[contenteditable='true']")
+            || node.querySelector('input:not([type=hidden])');
+          if (cand) {
+            var tipo = cand.tagName === 'TEXTAREA' ? 'textarea'
+              : (cand.getAttribute('contenteditable') === 'true' ? 'contenteditable' : 'input');
+            return {
+              el: cand, tipo: tipo,
+              via: 'rótulo "' + txt + '" (nível ' + nivel + ')',
+            };
+          }
+          node = node.parentElement;
         }
-        node = node.parentElement;
       }
     }
     return null;
