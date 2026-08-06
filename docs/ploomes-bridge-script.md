@@ -1,7 +1,31 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v8)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v9)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v9 (2026-08-05)
+
+1. **Para de escrever em `Quantidade de módulos` e `Potência do sistema (kWp)`.**
+   São campos de **fórmula** do Ploomes (`InternalFormula` preenchida; o do
+   inteiro está `Disabled=true`). O Ploomes recalcula por cima, então escrever
+   ali nunca ia funcionar. Ver a seção "Campos de fórmula" abaixo.
+2. **Escrita numérica com verificação e segunda tentativa.** Campos decimais
+   (TypeId 6) e percentuais (TypeId 13) têm máscara própria, que pode não
+   aceitar o mesmo formato da máscara de moeda. O script escreve, relê, e se o
+   campo continuar vazio tenta com o outro separador decimal. A conferência
+   informa qual formato funcionou.
+3. Coluna "Quantidade" da tabela encolhe até o conteúdo.
+
+## Campos de fórmula — o que dá e o que não dá
+
+`Quantidade de módulos` (`quote_319B3CB7…`) e `Potência do sistema (kWp)`
+(`quote_1191E9E2…`) são calculados pelo Ploomes a partir da tabela de produtos
+da proposta. Não há como um script preencher: qualquer valor escrito é
+substituído no recálculo. Dois caminhos possíveis, os dois fora do script:
+
+- ajustar a fórmula desses campos para referenciar os campos MeuBESS; ou
+- criar `MeuBESS BESS — Quantidade de Módulos` e
+  `MeuBESS BESS — Potência do Sistema (kWp)` e usá-los na proposta.
 
 ## Mudanças da v8 (2026-08-05)
 
@@ -524,6 +548,38 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     }
   }
 
+  // Campos decimais/percentuais têm máscara própria, que pode recusar o formato
+  // que a máscara de moeda aceita. Escreve, relê, e se não pegou tenta o outro
+  // separador decimal. O resultado vai para o log, então numa próxima falha já
+  // se sabe qual formato o campo quer.
+  var NUMERICOS_VIA = {};
+
+  function writeNumero(key, valorBr, valorNum, rotulo) {
+    if ((valorBr == null || valorBr === '') && valorNum == null) {
+      writeField(key, '', false, rotulo);
+      NUMERICOS_VIA[key] = 'sem valor';
+      return;
+    }
+    var comVirgula = valorBr != null && valorBr !== '' ? String(valorBr) : String(valorNum);
+    var comPonto = comVirgula.replace(',', '.');
+    var tentativas = [
+      { rotuloTentativa: 'vírgula', valor: comVirgula },
+      { rotuloTentativa: 'ponto', valor: comPonto },
+    ];
+
+    for (var i = 0; i < tentativas.length; i++) {
+      writeField(key, tentativas[i].valor, false, rotulo);
+      var achado = localizarElementoEscrita(key, rotulo);
+      var atual = achado ? String(achado.el.value || '') : '';
+      if (atual.trim() !== '') {
+        NUMERICOS_VIA[key] = tentativas[i].rotuloTentativa + ' → "' + atual + '"';
+        return;
+      }
+    }
+    NUMERICOS_VIA[key] = 'nenhum formato pegou';
+    log('numero nao gravou', key, comVirgula);
+  }
+
   // ── Contexto da proposta → iframe ──────────────────────────────────────────
   // Tenta uma lista de campos em ordem e devolve o primeiro com valor.
   function readPrimeiro(chaves) {
@@ -655,8 +711,6 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       frete_modalidade: d.frete_descricao,
       total_geral: d.total_geral_str || d.total_geral,
       itens_kit: d.itens_html || d.itens_texto,
-      qtd_modulos: d.qtd_modulos,
-      kwp_sistema: d.kwp_sistema_str || d.kwp_sistema,
       descricao_modulos: d.descricao_modulos,
       descricao_inversores: d.descricao_inversores,
       descricao_baterias: d.descricao_baterias,
@@ -692,9 +746,10 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
         continue;
       }
       var ok = String(atual).trim().length > 0;
+      var extra = NUMERICOS_VIA[key] ? ', formato ' + NUMERICOS_VIA[key] : '';
       linhas.push(nome + ': ' + (ok ? '✓' : '✗ VAZIO') +
         ' <i>(' + onde + ' via ' + (achado.via || '?') + ', gravado ' +
-        String(atual).length + ' de ' + esp.length + ' chars)</i>');
+        String(atual).length + ' de ' + esp.length + ' chars' + extra + ')</i>');
     }
     linhas.push('<br>' + diagnosticoProfundo(FIELD_KEYS.itens_kit, FIELD_LABELS.itens_kit));
     var diag = document.getElementById('mb-diag');
@@ -723,16 +778,18 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       // multilinha (TinyMCE): recebe a tabela em HTML
       writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html, FIELD_LABELS.itens_kit);
 
-      // pré-existentes: quantidade de módulos (inteiro) e potência do sistema
-      writeField(FIELD_KEYS.qtd_modulos, d.qtd_modulos, false, FIELD_LABELS.qtd_modulos);
-      writeField(FIELD_KEYS.kwp_sistema, d.kwp_sistema_str || d.kwp_sistema, false, FIELD_LABELS.kwp_sistema);
+      // "Quantidade de módulos" e "Potência do sistema (kWp)" NÃO são escritos:
+      // são campos de fórmula do Ploomes (o do inteiro está inclusive
+      // Disabled=true). Escrever neles é inócuo — a fórmula recalcula por cima.
 
-      // descrições por categoria + indicadores
+      // descrições por categoria
       writeField(FIELD_KEYS.descricao_modulos, d.descricao_modulos, false, FIELD_LABELS.descricao_modulos);
       writeField(FIELD_KEYS.descricao_inversores, d.descricao_inversores, false, FIELD_LABELS.descricao_inversores);
       writeField(FIELD_KEYS.descricao_baterias, d.descricao_baterias, false, FIELD_LABELS.descricao_baterias);
-      writeField(FIELD_KEYS.cobertura_pct, d.cobertura_pct_str || d.cobertura_pct, false, FIELD_LABELS.cobertura_pct);
-      writeField(FIELD_KEYS.autonomia_dias, d.autonomia_dias_str || d.autonomia_dias, false, FIELD_LABELS.autonomia_dias);
+
+      // numéricos com máscara: ver writeNumero
+      writeNumero(FIELD_KEYS.cobertura_pct, d.cobertura_pct_str, d.cobertura_pct, FIELD_LABELS.cobertura_pct);
+      writeNumero(FIELD_KEYS.autonomia_dias, d.autonomia_dias_str, d.autonomia_dias, FIELD_LABELS.autonomia_dias);
 
       conferirEscrita(d);
 

@@ -106,7 +106,15 @@ describe('montarTabelaItensHtml', () => {
   it('traz todos os itens, inclusive acessórios', () => {
     expect((html.match(/<tr>/g) || []).length).toBe(5)   // cabeçalho + 4 itens
     expect(html).toContain('W - Conector MC4')
-    expect(html).toContain('<td style="border:1px solid #000;padding:4px 8px;text-align:center">15</td>')
+    expect(html).toContain('>15</td>')                   // qtd de módulos
+    expect(html).toContain('>W - 550 Wp - WEG - Módulo (Estoque)</td>')
+  })
+
+  it('coluna de quantidade encolhe ao conteúdo, descrição fica com o resto', () => {
+    // width:1% + nowrap = o navegador usa o mínimo que cabe sem quebrar
+    expect((html.match(/width:1%;white-space:nowrap/g) || []).length).toBe(1 + 4)
+    // a coluna de descrição não leva largura fixa
+    expect(html).not.toContain('>Descrição<'.replace('>', 'width:1%>'))
   })
 
   it('cabeçalho em negrito, bordas e centralização em todas as células', () => {

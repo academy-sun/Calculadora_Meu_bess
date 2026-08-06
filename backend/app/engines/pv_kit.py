@@ -133,6 +133,10 @@ def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
       Isc do módulo excede o limite, o inversor é incompatível (retorna 0). A corrente
       NOMINAL (string_current vs Imp) só causa clipping de energia, não é bloqueio.
     - Capacidade total = n_serie × entradas/MPPT × qty_mppt × qtd_inv.
+    - **Teto de potência**: caber eletricamente não é o mesmo que o inversor
+      processar aquela potência. Um SIW200H M075 (7,5 kW, 3 MPPT, Voc máx 600 V)
+      aceita 36 módulos de 550 Wp pela tensão/corrente — 19,8 kWp, ou DC/AC de
+      2,6. Sem esse teto, o motor entregava kits assim.
     """
     voc_max = eff_float(inv, "voc_max_voltage")
     qty_mppt = eff_int(inv, "qty_mppt")
@@ -149,7 +153,22 @@ def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
     if isc_max and modulo.isc_a > isc_max:
         return 0
 
-    return n_serie * inputs_per_mppt * qty_mppt * qtd_inv
+    cap_eletrica = n_serie * inputs_per_mppt * qty_mppt * qtd_inv
+
+    # Limite de potência CC. O ideal seria a "potência máxima do gerador FV" do
+    # datasheet, que HOJE NÃO EXISTE no cadastro (ver
+    # .claude/skills/dimensionamento-kit-bess-hibrido) — na ausência dela usamos
+    # o mesmo oversizing DC/AC já adotado na seleção de inversor string, em vez
+    # de deixar sem teto nenhum. Quando o atributo for cadastrado, ele deve ter
+    # prioridade sobre esta conta.
+    potencia_ca_kw = eff_float(inv, "power") or eff_float(inv, "max_output_power")
+    if potencia_ca_kw and potencia_ca_kw > 0 and modulo.wp > 0:
+        cap_potencia = math.floor(
+            potencia_ca_kw * qtd_inv * OVERSIZE_DC_AC * 1000 / modulo.wp
+        )
+        return max(0, min(cap_eletrica, cap_potencia))
+
+    return cap_eletrica
 
 
 # ─────────────────────────────────────────────────────────────────────────────
