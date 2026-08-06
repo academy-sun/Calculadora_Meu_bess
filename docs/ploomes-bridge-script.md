@@ -1,7 +1,39 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v7)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v8)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v8 (2026-08-05)
+
+Passa a escrever **13 campos** em vez de 6.
+
+Pré-existentes da proposta:
+
+| Campo | Key | Tipo |
+|---|---|---|
+| Quantidade de módulos | `quote_319B3CB7…` | inteiro |
+| Potência do sistema (kWp) | `quote_1191E9E2…` | decimal |
+
+Criados em 05/08/2026 (via API, `EntityId=7`):
+
+| Campo | Key | Tipo |
+|---|---|---|
+| MeuBESS BESS — Descrição dos Módulos | `quote_F82B125F…` | texto (250) |
+| MeuBESS BESS — Descrição dos Inversores | `quote_FABF58E9…` | texto (250) |
+| MeuBESS BESS — Descrição das Baterias | `quote_830ABF7B…` | texto (250) |
+| MeuBESS BESS — % de Cobertura | `quote_D1CFFA10…` | percentual (13) |
+| MeuBESS BESS — Tempo de Autonomia (dias) | `quote_3402361B…` | decimal (6) |
+
+O campo percentual guarda o número **já multiplicado por 100** — mesma
+convenção do "Taxa de simultaneidade" da conta, que grava `80.0` para 80%.
+
+**Itens do Kit agora é uma tabela** de duas colunas (Quantidade, Descrição),
+sem valores unitários, com cabeçalho em negrito, todas as bordas e células
+centralizadas. O estilo vai inline em cada célula porque o HTML é renderizado
+na proposta impressa, onde o CSS da aplicação não existe.
+
+A conferência distingue **vazio esperado** de falha: kit on-grid puro não tem
+bateria, cobertura nem autonomia, e ali o campo em branco está certo.
 
 ## Mudanças da v7 (2026-08-05) — a causa do "Itens do Kit" vazio
 
@@ -198,6 +230,17 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     frete_modalidade: 'quote_11FB5869-986E-44DD-92D3-AC9AF25233B3',
     total_geral: 'quote_9C8BDB19-3BD3-47E8-8B0C-E6C454248220',
     itens_kit: 'quote_F026D026-5B7F-44CC-9B98-32635D1A58B5',
+
+    // pré-existentes da proposta (não são "MeuBESS BESS — …")
+    qtd_modulos: 'quote_319B3CB7-8C42-4ABD-A2AB-ECD1418A3F5E',   // inteiro
+    kwp_sistema: 'quote_1191E9E2-7A0A-4B11-B56C-5D44D1B7BFF3',   // decimal
+
+    // criados em 05/08/2026
+    descricao_modulos: 'quote_F82B125F-B21B-4468-92FC-596D3F85EE72',
+    descricao_inversores: 'quote_FABF58E9-1A20-4258-BF72-096DCFDDBAD0',
+    descricao_baterias: 'quote_830ABF7B-A364-40FE-8760-3BEF2E1502DD',
+    cobertura_pct: 'quote_D1CFFA10-859C-44BB-A149-29E461E26560',  // percentual
+    autonomia_dias: 'quote_3402361B-699B-45E9-9139-86029121B424', // decimal
   };
 
   // Rótulo visível de cada campo. Usado como último recurso para localizar o
@@ -210,6 +253,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     frete_modalidade: 'MeuBESS BESS — Modalidade do Frete',
     total_geral: 'MeuBESS BESS — Total (Kit + Frete)',
     itens_kit: 'MeuBESS BESS — Itens do Kit',
+    qtd_modulos: 'Quantidade de módulos',
+    kwp_sistema: 'Potência do sistema (kWp)',
+    descricao_modulos: 'MeuBESS BESS — Descrição dos Módulos',
+    descricao_inversores: 'MeuBESS BESS — Descrição dos Inversores',
+    descricao_baterias: 'MeuBESS BESS — Descrição das Baterias',
+    cobertura_pct: 'MeuBESS BESS — % de Cobertura',
+    autonomia_dias: 'MeuBESS BESS — Tempo de Autonomia (dias)',
   };
 
   // Sem tabela de de:para aqui de propósito — a tradução Estrutura →
@@ -605,6 +655,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       frete_modalidade: d.frete_descricao,
       total_geral: d.total_geral_str || d.total_geral,
       itens_kit: d.itens_html || d.itens_texto,
+      qtd_modulos: d.qtd_modulos,
+      kwp_sistema: d.kwp_sistema_str || d.kwp_sistema,
+      descricao_modulos: d.descricao_modulos,
+      descricao_inversores: d.descricao_inversores,
+      descricao_baterias: d.descricao_baterias,
+      cobertura_pct: d.cobertura_pct_str || d.cobertura_pct,
+      autonomia_dias: d.autonomia_dias_str || d.autonomia_dias,
     };
     var linhas = ['<b>Conferência da escrita:</b>'];
     for (var nome in esperado) {
@@ -627,11 +684,17 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
         atual = achado.el.value || '';
         onde = achado.tipo;
       }
-      var tamEsperado = String(esperado[nome] == null ? '' : esperado[nome]).length;
+      var esp = String(esperado[nome] == null ? '' : esperado[nome]);
+      // vazio esperado é legítimo: kit on-grid não tem bateria, cobertura nem
+      // autonomia. Marcar como falha aí só geraria alarme falso.
+      if (esp.length === 0) {
+        linhas.push(nome + ': — <i>(sem valor para este kit)</i>');
+        continue;
+      }
       var ok = String(atual).trim().length > 0;
       linhas.push(nome + ': ' + (ok ? '✓' : '✗ VAZIO') +
         ' <i>(' + onde + ' via ' + (achado.via || '?') + ', gravado ' +
-        String(atual).length + ' de ' + tamEsperado + ' chars)</i>');
+        String(atual).length + ' de ' + esp.length + ' chars)</i>');
     }
     linhas.push('<br>' + diagnosticoProfundo(FIELD_KEYS.itens_kit, FIELD_LABELS.itens_kit));
     var diag = document.getElementById('mb-diag');
@@ -657,8 +720,20 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor, false, FIELD_LABELS.frete_valor);
       writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao, false, FIELD_LABELS.frete_modalidade);
       writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral, false, FIELD_LABELS.total_geral);
-      // multilinha: só renderiza HTML
+      // multilinha (TinyMCE): recebe a tabela em HTML
       writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html, FIELD_LABELS.itens_kit);
+
+      // pré-existentes: quantidade de módulos (inteiro) e potência do sistema
+      writeField(FIELD_KEYS.qtd_modulos, d.qtd_modulos, false, FIELD_LABELS.qtd_modulos);
+      writeField(FIELD_KEYS.kwp_sistema, d.kwp_sistema_str || d.kwp_sistema, false, FIELD_LABELS.kwp_sistema);
+
+      // descrições por categoria + indicadores
+      writeField(FIELD_KEYS.descricao_modulos, d.descricao_modulos, false, FIELD_LABELS.descricao_modulos);
+      writeField(FIELD_KEYS.descricao_inversores, d.descricao_inversores, false, FIELD_LABELS.descricao_inversores);
+      writeField(FIELD_KEYS.descricao_baterias, d.descricao_baterias, false, FIELD_LABELS.descricao_baterias);
+      writeField(FIELD_KEYS.cobertura_pct, d.cobertura_pct_str || d.cobertura_pct, false, FIELD_LABELS.cobertura_pct);
+      writeField(FIELD_KEYS.autonomia_dias, d.autonomia_dias_str || d.autonomia_dias, false, FIELD_LABELS.autonomia_dias);
+
       conferirEscrita(d);
 
       var btn = document.getElementById('mb-pull');

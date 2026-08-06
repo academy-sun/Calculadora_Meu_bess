@@ -8,6 +8,7 @@ import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
 import { extrairUF, normalizarFixingType } from '@/lib/ploomesContext'
+import { resumoParaProposta } from '@/lib/ploomesProposta'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
 /**
@@ -155,17 +156,13 @@ export function PloomesEmbedPage() {
     const freteDescricao = frete
       ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
       : null
-    const linhasItens = itens.map(
-      it => `${it.qtd}× ${it.nome} — ${it.preco_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`
+    // Texto puro só como fallback; o campo é um TinyMCE e recebe a tabela HTML.
+    const itensTexto = itens.map(it => `${it.qtd}× ${it.nome}`).join(' | ')
+    const resumo = resumoParaProposta(
+      kit,
+      result?.energia_necessaria_kwh,
+      parseFloat(autonomia) || null,
     )
-    const itensTexto = linhasItens.join(' | ')
-    // O campo "Itens do Kit" no Ploomes é multilinha e só renderiza conteúdo
-    // HTML — texto puro com \n ou " | " sai vazio na proposta.
-    const escaparHtml = (s: string) =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const itensHtml = linhasItens.length > 0
-      ? `<ul>${linhasItens.map(l => `<li>${escaparHtml(l)}</li>`).join('')}</ul>`
-      : ''
 
     // Kit sem bateria (on-grid puro): o template híbrido produzia
     // "— — Sistema FV On-Grid + 0× —", porque marca/bateria vêm vazias.
@@ -179,6 +176,8 @@ export function PloomesEmbedPage() {
     // string decimal com vírgula, sem milhar — formato que a máscara de moeda
     // pt-BR do Ploomes interpreta corretamente ao ser "digitado" via script
     const brStr = (v: number | null) => v == null ? '' : v.toFixed(2).replace('.', ',')
+    const brNum = (v: number | null, casas: number) =>
+      v == null ? '' : v.toFixed(casas).replace('.', ',')
 
     window.parent.postMessage({
       type: 'meubess:saved',
@@ -191,7 +190,20 @@ export function PloomesEmbedPage() {
       total_geral: totalGeral,
       total_geral_str: brStr(totalGeral),
       itens_texto: itensTexto,
-      itens_html: itensHtml,
+      itens_html: resumo.itens_html,
+
+      // campos pré-existentes da proposta
+      qtd_modulos: resumo.qtd_modulos,
+      kwp_sistema: resumo.kwp_sistema,
+      kwp_sistema_str: brNum(resumo.kwp_sistema, 2),
+      // campos novos
+      descricao_modulos: resumo.descricao_modulos,
+      descricao_inversores: resumo.descricao_inversores,
+      descricao_baterias: resumo.descricao_baterias,
+      cobertura_pct: resumo.cobertura_pct,
+      cobertura_pct_str: brNum(resumo.cobertura_pct, 1),
+      autonomia_dias: resumo.autonomia_dias,
+      autonomia_dias_str: brNum(resumo.autonomia_dias, 1),
     }, '*')
     setEnviado(true)
   }
