@@ -103,6 +103,32 @@ export function normalizarFixingType(raw: string | null | undefined): FixingType
   return ''
 }
 
+/** Rótulo legível de cada `fixing_type` — o mesmo texto do seletor do formulário. */
+const ROTULOS: Record<FixingType, string> = {
+  tile_ceramic: 'Telha cerâmica',
+  tile_fiber_wood: 'Telha fibrocimento (terça madeira)',
+  tile_fiber_metal: 'Telha fibrometálica',
+  tile_metal_mini: 'Telha metálica — mini trilho baixo',
+  tile_metal_mini_high: 'Telha metálica — mini trilho alto',
+  tile_metal_long: 'Telha metálica ondulada',
+  tile_zipped: 'Telha zipada',
+  slab_portrait: 'Laje (retrato)',
+  ground_pratyc: 'Solo — Pratyc',
+  ground_ccs: 'Solo — CCS',
+}
+
+/**
+ * `fixing_type` → texto para a proposta. A proposta é um documento comercial;
+ * mandar `tile_ceramic` para o cliente não serve. Valor não reconhecido volta
+ * como veio, para não sumir com a informação.
+ */
+export function rotuloFixingType(valor: string | null | undefined): string {
+  if (!valor) return ''
+  const canonico = normalizarFixingType(valor)
+  if (canonico) return ROTULOS[canonico]
+  return String(valor).trim()
+}
+
 const UFS = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
   'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',

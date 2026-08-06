@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extrairUF, normalizarFixingType } from './ploomesContext'
+import { FIXING_TYPES, extrairUF, normalizarFixingType, rotuloFixingType } from './ploomesContext'
 
 describe('normalizarFixingType', () => {
   it('aceita o valor canônico direto — caso do campo "Estrutura Requisição"', () => {
@@ -75,5 +75,32 @@ describe('extrairUF', () => {
   it('não se perde com nome de cidade que termina em duas letras', () => {
     // "BA" aqui é o fim de "Bahia"? Não — o separador exige token isolado.
     expect(extrairUF('Barreiras - BA')).toBe('BA')
+  })
+})
+
+describe('rotuloFixingType', () => {
+  it('traduz o código canônico para o texto do formulário', () => {
+    expect(rotuloFixingType('tile_ceramic')).toBe('Telha cerâmica')
+    expect(rotuloFixingType('ground_pratyc')).toBe('Solo — Pratyc')
+    expect(rotuloFixingType('tile_metal_mini_high')).toBe('Telha metálica — mini trilho alto')
+  })
+
+  it('aceita o rótulo do CRM e devolve o texto padronizado', () => {
+    expect(rotuloFixingType('Telhado Cerâmico')).toBe('Telha cerâmica')
+  })
+
+  it('nunca deixa o código interno vazar para a proposta', () => {
+    for (const t of FIXING_TYPES) {
+      expect(rotuloFixingType(t)).not.toMatch(/^[a-z_]+$/)
+    }
+  })
+
+  it('valor não reconhecido volta como veio, sem perder informação', () => {
+    expect(rotuloFixingType('Telhado Shingle')).toBe('Telhado Shingle')
+  })
+
+  it('vazio continua vazio', () => {
+    expect(rotuloFixingType('')).toBe('')
+    expect(rotuloFixingType(null)).toBe('')
   })
 })

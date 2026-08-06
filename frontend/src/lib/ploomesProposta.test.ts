@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { montarTabelaItensHtml, resumoParaProposta } from './ploomesProposta'
+import { montarTabelaCargasHtml, montarTabelaItensHtml, resumoParaProposta } from './ploomesProposta'
 import type { KitInfo, KitItem } from '@/types'
 
 const item = (p: Partial<KitItem>): KitItem => ({
@@ -134,5 +134,92 @@ describe('montarTabelaItensHtml', () => {
 
   it('kit sem itens não vira tabela vazia', () => {
     expect(montarTabelaItensHtml([])).toBe('')
+  })
+})
+
+describe('métricas do kit', () => {
+  it('energia total soma a energia unitária das baterias', () => {
+    const r = resumoParaProposta(KIT_HIBRIDO, 3.68, 1)
+    expect(r.energia_total_kwh).toBe(5)
+  })
+
+  it('potência de inversão soma os inversores', () => {
+    const kit: KitInfo = {
+      ...KIT_HIBRIDO,
+      itens: [
+        item({ nome: 'Híbrido', tipo: 'inversor', qtd: 1, potencia_inversao_kw: 7.5 }),
+        item({ nome: 'String', tipo: 'inversor_string', qtd: 1, potencia_inversao_kw: 7.5 }),
+        item({ nome: 'Bateria', tipo: 'bateria', qtd: 2, energia_unit_kwh: 5 }),
+      ],
+    }
+    const r = resumoParaProposta(kit, 5, 1)
+    expect(r.potencia_inversao_kw).toBe(15)
+    expect(r.energia_total_kwh).toBe(10)
+  })
+
+  it('kit on-grid não tem energia de bateria nem potência de partida', () => {
+    const r = resumoParaProposta(KIT_ONGRID, null, 1)
+    expect(r.energia_total_kwh).toBeNull()
+    expect(r.potencia_partida_kw).toBeNull()
+  })
+})
+
+describe('montarTabelaCargasHtml', () => {
+  const CARGAS = [
+    { nome: 'AR CONDICIONADO - BTU 12000', qtd: 1, pnom_w: 1150, fp: 0.9, fd: 1, ip_in: 3, tdia_h: 8, tensao: '220' },
+    { nome: 'GELADEIRA', qtd: 2, pnom_w: 200, fp: 1, fd: 1, ip_in: 1, tdia_h: 24, tensao: '127' },
+  ]
+  const html = montarTabelaCargasHtml(CARGAS)
+
+  it('traz as 9 colunas do formulário, na ordem', () => {
+    const heads = [...html.matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map(m => m[1])
+    expect(heads).toEqual(['Equipamento', 'Qtd', 'Pot (W)', 'Uso (h/dia)', 'Tensão',
+                           'IP/IN', 'Pn (kVA)', 'Pp (kVA)', 'E (kWh)'])
+  })
+
+  it('calcula Pn, Pp e E com as fórmulas do formulário', () => {
+    // 1 x 1150 / 0,9 / 1000 = 1,28 kVA; x IP/IN 3 = 3,83 kVA; 1150 x 8 / 1000 = 9,20 kWh
+    expect(html).toContain('>1,28</td>')
+    expect(html).toContain('>3,83</td>')
+    expect(html).toContain('>9,20</td>')
+  })
+
+  it('fecha com a linha de TOTAIS somando as três colunas', () => {
+    expect(html).toContain('TOTAIS')
+    // 1,2778 + 0,4 = 1,68 | 3,8333 + 0,4 = 4,23 | 9,2 + 9,6 = 18,80
+    expect(html).toContain('>1,68</td>')
+    expect(html).toContain('>4,23</td>')
+    expect(html).toContain('>18,80</td>')
+    expect(html).toContain('colspan="6"')
+  })
+
+  it('mostra a tensão de cada carga', () => {
+    expect(html).toContain('>220 V</td>')
+    expect(html).toContain('>127 V</td>')
+  })
+
+  it('escapa o nome do equipamento', () => {
+    const perigo = montarTabelaCargasHtml([{ ...CARGAS[0], nome: '<script>x</script>' }])
+    expect(perigo).not.toContain('<script>')
+  })
+
+  it('sem cargas não gera tabela', () => {
+    expect(montarTabelaCargasHtml([])).toBe('')
+  })
+
+  it('entra no resumo quando há cargas', () => {
+    expect(resumoParaProposta(KIT_HIBRIDO, 3.68, 1, CARGAS).cargas_html).toContain('TOTAIS')
+    expect(resumoParaProposta(KIT_HIBRIDO, 3.68, 1).cargas_html).toBe('')
+  })
+})
+
+describe('tipo de estrutura no resumo', () => {
+  it('passa adiante o rótulo recebido', () => {
+    const r = resumoParaProposta(KIT_HIBRIDO, 3.68, 1, [], 'Telha cerâmica')
+    expect(r.tipo_estrutura).toBe('Telha cerâmica')
+  })
+
+  it('fica vazio quando não houve estrutura no dimensionamento', () => {
+    expect(resumoParaProposta(KIT_HIBRIDO, 3.68, 1).tipo_estrutura).toBe('')
   })
 })

@@ -1,7 +1,30 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v9)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v10)
 
 Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 (`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+
+## Mudanças da v10 (2026-08-06)
+
+Passa a escrever **18 campos**. Cinco novos, criados via API (`EntityId=7`):
+
+| Campo | Key | Tipo |
+|---|---|---|
+| MeuBESS BESS — Energia Total das Baterias (kWh) | `quote_C9A7D370…` | decimal |
+| MeuBESS BESS — Potência Máxima de Partida (kW) | `quote_AE6CCFA5…` | decimal |
+| MeuBESS BESS — Potência Total de Inversão (kW) | `quote_DA1415C3…` | decimal |
+| MeuBESS BESS — Tabela de Cargas | `quote_DCFFF88D…` | multilinha |
+| MeuBESS BESS — Tipo de Estrutura | `quote_A972FD5A…` | texto (250) |
+
+As três métricas usam **as mesmas fórmulas do card do kit** (`KitResult.tsx`) —
+a proposta não pode mostrar número diferente do que o consultor viu na tela.
+
+A **tabela de cargas** leva as mesmas 9 colunas do formulário (Equipamento, Qtd,
+Pot (W), Uso (h/dia), Tensão, IP/IN, Pn (kVA), Pp (kVA), E (kWh)) e a linha de
+TOTAIS. Vai para um campo multilinha, então usa o mesmo caminho do Itens do Kit
+(TinyMCE).
+
+O **tipo de estrutura** vai como texto legível ("Telha cerâmica"), não como o
+código interno `tile_ceramic` — é documento que vai para o cliente.
 
 ## Mudanças da v9 (2026-08-05)
 
@@ -280,6 +303,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     descricao_baterias: 'quote_830ABF7B-A364-40FE-8760-3BEF2E1502DD',
     cobertura_pct: 'quote_D1CFFA10-859C-44BB-A149-29E461E26560',  // percentual
     autonomia_dias: 'quote_3402361B-699B-45E9-9139-86029121B424', // decimal
+
+    // criados em 06/08/2026
+    energia_total: 'quote_C9A7D370-68B9-4510-9BCB-C20861782EE0',    // decimal
+    potencia_partida: 'quote_AE6CCFA5-6B67-4696-962F-8BB77DC30D68', // decimal
+    potencia_inversao: 'quote_DA1415C3-D338-4BB7-B746-68705C687F88',// decimal
+    tabela_cargas: 'quote_DCFFF88D-71D8-436F-924F-8000A9E60665',    // multilinha
+    tipo_estrutura: 'quote_A972FD5A-E8FA-4D26-BAFA-99FDE6D36D53',   // texto
   };
 
   // Rótulo visível de cada campo. Usado como último recurso para localizar o
@@ -299,6 +329,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     descricao_baterias: 'MeuBESS BESS — Descrição das Baterias',
     cobertura_pct: 'MeuBESS BESS — % de Cobertura',
     autonomia_dias: 'MeuBESS BESS — Tempo de Autonomia (dias)',
+    energia_total: 'MeuBESS BESS — Energia Total das Baterias (kWh)',
+    potencia_partida: 'MeuBESS BESS — Potência Máxima de Partida (kW)',
+    potencia_inversao: 'MeuBESS BESS — Potência Total de Inversão (kW)',
+    tabela_cargas: 'MeuBESS BESS — Tabela de Cargas',
+    tipo_estrutura: 'MeuBESS BESS — Tipo de Estrutura',
   };
 
   // Sem tabela de de:para aqui de propósito — a tradução Estrutura →
@@ -739,6 +774,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       descricao_baterias: d.descricao_baterias,
       cobertura_pct: d.cobertura_pct_str || d.cobertura_pct,
       autonomia_dias: d.autonomia_dias_str || d.autonomia_dias,
+      energia_total: d.energia_total_kwh_str || d.energia_total_kwh,
+      potencia_partida: d.potencia_partida_kw_str || d.potencia_partida_kw,
+      potencia_inversao: d.potencia_inversao_kw_str || d.potencia_inversao_kw,
+      tabela_cargas: d.cargas_html,
+      tipo_estrutura: d.tipo_estrutura,
     };
     var linhas = ['<b>Conferência da escrita:</b>'];
     for (var nome in esperado) {
@@ -811,9 +851,17 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       writeField(FIELD_KEYS.descricao_inversores, d.descricao_inversores, false, FIELD_LABELS.descricao_inversores);
       writeField(FIELD_KEYS.descricao_baterias, d.descricao_baterias, false, FIELD_LABELS.descricao_baterias);
 
+      writeField(FIELD_KEYS.tipo_estrutura, d.tipo_estrutura, false, FIELD_LABELS.tipo_estrutura);
+
+      // tabela de cargas: multilinha, mesmo tratamento do Itens do Kit
+      writeField(FIELD_KEYS.tabela_cargas, d.cargas_html, true, FIELD_LABELS.tabela_cargas);
+
       // numéricos com máscara: ver writeNumero
       writeNumero(FIELD_KEYS.cobertura_pct, d.cobertura_pct_str, d.cobertura_pct, FIELD_LABELS.cobertura_pct);
       writeNumero(FIELD_KEYS.autonomia_dias, d.autonomia_dias_str, d.autonomia_dias, FIELD_LABELS.autonomia_dias);
+      writeNumero(FIELD_KEYS.energia_total, d.energia_total_kwh_str, d.energia_total_kwh, FIELD_LABELS.energia_total);
+      writeNumero(FIELD_KEYS.potencia_partida, d.potencia_partida_kw_str, d.potencia_partida_kw, FIELD_LABELS.potencia_partida);
+      writeNumero(FIELD_KEYS.potencia_inversao, d.potencia_inversao_kw_str, d.potencia_inversao_kw, FIELD_LABELS.potencia_inversao);
 
       conferirEscrita(d);
 

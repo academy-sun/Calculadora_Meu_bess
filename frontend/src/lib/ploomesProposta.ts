@@ -4,7 +4,26 @@
  * Fica separado da página para poder ser testado sem montar o React — são
  * números que vão parar numa proposta comercial, então erram caro.
  */
+import { calcPotenciaPartidaKw, energiaTotalKwh, potenciaInversaoKw } from '@/lib/kitMetrics'
 import type { KitInfo, KitItem } from '@/types'
+
+/** Uma linha da tabela de cargas do formulário. */
+export interface CargaLinha {
+  nome: string
+  qtd: number
+  pnom_w: number
+  fp: number
+  fd: number
+  ip_in: number
+  tdia_h: number
+  tensao?: string
+}
+
+// Mesmas fórmulas da tabela exibida no formulário — a proposta não pode
+// mostrar número diferente do que o consultor viu na tela.
+export const cargaPnKva = (r: CargaLinha) => (r.qtd * r.pnom_w) / (r.fp || 1) / 1000
+export const cargaPpKva = (r: CargaLinha) => cargaPnKva(r) * (r.ip_in || 1)
+export const cargaEKwh = (r: CargaLinha) => (r.qtd * r.pnom_w * r.tdia_h) / 1000
 
 // tipos de item produzidos pelos motores (engines/pv_kit.py, engines/kit_builder.py)
 const TIPO_MODULO = ['modulo_fv']
@@ -25,11 +44,6 @@ export function descreverItens(itens: KitItem[], tipos: string[], limite = 250):
 
 export function qtdDaCategoria(itens: KitItem[], tipos: string[]): number {
   return daCategoria(itens, tipos).reduce((s, it) => s + it.qtd, 0)
-}
-
-/** Energia armazenável do kit — mesma soma que o card usa para a cobertura. */
-export function energiaTotalKwh(itens: KitItem[]): number {
-  return itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
 }
 
 function escaparHtml(s: string): string {
@@ -61,6 +75,43 @@ export function montarTabelaItensHtml(itens: KitItem[]): string {
   )
 }
 
+const num = (v: number, casas: number) =>
+  v.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
+
+/**
+ * Tabela de cargas com as mesmas colunas e a mesma linha de totais que o
+ * formulário mostra. Vai para um campo multilinha (TinyMCE), daí o estilo inline.
+ */
+export function montarTabelaCargasHtml(cargas: CargaLinha[]): string {
+  if (!cargas.length) return ''
+  const COLS = ['Equipamento', 'Qtd', 'Pot (W)', 'Uso (h/dia)', 'Tensão',
+                'IP/IN', 'Pn (kVA)', 'Pp (kVA)', 'E (kWh)']
+  const cabecalho = COLS
+    .map(c => `<th style="${BORDA};font-weight:bold">${c}</th>`)
+    .join('')
+  const linhas = cargas.map(r => [
+    escaparHtml(r.nome), r.qtd, r.pnom_w, num(r.tdia_h, 0),
+    r.tensao ? `${r.tensao} V` : '—', r.ip_in,
+    num(cargaPnKva(r), 2), num(cargaPpKva(r), 2), num(cargaEKwh(r), 2),
+  ].map(v => `<td style="${BORDA}">${v}</td>`).join(''))
+    .map(tds => `<tr>${tds}</tr>`).join('')
+
+  const somaPn = cargas.reduce((s, r) => s + cargaPnKva(r), 0)
+  const somaPp = cargas.reduce((s, r) => s + cargaPpKva(r), 0)
+  const somaE = cargas.reduce((s, r) => s + cargaEKwh(r), 0)
+  const totais =
+    `<tr>` +
+    `<td colspan="6" style="${BORDA};font-weight:bold">TOTAIS</td>` +
+    `<td style="${BORDA};font-weight:bold">${num(somaPn, 2)}</td>` +
+    `<td style="${BORDA};font-weight:bold">${num(somaPp, 2)}</td>` +
+    `<td style="${BORDA};font-weight:bold">${num(somaE, 2)}</td>` +
+    `</tr>`
+
+  return `<table style="border-collapse:collapse;width:auto">` +
+    `<thead><tr>${cabecalho}</tr></thead>` +
+    `<tbody>${linhas}${totais}</tbody></table>`
+}
+
 export interface ResumoProposta {
   qtd_modulos: number | null
   kwp_sistema: number | null
@@ -70,6 +121,11 @@ export interface ResumoProposta {
   cobertura_pct: number | null
   autonomia_dias: number | null
   itens_html: string
+  energia_total_kwh: number | null
+  potencia_partida_kw: number | null
+  potencia_inversao_kw: number | null
+  cargas_html: string
+  tipo_estrutura: string
 }
 
 /**
@@ -85,6 +141,8 @@ export function resumoParaProposta(
   kit: KitInfo,
   energiaNecessariaKwh: number | null | undefined,
   autonomiaSolicitadaDias: number | null | undefined,
+  cargas: CargaLinha[] = [],
+  tipoEstrutura = '',
 ): ResumoProposta {
   const itens = kit.itens ?? []
   const energia = energiaTotalKwh(itens)
@@ -107,5 +165,16 @@ export function resumoParaProposta(
     cobertura_pct: cobertura != null ? Math.round(cobertura * 10) / 10 : null,
     autonomia_dias: autonomia != null ? Math.round(autonomia * 10) / 10 : null,
     itens_html: montarTabelaItensHtml(itens),
+
+    // mesmas métricas exibidas no card do kit, com as mesmas casas decimais
+    energia_total_kwh: energia > 0 ? Math.round(energia * 100) / 100 : null,
+    potencia_partida_kw: arredondar1(calcPotenciaPartidaKw(itens)),
+    potencia_inversao_kw: arredondar1(potenciaInversaoKw(itens)),
+    cargas_html: montarTabelaCargasHtml(cargas),
+    tipo_estrutura: tipoEstrutura,
   }
+}
+
+function arredondar1(v: number): number | null {
+  return v > 0 ? Math.round(v * 10) / 10 : null
 }

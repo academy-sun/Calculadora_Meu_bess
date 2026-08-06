@@ -3,42 +3,10 @@ import type { ElementType } from 'react'
 import { AlertTriangle, Plus, Trash2, Battery, Gauge, Zap, Percent, CheckCircle2 } from 'lucide-react'
 import type { FreteInfo, KitInfo, KitItem, SolarDimensionamento } from '@/types'
 import { ProductPicker } from '@/components/ProductPicker'
+import { calcPotenciaPartidaKw, energiaTotalKwh, potenciaInversaoKw } from '@/lib/kitMetrics'
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: number, d = 1) => v.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
-
-/**
- * Réplica exata de `_distribuir` + `_pico_dc_kw` em kit_builder.py (backend): distribui as
- * baterias uniformemente entre as entradas (1 slot por entrada física, cada um com seu próprio
- * limite de corrente do inversor a que pertence), trunca a corrente por entrada e converte em kW.
- * Mantida idêntica ao motor — qualquer aproximação aqui pode causar erro de dimensionamento.
- */
-export function calcPotenciaPartidaKw(itens: KitItem[]): number {
-  const inversores = itens.filter(it => it.tipo === 'inversor' && it.potencia_pico_kw != null)
-  const baterias = itens.filter(it => it.tipo === 'bateria' && it.corrente_pico_a != null && it.tensao_v != null)
-  const picoInvTotal = inversores.reduce((s, inv) => s + (inv.potencia_pico_kw ?? 0) * inv.qtd, 0)
-  if (inversores.length === 0 || baterias.length === 0) return picoInvTotal
-
-  const slots: number[] = []
-  for (const inv of inversores) {
-    const nEntradas = (inv.entradas_bateria ?? 0) * inv.qtd
-    for (let i = 0; i < nEntradas; i++) slots.push(inv.corrente_entrada_a ?? 0)
-  }
-  if (slots.length === 0) return picoInvTotal
-
-  const nBaterias = baterias.reduce((s, b) => s + b.qtd, 0)
-  const correntePico = baterias[0].corrente_pico_a ?? 0
-  const tensao = baterias[0].tensao_v ?? 0
-
-  const base = Math.floor(nBaterias / slots.length)
-  const extra = nBaterias % slots.length
-  const dist = slots.map((_, i) => base + (i < extra ? 1 : 0))
-
-  const totalA = dist.reduce((s, n, i) => s + (n > 0 ? Math.min(n * correntePico, slots[i]) : 0), 0)
-  const picoDc = (totalA * tensao) / 1000
-
-  return Math.min(picoDc, picoInvTotal)
-}
 
 interface KitResultProps {
   kit: KitInfo
@@ -72,12 +40,12 @@ export function KitResult({
   const addItem = (it: KitItem) => onItensChange([...itens, it])
 
   // ── Métricas recalculadas ao vivo a partir do kit editado ───────────────────
-  const energiaTotal = itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
+  const energiaTotal = energiaTotalKwh(itens)
 
   const coberturaPct = energiaNecessariaKwh && energiaNecessariaKwh > 0
     ? (energiaTotal / energiaNecessariaKwh) * 100 : null
 
-  const potenciaInversao = itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
+  const potenciaInversao = potenciaInversaoKw(itens)
   const potenciaPartida = calcPotenciaPartidaKw(itens)
 
   const totalKit = itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)

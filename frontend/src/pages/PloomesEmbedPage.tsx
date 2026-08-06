@@ -7,7 +7,7 @@ import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
-import { extrairUF, normalizarFixingType } from '@/lib/ploomesContext'
+import { extrairUF, normalizarFixingType, rotuloFixingType } from '@/lib/ploomesContext'
 import { resumoParaProposta } from '@/lib/ploomesProposta'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
@@ -162,6 +162,8 @@ export function PloomesEmbedPage() {
       kit,
       result?.energia_necessaria_kwh,
       parseFloat(autonomia) || null,
+      rows,
+      rotuloFixingType(fixingType),
     )
 
     // Kit sem bateria (on-grid puro): o template híbrido produzia
@@ -204,6 +206,16 @@ export function PloomesEmbedPage() {
       cobertura_pct_str: brNum(resumo.cobertura_pct, 1),
       autonomia_dias: resumo.autonomia_dias,
       autonomia_dias_str: brNum(resumo.autonomia_dias, 1),
+
+      // métricas do kit (mesmos números do card) + contexto do dimensionamento
+      energia_total_kwh: resumo.energia_total_kwh,
+      energia_total_kwh_str: brNum(resumo.energia_total_kwh, 2),
+      potencia_partida_kw: resumo.potencia_partida_kw,
+      potencia_partida_kw_str: brNum(resumo.potencia_partida_kw, 1),
+      potencia_inversao_kw: resumo.potencia_inversao_kw,
+      potencia_inversao_kw_str: brNum(resumo.potencia_inversao_kw, 1),
+      cargas_html: resumo.cargas_html,
+      tipo_estrutura: resumo.tipo_estrutura,
     }, '*')
     setEnviado(true)
   }
