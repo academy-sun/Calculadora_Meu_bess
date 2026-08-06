@@ -110,11 +110,13 @@ describe('montarTabelaItensHtml', () => {
     expect(html).toContain('>W - 550 Wp - WEG - Módulo (Estoque)</td>')
   })
 
-  it('coluna de quantidade encolhe ao conteúdo, descrição fica com o resto', () => {
-    // width:1% + nowrap = o navegador usa o mínimo que cabe sem quebrar
-    expect((html.match(/width:1%;white-space:nowrap/g) || []).length).toBe(1 + 4)
-    // a coluna de descrição não leva largura fixa
-    expect(html).not.toContain('>Descrição<'.replace('>', 'width:1%>'))
+  it('as duas colunas se ajustam ao conteúdo', () => {
+    // sem width:100% a tabela não estica até a borda do editor
+    expect(html).not.toContain('width:100%')
+    expect(html).toContain('width:auto')
+    // nenhuma coluna leva largura fixa; só a quantidade evita quebra de linha
+    expect(html).not.toContain('width:1%')
+    expect((html.match(/white-space:nowrap/g) || []).length).toBe(1 + 4)
   })
 
   it('cabeçalho em negrito, bordas e centralização em todas as células', () => {

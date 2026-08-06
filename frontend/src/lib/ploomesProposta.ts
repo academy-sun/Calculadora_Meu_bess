@@ -39,10 +39,10 @@ function escaparHtml(s: string): string {
 // O campo é um TinyMCE e o HTML vai para a proposta impressa, onde as classes
 // CSS da nossa app não existem — por isso estilo inline em cada célula.
 const BORDA = 'border:1px solid #000;padding:4px 8px;text-align:center'
-// Coluna de quantidade encolhe até o conteúdo: largura 1% + nowrap é o jeito
-// clássico de fazer isso em tabela — o navegador não consegue respeitar 1% sem
-// quebrar o texto, então usa o mínimo necessário e sobra tudo para a descrição.
-const COL_QTD = `${BORDA};width:1%;white-space:nowrap`
+// Sem largura na coluna e sem width:100% na tabela: o layout automático dimensiona
+// cada coluna pelo conteúdo. Com width:100% a tabela esticava até a borda do editor
+// e sobrava espaço vazio dos dois lados da descrição.
+const COL_QTD = `${BORDA};white-space:nowrap`
 
 /** Tabela de duas colunas (quantidade, descrição), sem valores unitários. */
 export function montarTabelaItensHtml(itens: KitItem[]): string {
@@ -52,7 +52,7 @@ export function montarTabelaItensHtml(itens: KitItem[]): string {
                `<td style="${BORDA}">${escaparHtml(it.nome)}</td></tr>`)
     .join('')
   return (
-    `<table style="border-collapse:collapse;width:100%">` +
+    `<table style="border-collapse:collapse;width:auto">` +
     `<thead><tr>` +
     `<th style="${COL_QTD};font-weight:bold">Quantidade</th>` +
     `<th style="${BORDA};font-weight:bold">Descrição</th>` +

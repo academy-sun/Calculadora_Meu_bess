@@ -19,11 +19,14 @@ Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 
    Use esses dois na proposta, no lugar dos homônimos de fórmula.
 2. **Escrita numérica com verificação e segunda tentativa.** Campos decimais
-   (TypeId 6) e percentuais (TypeId 13) têm máscara própria, que pode não
-   aceitar o mesmo formato da máscara de moeda. O script escreve, relê, e se o
-   campo continuar vazio tenta com o outro separador decimal. A conferência
-   informa qual formato funcionou.
-3. Coluna "Quantidade" da tabela encolhe até o conteúdo.
+   (TypeId 6) e percentuais (TypeId 13) têm máscara própria, que não aceita o
+   mesmo formato da máscara de moeda. Medido em campo em 06/08/2026:
+   `kwp_sistema`, `cobertura_pct` e `autonomia_dias` só gravam com **ponto**
+   (`21.45`, `223.1`, `2.2`); os de moeda (TypeId 5) seguem com vírgula
+   (`1980,00`). Por isso o script tenta **ponto primeiro** e vírgula depois,
+   relendo o campo entre as tentativas. A conferência informa qual pegou.
+3. **Tabela dimensionada pelo conteúdo** — sem `width:100%`, para não esticar
+   até a borda do editor deixando a descrição perdida no meio.
 
 ## Campos de fórmula — como reconhecer
 
@@ -574,9 +577,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     }
     var comVirgula = valorBr != null && valorBr !== '' ? String(valorBr) : String(valorNum);
     var comPonto = comVirgula.replace(',', '.');
+    // Ponto primeiro: medido em campo (v9, 06/08/2026) que os campos decimais
+    // (TypeId 6) e percentuais (TypeId 13) da conta só aceitam ponto — a vírgula
+    // era descartada pela máscara e o campo ficava vazio. A vírgula fica como
+    // segunda tentativa porque a máscara de moeda (TypeId 5) usa ela.
     var tentativas = [
-      { rotuloTentativa: 'vírgula', valor: comVirgula },
       { rotuloTentativa: 'ponto', valor: comPonto },
+      { rotuloTentativa: 'vírgula', valor: comVirgula },
     ];
 
     for (var i = 0; i < tentativas.length; i++) {
@@ -659,7 +666,9 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       var attrs = todos[i].attributes;
       for (var a = 0; a < attrs.length; a++) {
         if (String(attrs[a].value).indexOf(key) !== -1) {
-          porAtributo.push('<' + todos[i].tagName.toLowerCase() + ' ' + attrs[a].name + '>');
+          // sem < >: o painel é escrito com innerHTML e o navegador engolia
+          // isso como tag, deixando o diagnóstico em branco
+          porAtributo.push(todos[i].tagName.toLowerCase() + '[' + attrs[a].name + ']');
           break;
         }
       }
@@ -684,8 +693,8 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
     var amostra = [];
     for (var k = 0; k < tas.length && k < 4; k++) {
-      amostra.push('textarea[name=' + (tas[k].getAttribute('name') || '-') +
-        ' id=' + (tas[k].id || '-') + ']');
+      amostra.push('textarea name=' + (tas[k].getAttribute('name') || '-') +
+        ' id=' + (tas[k].id || '-'));
     }
     for (var m = 0; m < ces.length && m < 4; m++) {
       amostra.push('editable[class=' + String(ces[m].className || '-').slice(0, 30) + ']');
