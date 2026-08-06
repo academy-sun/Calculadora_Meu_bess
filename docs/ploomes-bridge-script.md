@@ -5,10 +5,19 @@ Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
 
 ## Mudanças da v9 (2026-08-05)
 
-1. **Para de escrever em `Quantidade de módulos` e `Potência do sistema (kWp)`.**
-   São campos de **fórmula** do Ploomes (`InternalFormula` preenchida; o do
-   inteiro está `Disabled=true`). O Ploomes recalcula por cima, então escrever
-   ali nunca ia funcionar. Ver a seção "Campos de fórmula" abaixo.
+1. **Quantidade de módulos e potência do sistema mudaram de campo.** Os
+   pré-existentes `Quantidade de módulos` (`quote_319B3CB7…`) e `Potência do
+   sistema (kWp)` (`quote_1191E9E2…`) são campos de **fórmula** do Ploomes
+   (`InternalFormula` preenchida; o do inteiro está `Disabled=true`) — ele
+   recalcula por cima, então escrever ali nunca ia funcionar. Foram criados os
+   equivalentes MeuBESS, sem fórmula, que o script preenche:
+
+   | Campo | Key | Tipo |
+   |---|---|---|
+   | MeuBESS BESS — Quantidade de Módulos | `quote_85EB4665…` | inteiro (4) |
+   | MeuBESS BESS — Potência do Sistema (kWp) | `quote_904FBAD2…` | decimal (6) |
+
+   Use esses dois na proposta, no lugar dos homônimos de fórmula.
 2. **Escrita numérica com verificação e segunda tentativa.** Campos decimais
    (TypeId 6) e percentuais (TypeId 13) têm máscara própria, que pode não
    aceitar o mesmo formato da máscara de moeda. O script escreve, relê, e se o
@@ -16,27 +25,28 @@ Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
    informa qual formato funcionou.
 3. Coluna "Quantidade" da tabela encolhe até o conteúdo.
 
-## Campos de fórmula — o que dá e o que não dá
+## Campos de fórmula — como reconhecer
 
-`Quantidade de módulos` (`quote_319B3CB7…`) e `Potência do sistema (kWp)`
-(`quote_1191E9E2…`) são calculados pelo Ploomes a partir da tabela de produtos
-da proposta. Não há como um script preencher: qualquer valor escrito é
-substituído no recálculo. Dois caminhos possíveis, os dois fora do script:
+Campo com `InternalFormula` preenchida é calculado pelo Ploomes a partir de
+outros dados da proposta (na tela, aparece um ícone de calculadora ao lado do
+rótulo). Qualquer valor escrito por script é substituído no próximo recálculo.
 
-- ajustar a fórmula desses campos para referenciar os campos MeuBESS; ou
-- criar `MeuBESS BESS — Quantidade de Módulos` e
-  `MeuBESS BESS — Potência do Sistema (kWp)` e usá-los na proposta.
+Antes de incluir um campo novo na lista de escrita, confira pela API:
+
+```
+GET /Fields?$filter=Key eq '<key>'
+```
+
+e olhe `InternalFormula`, `Disabled` e `GeneratedFormula`. Se houver fórmula, o
+caminho é criar um campo MeuBESS equivalente — foi o que se fez com
+`Quantidade de Módulos` e `Potência do Sistema (kWp)`.
 
 ## Mudanças da v8 (2026-08-05)
 
 Passa a escrever **13 campos** em vez de 6.
 
-Pré-existentes da proposta:
-
-| Campo | Key | Tipo |
-|---|---|---|
-| Quantidade de módulos | `quote_319B3CB7…` | inteiro |
-| Potência do sistema (kWp) | `quote_1191E9E2…` | decimal |
+> A v8 tentava escrever nos pré-existentes `Quantidade de módulos` e `Potência
+> do sistema (kWp)`. **Não funciona** — são campos de fórmula; ver a v9 acima.
 
 Criados em 05/08/2026 (via API, `EntityId=7`):
 
@@ -255,9 +265,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     total_geral: 'quote_9C8BDB19-3BD3-47E8-8B0C-E6C454248220',
     itens_kit: 'quote_F026D026-5B7F-44CC-9B98-32635D1A58B5',
 
-    // pré-existentes da proposta (não são "MeuBESS BESS — …")
-    qtd_modulos: 'quote_319B3CB7-8C42-4ABD-A2AB-ECD1418A3F5E',   // inteiro
-    kwp_sistema: 'quote_1191E9E2-7A0A-4B11-B56C-5D44D1B7BFF3',   // decimal
+    // Os pré-existentes 'Quantidade de módulos' (quote_319B3CB7…) e 'Potência
+    // do sistema (kWp)' (quote_1191E9E2…) NÃO entram aqui: são campos de
+    // fórmula do Ploomes. Os equivalentes MeuBESS abaixo os substituem.
+    qtd_modulos: 'quote_85EB4665-29B0-4654-ABD8-2C3EB3D0784D',   // inteiro
+    kwp_sistema: 'quote_904FBAD2-B472-4E0A-9379-B12AFBE20164',   // decimal
 
     // criados em 05/08/2026
     descricao_modulos: 'quote_F82B125F-B21B-4468-92FC-596D3F85EE72',
@@ -277,8 +289,8 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     frete_modalidade: 'MeuBESS BESS — Modalidade do Frete',
     total_geral: 'MeuBESS BESS — Total (Kit + Frete)',
     itens_kit: 'MeuBESS BESS — Itens do Kit',
-    qtd_modulos: 'Quantidade de módulos',
-    kwp_sistema: 'Potência do sistema (kWp)',
+    qtd_modulos: 'MeuBESS BESS — Quantidade de Módulos',
+    kwp_sistema: 'MeuBESS BESS — Potência do Sistema (kWp)',
     descricao_modulos: 'MeuBESS BESS — Descrição dos Módulos',
     descricao_inversores: 'MeuBESS BESS — Descrição dos Inversores',
     descricao_baterias: 'MeuBESS BESS — Descrição das Baterias',
@@ -711,6 +723,8 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       frete_modalidade: d.frete_descricao,
       total_geral: d.total_geral_str || d.total_geral,
       itens_kit: d.itens_html || d.itens_texto,
+      qtd_modulos: d.qtd_modulos,
+      kwp_sistema: d.kwp_sistema_str || d.kwp_sistema,
       descricao_modulos: d.descricao_modulos,
       descricao_inversores: d.descricao_inversores,
       descricao_baterias: d.descricao_baterias,
@@ -778,9 +792,10 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       // multilinha (TinyMCE): recebe a tabela em HTML
       writeField(FIELD_KEYS.itens_kit, d.itens_html || d.itens_texto, !!d.itens_html, FIELD_LABELS.itens_kit);
 
-      // "Quantidade de módulos" e "Potência do sistema (kWp)" NÃO são escritos:
-      // são campos de fórmula do Ploomes (o do inteiro está inclusive
-      // Disabled=true). Escrever neles é inócuo — a fórmula recalcula por cima.
+      // quantidade de módulos e potência do sistema, nos campos MeuBESS — os
+      // homônimos pré-existentes são de fórmula e recalculam por cima
+      writeNumero(FIELD_KEYS.qtd_modulos, null, d.qtd_modulos, FIELD_LABELS.qtd_modulos);
+      writeNumero(FIELD_KEYS.kwp_sistema, d.kwp_sistema_str, d.kwp_sistema, FIELD_LABELS.kwp_sistema);
 
       // descrições por categoria
       writeField(FIELD_KEYS.descricao_modulos, d.descricao_modulos, false, FIELD_LABELS.descricao_modulos);
