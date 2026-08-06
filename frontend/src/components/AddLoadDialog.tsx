@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { useCreateLoad } from '@/hooks/useCatalog'
-import type { StandardLoad } from '@/types'
+import type { FaseCarga, StandardLoad } from '@/types'
 
 export type LoadRowInput = {
   nome: string
@@ -104,7 +104,7 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose, persist
           nome: row.nome, categoria: row.categoria || 'Geral',
           potencia_w: row.pnom_w, fator_potencia: row.fp, fator_demanda: row.fd,
           tdia_horas: row.tdia_h, ip_in: row.ip_in, tensao: row.tensao,
-          fase: row.fase as 'monofasico' | 'trifasico', ativo: true,
+          fase: row.fase as FaseCarga, ativo: true,
         })
       }
       onInsert(row)
@@ -171,6 +171,7 @@ export function AddLoadDialog({ loads, defaultTensao, onInsert, onClose, persist
             <select value={f.fase} onChange={e => set('fase', e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
               <option value="monofasico">Monofásico</option>
+              <option value="bifasico">Bifásico</option>
               <option value="trifasico">Trifásico</option>
             </select>
           </div>

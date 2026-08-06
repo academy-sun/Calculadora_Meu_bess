@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +77,12 @@ def _option_to_info(
         rotulo_caminho=option.rotulo_caminho,
         kwp_instalado=round(kwp_instalado, 3),
     )
+
+
+def _normalizar_fase(v: str | None) -> str:
+    """'Trifásico' → 'trifasico'. O catálogo grava com acento e caixa variada."""
+    s = unicodedata.normalize("NFD", str(v or ""))
+    return "".join(c for c in s if unicodedata.category(c) != "Mn").strip().lower()
 
 
 def _solar_dim_ongrid(detalhe, kwp_alvo: float) -> SolarDimensionamento | None:
@@ -292,6 +299,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         potencia_kw = backup_result.total_pp
 
         tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
+        fases_carga = {_normalizar_fase(c.fase) for c in req.cargas_backup if c.fase} or None
         kits, _skipped = build_kits(
             inversores, baterias,
             pn_kva=backup_result.total_pn,
@@ -299,6 +307,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             e_bat_kwh=energy_backup_kwh,
             fase_instalacao=req.tipo_instalacao or "monofasico",
             tensoes_carga=tensoes_carga,
+            fases_carga=fases_carga,
             padrao_entrada=req.padrao_entrada,
             jbw_produtos=jbw_produtos,
         )

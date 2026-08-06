@@ -150,7 +150,9 @@ export function NewProjectPage() {
         ip_in: Number(r.ip_in ?? 1),
         tdia_h: Number(r.tdia_h ?? 4),
         tensao: String(r.tensao ?? '220'),
-        fase: 'monofasico',
+        // vinha fixo em 'monofasico': ao reabrir uma cotação, uma carga
+        // trifásica virava monofásica e o kit era remontado errado
+        fase: String(r.fase ?? 'monofasico'),
       })))
     }
     if (typeof pm.padrao_entrada === 'string') setPadraoEntrada(pm.padrao_entrada)
@@ -240,7 +242,7 @@ export function NewProjectPage() {
     if (tipo === 'backup') {
       payload.cargas_backup = backupRows.map(r => ({
         nome: r.nome, qtd: r.qtd, pnom_w: r.pnom_w, fp: r.fp, fd: r.fd,
-        ip_in: r.ip_in, tdia_h: r.tdia_h, tensao: r.tensao,
+        ip_in: r.ip_in, tdia_h: r.tdia_h, tensao: r.tensao, fase: r.fase,
       }))
       payload.tipo_instalacao = tipoInstalacao
       payload.padrao_entrada = padraoEntrada

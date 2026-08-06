@@ -1,3 +1,7 @@
+// Fase de uma CARGA. Bifásico entrou em 06/08/2026; a fase da instalação
+// (`tipo_instalacao`) continua sendo só mono/tri.
+export type FaseCarga = 'monofasico' | 'bifasico' | 'trifasico'
+
 // ── Catálogo ──────────────────────────────────────────────────────────────────
 
 export interface ProductBESS {
@@ -198,7 +202,7 @@ export interface StandardLoad {
   fator_demanda?: number
   ip_in?: number
   tensao: string
-  fase: 'monofasico' | 'trifasico'
+  fase: FaseCarga
   ativo: boolean
 }
 

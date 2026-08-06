@@ -247,3 +247,91 @@ def test_isc_incompativel_continua_bloqueando():
     inv = _siw200h_m075()
     inv.short_circuit_current_inverter = 10.0    # menor que a Isc do modulo
     assert dc_capacity_modules(inv, 1, _modulo_550()) == 0
+
+
+# ── R8, lado FASE: carga trifasica x inversor monofasico ──────────────────────
+# Reportado em campo: ar condicionado TRIFASICO 220 V retornou inversor
+# MONOfasico 220 V. A checagem de tensao sozinha aceitava, porque toda carga
+# trifasica do catalogo e 220 V e o inversor mono "atende 220 V".
+#
+# Usa os mesmos fixtures WEG do resto do arquivo: m050 = mono 220,
+# s057 = split-phase 127/220, t015 = trifasico 380/220.
+
+def _montar_por_fase(inversores, fases, tensoes={"220"}):
+    return build_kits(
+        inversores, [cb100()],
+        pn_kva=2.5, pp_kva=5.0, e_bat_kwh=10.0,
+        fase_instalacao="trifasico", tensoes_carga=set(tensoes),
+        fases_carga=(set(fases) if fases is not None else None),
+        padrao_entrada="tri_220_380",
+    )
+
+
+def test_carga_trifasica_descarta_inversor_monofasico():
+    """O caso reportado: nenhum kit mono pode sobrar."""
+    kits, skipped = _montar_por_fase([m050()], {"trifasico"})
+    assert kits == []
+    assert any("trifásica exige inversor trifásico" in s.motivo for s in skipped)
+
+
+def test_carga_trifasica_aceita_inversor_trifasico():
+    kits, _ = _montar_por_fase([t015()], {"trifasico"})
+    assert len(kits) == 1
+    assert kits[0].inversor.meubess_id == "t015"
+
+
+def test_carga_trifasica_escolhe_o_tri_mesmo_sendo_mais_caro():
+    kits, _ = _montar_por_fase([m050(), t015()], {"trifasico"})
+    assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+
+def test_split_phase_nao_serve_carga_trifasica():
+    """Split-phase tem duas fases, nao tres."""
+    kits, skipped = _montar_por_fase([s057()], {"trifasico"})
+    assert kits == []
+    assert any("trifásica" in s.motivo for s in skipped)
+
+
+def test_carga_monofasica_continua_aceitando_inversor_mono():
+    """A regra nova nao pode estreitar o que ja funcionava."""
+    kits, _ = _montar_por_fase([m050()], {"monofasico"})
+    assert len(kits) == 1
+
+
+def test_mistura_mono_e_trifasica_exige_o_trifasico():
+    kits, _ = _montar_por_fase([m050(), t015()], {"monofasico", "trifasico"})
+    assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+
+def test_sem_fase_informada_o_motor_nao_bloqueia_nada():
+    """Cotacao antiga, sem fase nas cargas: comportamento anterior preservado."""
+    kits, _ = _montar_por_fase([m050()], None)
+    assert len(kits) == 1
+
+
+def test_fase_com_acento_e_maiuscula_e_normalizada_no_service():
+    from app.calculate.service import _normalizar_fase
+    assert _normalizar_fase("Trifásico") == "trifasico"
+    assert _normalizar_fase("TRIFASICO") == "trifasico"
+    assert _normalizar_fase("Bifásico") == "bifasico"
+    assert _normalizar_fase(None) == ""
+
+
+# ── carga bifasica ────────────────────────────────────────────────────────────
+
+def test_carga_bifasica_nao_bloqueia_mas_alerta_em_saida_mono():
+    kits, _ = _montar_por_fase([m050()], {"bifasico"})
+    assert len(kits) == 1
+    assert any("bifásica" in a for a in (kits[0].alertas or []))
+
+
+def test_carga_bifasica_em_split_phase_nao_alerta():
+    kits, _ = _montar_por_fase([s057()], {"bifasico"})
+    assert len(kits) == 1
+    assert not any("bifásica" in a for a in (kits[0].alertas or []))
+
+
+def test_carga_bifasica_em_trifasico_nao_alerta():
+    kits, _ = _montar_por_fase([t015()], {"bifasico"})
+    assert len(kits) == 1
+    assert not any("bifásica" in a for a in (kits[0].alertas or []))

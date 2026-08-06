@@ -129,7 +129,9 @@ export function PloomesEmbedPage() {
     if (rows.length > 0) {
       payload.cargas_backup = rows.map(r => ({
         nome: r.nome, qtd: r.qtd, pnom_w: r.pnom_w, fp: r.fp, fd: r.fd,
-        ip_in: r.ip_in, tdia_h: r.tdia_h, tensao: r.tensao,
+        // `fase` é o que impede um inversor mono de "atender" carga trifásica —
+        // sem ele o backend só vê a tensão, e trifásico 220 passa por 220 mono
+        ip_in: r.ip_in, tdia_h: r.tdia_h, tensao: r.tensao, fase: r.fase,
       }))
     }
     try {

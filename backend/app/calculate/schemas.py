@@ -24,6 +24,9 @@ class BackupLoadRow(BaseModel):
     ip_in: float = 1.0
     tdia_h: float = 4.0
     tensao: Optional[str] = None  # "127" | "220" | "380" — usada no R8 (saída EPS)
+    # "monofasico" | "bifasico" | "trifasico" — R8 (lado fase). Sem isso, uma
+    # carga trifásica 220 V passa por qualquer inversor que atenda 220 V.
+    fase: Optional[str] = None
 
 
 class BackupRowResult(BaseModel):

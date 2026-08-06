@@ -80,6 +80,43 @@ def _serve_tensoes(inv, tensoes_carga: set[str]) -> tuple[bool, str | None]:
     return True, None
 
 
+def _norm_fase(v) -> str:
+    """'Trifásico' / 'TRIFASICO' → 'trifasico'."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(v or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.strip().lower()
+
+
+def _serve_fases(inv, fases_carga: set[str]) -> tuple[bool, str | None]:
+    """R8, lado FASE: carga trifásica exige inversor trifásico.
+
+    A checagem de tensão sozinha deixava passar justamente o caso mais comum do
+    catálogo — as 29 cargas trifásicas cadastradas são todas 220 V, e um
+    inversor MONOfásico 220 V "atende 220 V". Atender a tensão não é ter as três
+    fases.
+    """
+    if "trifasico" in fases_carga and not _inversor_e_trifasico(inv):
+        return False, "carga trifásica exige inversor trifásico"
+    return True, None
+
+
+def _alertas_fase_carga(inv, fases_carga: set[str]) -> list[str]:
+    """Carga bifásica (2 condutores vivos) numa saída monofásica simples.
+
+    Não bloqueia: uma carga "bifásica 220 V" no padrão 127/220 é, do ponto de
+    vista do inversor, uma carga de 220 V entre dois terminais — o que uma saída
+    mono 220 V entrega. Mas a decisão depende da instalação, então fica
+    registrado em vez de silencioso.
+    """
+    if "bifasico" not in fases_carga:
+        return []
+    if _inversor_e_trifasico(inv) or bool(eff_bool(inv, "split_phase")):
+        return []
+    return ["Carga bifásica atendida por saída monofásica — confirmar se a carga "
+            "aceita alimentação entre fase e neutro na tensão nominal."]
+
+
 def _inversor_e_trifasico(inv) -> bool:
     eps = _parse_eps_voltages(eff(inv, "eps_output_voltage"))
     if "380" in eps:
@@ -296,6 +333,7 @@ def build_kits(
     e_bat_kwh: float,
     fase_instalacao: str | None = None,
     tensoes_carga: set[str] | None = None,
+    fases_carga: set[str] | None = None,
     padrao_entrada: str | None = None,
     require_same_brand: bool = True,
     jbw_produtos: list | None = None,
@@ -326,8 +364,16 @@ def build_kits(
                 skipped.append(SkipReason(_id(inv), _tit(inv), why))
                 continue
 
+        # R8 — fase das cargas × saída do inversor (bloqueante)
+        if fases_carga:
+            ok, why = _serve_fases(inv, fases_carga)
+            if not ok:
+                skipped.append(SkipReason(_id(inv), _tit(inv), why))
+                continue
+
         # R7 — alertas de compatibilidade com a rede da unidade (não bloqueia)
         alertas_rede = _alertas_rede(inv, fase_instalacao, padrao_entrada)
+        alertas_rede += _alertas_fase_carga(inv, fases_carga or set())
 
         # R3/R4 — potência: escala nº de inversores por pico e nominal
         qtd_inv = max(
