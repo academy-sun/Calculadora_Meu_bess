@@ -7,6 +7,7 @@ import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
+import { DiagnosticoKit } from '@/components/DiagnosticoKit'
 import { extrairUF, normalizarFixingType, rotuloFixingType } from '@/lib/ploomesContext'
 import { resumoParaProposta } from '@/lib/ploomesProposta'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
@@ -384,6 +385,8 @@ export function PloomesEmbedPage() {
         result.kit_selecionado ? (
           <div className="space-y-3">
             <h2 className="font-display text-lg font-bold text-ink">Opções de kit</h2>
+            {/* Antes de apresentar ao cliente: o que o motor deixou de fora e por quê */}
+            <DiagnosticoKit diagnostico={result.diagnostico} />
             {enviado && (
               <p className="flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
                 <CheckCircle2 size={16} /> Kit aplicado à proposta — confira os campos no formulário.

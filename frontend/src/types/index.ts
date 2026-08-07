@@ -2,6 +2,20 @@
 // (`tipo_instalacao`) continua sendo só mono/tri.
 export type FaseCarga = 'monofasico' | 'bifasico' | 'trifasico'
 
+/** Por que o kit é este — produtos avaliados e deixados de fora, com o motivo. */
+export interface ProdutoDescartado {
+  produto_id: string
+  titulo: string
+  motivo: string
+  /** 'dado_ausente' = faltou informação para decidir, não é incompatibilidade. */
+  tipo: 'dado_ausente' | 'incompativel'
+}
+
+export interface Diagnostico {
+  avisos: string[]
+  descartados: ProdutoDescartado[]
+}
+
 // ── Catálogo ──────────────────────────────────────────────────────────────────
 
 export interface ProductBESS {
@@ -339,6 +353,7 @@ export interface CalculateResponse {
   solar_dimensionamento?: SolarDimensionamento | null
   kwp_alvo?: number
   frete?: FreteInfo | null
+  diagnostico?: Diagnostico | null
 }
 
 // ── Salvar cotação (persistência sob demanda) ──────────────────────────────────

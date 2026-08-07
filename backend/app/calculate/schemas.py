@@ -157,6 +157,24 @@ class SolarDimensionamento(BaseModel):
 
 # ── Response ─────────────────────────────────────────────────────────────────
 
+class ProdutoDescartado(BaseModel):
+    """Produto que o motor avaliou e deixou de fora, com o porquê."""
+    produto_id: str
+    titulo: str
+    motivo: str
+    # "dado_ausente" = o produto pode até servir, faltou informação para decidir.
+    # "incompativel" = foi avaliado e não atende. Misturar os dois esconde
+    # buraco de cadastro atrás de aparência de incompatibilidade técnica.
+    tipo: Literal["dado_ausente", "incompativel"]
+
+
+class Diagnostico(BaseModel):
+    """Por que o kit é este. Existe para o consultor conferir ANTES de
+    apresentar ao cliente — o motor já sabia disso tudo e não contava."""
+    avisos: list[str] = []
+    descartados: list[ProdutoDescartado] = []
+
+
 class CalculateResponse(BaseModel):
     projeto_id: Optional[str] = None   # só existe depois que a cotação é salva (POST /projects)
     tipo_calculo: str
@@ -193,6 +211,7 @@ class CalculateResponse(BaseModel):
     solar_dimensionamento: Optional[SolarDimensionamento] = None
 
     frete: Optional[dict] = None   # FreteInfo: {uf, valor, percentual, valor_minimo}
+    diagnostico: Optional[Diagnostico] = None
 
 
 # ── Salvar cotação (persistência sob demanda, só quando o usuário escolhe um kit) ──

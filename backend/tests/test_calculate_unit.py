@@ -639,3 +639,94 @@ def test_compativel_com_cargas_ainda_valida_tensao():
                        split_phase=False, phase="monofasico")
     ok, motivo = compativel_com_cargas(so_220, {"127"}, {"monofasico"})
     assert not ok and "127" in motivo
+
+
+# ── diagnostico: o motor passa a contar o que descartou ───────────────────────
+# Os tres bugs encontrados em campo tinham em comum serem SILENCIOSOS. O motor
+# ja produzia SkipReason e o servico jogava fora com `kits, _skipped`.
+
+class _Skip:
+    def __init__(self, produto_id, titulo, motivo):
+        self.produto_id, self.titulo, self.motivo = produto_id, titulo, motivo
+
+
+def _req_com_cargas(**kw):
+    carga = {"nome": "Carga", "qtd": 1, "pnom_w": 1000.0, "fp": 1.0, "fd": 1.0,
+             "ip_in": 1.0, "tdia_h": 4.0}
+    carga.update(kw.pop("carga", {}))
+    return CalculateRequest(origem_info=_make_origem_info(), tipo_calculo="backup",
+                            cargas_backup=[carga], **kw)
+
+
+def test_diagnostico_separa_dado_ausente_de_incompatibilidade():
+    from app.calculate.service import _montar_diagnostico
+
+    d = _montar_diagnostico(
+        [_Skip("a", "Inversor A", "faltam dados do inversor: peak_power_kw"),
+         _Skip("b", "Inversor B", "tensão de saída EPS não cadastrada"),
+         _Skip("c", "Inversor C", "carga trifásica exige inversor trifásico"),
+         _Skip("d", "Inversor D", "saída EPS não atende carga(s) ['127'] V")],
+        _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}), [], False)
+
+    tipos = {x.titulo: x.tipo for x in d.descartados}
+    assert tipos["Inversor A"] == "dado_ausente"
+    assert tipos["Inversor B"] == "dado_ausente"
+    assert tipos["Inversor C"] == "incompativel"
+    assert tipos["Inversor D"] == "incompativel"
+
+
+def test_diagnostico_avisa_quando_a_regra_nao_pode_ser_verificada():
+    """Carga sem tensao/fase: a R8 nao roda. Silencio aqui foi o bug da demo."""
+    from app.calculate.service import _montar_diagnostico
+
+    d = _montar_diagnostico([], _req_com_cargas(), [], False)
+    texto = " ".join(d.avisos)
+    assert "sem tensão informada" in texto and "NÃO foi verificada" in texto
+    assert "sem fase informada" in texto
+
+
+def test_diagnostico_nao_avisa_quando_a_regra_rodou():
+    from app.calculate.service import _montar_diagnostico
+
+    d = _montar_diagnostico(
+        [], _req_com_cargas(carga={"tensao": "220", "fase": "trifasico"}), [], False)
+    texto = " ".join(d.avisos)
+    assert "sem tensão informada" not in texto
+    assert "sem fase informada" not in texto
+
+
+def test_diagnostico_avisa_produto_fora_por_falta_de_cadastro():
+    from app.calculate.service import _montar_diagnostico
+
+    d = _montar_diagnostico(
+        [_Skip("a", "Inversor A", "faltam dados do inversor: qty_mppt")],
+        _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}), [], False)
+    assert any("falta de dado cadastrado" in a for a in d.avisos)
+
+
+def test_diagnostico_avisa_inversor_sem_dados_de_entrada_fv():
+    """O caso concreto: 8 hibridos sem voc_max/qty_mppt eram tratados como
+    incapazes de receber modulos, empurrando FV para um string superdimensionado."""
+    from app.calculate.service import _montar_diagnostico
+
+    completo = _FakeProd(title="Com dado", voc_max_voltage=600.0, qty_mppt=3)
+    sem = _FakeProd(title="SIW400H T015", voc_max_voltage=None, qty_mppt=None)
+
+    com_pv = _montar_diagnostico([], _req_com_cargas(), [completo, sem], True)
+    assert any("sem dados de entrada FV" in a and "SIW400H T015" in a
+               for a in com_pv.avisos)
+
+    # sem FV no projeto o aviso nao faz sentido e nao deve poluir
+    sem_pv = _montar_diagnostico([], _req_com_cargas(), [completo, sem], False)
+    assert not any("entrada FV" in a for a in sem_pv.avisos)
+
+
+def test_diagnostico_limpo_quando_esta_tudo_certo():
+    from app.calculate.service import _montar_diagnostico
+
+    completo = _FakeProd(title="OK", voc_max_voltage=600.0, qty_mppt=3)
+    d = _montar_diagnostico(
+        [], _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}),
+        [completo], True)
+    assert d.avisos == []
+    assert d.descartados == []

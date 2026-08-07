@@ -8,6 +8,7 @@ import { CityCombobox } from '@/components/CityCombobox'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
 import { KitResult } from '@/components/KitResult'
+import { DiagnosticoKit } from '@/components/DiagnosticoKit'
 import { SaveQuoteDialog } from '@/components/SaveQuoteDialog'
 import { useCalculate, useProject, useSaveQuote, useUpdateQuote } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
@@ -644,6 +645,8 @@ export function NewProjectPage() {
           result.kit_selecionado ? (
             <div className="mt-8 space-y-3">
               <h2 className="font-display text-xl font-bold tracking-tight text-ink">Opções de kit</h2>
+              {/* Antes de apresentar ao cliente: o que o motor deixou de fora e por quê */}
+              <DiagnosticoKit diagnostico={result.diagnostico} />
               <KitResult
                 kit={result.kit_selecionado}
                 itens={itensSugerido}

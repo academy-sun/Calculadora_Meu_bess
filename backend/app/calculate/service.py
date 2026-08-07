@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calculate.schemas import (
     BackupLoadRow, BackupRowResult,
-    CalculateRequest, CalculateResponse, KitInfo, LoadItem,
-    SolarDimensionamento,
+    CalculateRequest, CalculateResponse, Diagnostico, KitInfo, LoadItem,
+    ProdutoDescartado, SolarDimensionamento,
 )
 from app.catalog.service import list_kit_products, list_pv_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
@@ -77,6 +77,77 @@ def _option_to_info(
         rotulo_caminho=option.rotulo_caminho,
         kwp_instalado=round(kwp_instalado, 3),
     )
+
+
+# Motivos de descarte que denunciam CADASTRO incompleto, nao incompatibilidade
+# tecnica. Tratar os dois como a mesma coisa foi o que escondeu, por semanas,
+# 8 inversores hibridos sem dados de entrada FV.
+_MARCAS_DADO_AUSENTE = ("faltam dados", "não cadastrada", "nao cadastrada")
+
+
+def _classificar_descarte(motivo: str) -> str:
+    m = (motivo or "").lower()
+    return "dado_ausente" if any(t in m for t in _MARCAS_DADO_AUSENTE) else "incompativel"
+
+
+def _montar_diagnostico(
+    skipped,
+    req: CalculateRequest,
+    inversores: list,
+    tem_pv: bool,
+) -> Diagnostico:
+    """Traduz o que o motor descartou em algo que o consultor consegue ler."""
+    descartados = [
+        ProdutoDescartado(
+            produto_id=str(s.produto_id),
+            titulo=str(s.titulo),
+            motivo=str(s.motivo),
+            tipo=_classificar_descarte(s.motivo),
+        )
+        for s in (skipped or [])
+    ]
+
+    avisos: list[str] = []
+    cargas = req.cargas_backup or []
+
+    # Regra que NAO rodou e silenciosa por natureza: sem o dado de entrada, o
+    # motor nao valida e nada aparece. E preciso dizer que nao validou.
+    if cargas and not any(c.tensao for c in cargas):
+        avisos.append(
+            "Cargas sem tensão informada — a compatibilidade da saída EPS do "
+            "inversor NÃO foi verificada."
+        )
+    if cargas and not any(c.fase for c in cargas):
+        avisos.append(
+            "Cargas sem fase informada — a regra de fase (carga trifásica exige "
+            "inversor trifásico) NÃO foi verificada."
+        )
+
+    n_dado_ausente = sum(1 for d in descartados if d.tipo == "dado_ausente")
+    if n_dado_ausente:
+        avisos.append(
+            f"{n_dado_ausente} produto(s) ficaram de fora por falta de dado "
+            f"cadastrado, não por incompatibilidade — pode haver opção melhor "
+            f"não avaliada."
+        )
+
+    # Inversor sem dados de entrada FV nao "recusa" modulos: o motor apenas nao
+    # sabe quantos cabem, e o efeito pratico e empurrar todo o FV para um
+    # inversor string, geralmente superdimensionado.
+    if tem_pv:
+        sem_fv = [
+            str(eff(i, "title") or "?")
+            for i in inversores
+            if not eff_float(i, "voc_max_voltage") or not eff(i, "qty_mppt")
+        ]
+        if sem_fv:
+            avisos.append(
+                f"{len(sem_fv)} inversor(es) híbrido(s) sem dados de entrada FV "
+                f"cadastrados foram tratados como incapazes de receber módulos: "
+                f"{', '.join(sem_fv[:3])}{'…' if len(sem_fv) > 3 else ''}."
+            )
+
+    return Diagnostico(avisos=avisos, descartados=descartados)
 
 
 def _normalizar_fase(v: str | None) -> str:
@@ -200,6 +271,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
     # Arbitragem-specific extras
     arb_result = None
 
+    # Motivos de descarte do motor. Antes eram jogados fora em `_skipped` —
+    # o kit errado da demo estava explicado aqui e ninguem via.
+    skipped_total: list = []
+
     if req.tipo_calculo == "backup":
         # Resolve kWp alvo do FV (informado ou derivado de consumo+HSP+PR)
         kwp_alvo_calculado = resolve_kwp_alvo(
@@ -268,6 +343,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 kit_selecionado=kit_selecionado,
                 alternativas=[],
                 frete=_resolver_frete(req, kit_selecionado),
+                diagnostico=_montar_diagnostico(skipped_total, req, inversores, True),
                 solar_dimensionamento=_solar_dim_ongrid(ongrid_detalhe, kwp_alvo_calculado),
             )
 
@@ -300,7 +376,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
         fases_carga = {_normalizar_fase(c.fase) for c in req.cargas_backup if c.fase} or None
-        kits, _skipped = build_kits(
+        kits, _skipped_i = build_kits(
             inversores, baterias,
             pn_kva=backup_result.total_pn,
             pp_kva=backup_result.total_pp,
@@ -311,6 +387,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             padrao_entrada=req.padrao_entrada,
             jbw_produtos=jbw_produtos,
         )
+        skipped_total += _skipped_i
 
         # Build per-row results for frontend table
         backup_rows = [
@@ -412,7 +489,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         potencia_kw    = req.total_pp_kva
         energia_necessaria_kwh = req.total_e_eps_kwh
 
-        kits, _skipped = build_kits(
+        kits, _skipped_i = build_kits(
             inversores, baterias,
             pn_kva=0.0,  # Pn não informado em backup_direto; pico (Pp) é o que filtra
             pp_kva=req.total_pp_kva,
@@ -420,6 +497,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             fase_instalacao=req.tipo_instalacao or "monofasico",
             jbw_produtos=jbw_produtos,
         )
+        skipped_total += _skipped_i
         kit_selecionado, alternativas = _select_kits(kits, req.total_e_eps_kwh, jbw_produtos)
 
     elif req.tipo_calculo == "peak_shaving":
@@ -432,12 +510,13 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         potencia_kw = result.potencia_necessaria_kw
         economia_mensal = result.economia_mensal_estimada_rs
 
-        kits, _skipped = build_kits(
+        kits, _skipped_i = build_kits(
             inversores, baterias,
             pn_kva=0.0, pp_kva=potencia_kw,
             e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
             jbw_produtos=jbw_produtos,
         )
+        skipped_total += _skipped_i
         kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh, jbw_produtos)
 
         if kit_selecionado and economia_mensal:
@@ -493,12 +572,13 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             baterias = []
             inversores = []
 
-        kits, _skipped = build_kits(
+        kits, _skipped_i = build_kits(
             inversores, baterias,
             pn_kva=0.0, pp_kva=potencia_kw,
             e_bat_kwh=capacidade_kwh, fase_instalacao="monofasico",
             jbw_produtos=jbw_produtos,
         )
+        skipped_total += _skipped_i
         kit_selecionado, alternativas = _select_kits(kits, capacidade_kwh, jbw_produtos)
         kwp_alvo_calculado = round(capacidade_kwh, 3)
 
@@ -552,6 +632,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             payback_meses=payback_meses,
             alternativas=alternativas,
             frete=frete_info,
+            diagnostico=_montar_diagnostico(
+                skipped_total, req, inversores, bool(kwp_alvo_calculado)
+            ),
             solar_dimensionamento=(
                 SolarDimensionamento(
                     modulo_marca=solar_dim_result.modulo_marca,
