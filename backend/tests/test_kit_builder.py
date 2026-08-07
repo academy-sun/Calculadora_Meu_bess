@@ -186,7 +186,9 @@ class TestR7Rede:
 # FV (DC/AC 2,3). dc_capacity_modules validava so tensao/corrente, nunca a
 # potencia que o inversor consegue processar.
 
-from app.engines.pv_kit import ModuloAttrs, OVERSIZE_DC_AC, dc_capacity_modules
+from app.engines.pv_kit import (
+    MAX_MATRIZ_DC_AC_HIBRIDO, ModuloAttrs, dc_capacity_modules,
+)
 
 
 class _Inv:
@@ -200,46 +202,70 @@ def _modulo_550():
 
 
 def _siw200h_m075():
-    """Valores reais do catalogo: 7,5 kW, 3 MPPT, 1 entrada/MPPT, Voc max 600 V."""
-    return _Inv(power=7.5, qty_mppt=3, qty_inputs_per_mppt=1,
-                voc_max_voltage=600.0, short_circuit_current_inverter=20.0)
+    """Hibrido real do catalogo: 7,5 kW CA, 3 MPPT, Voc max 600 V, 1 entrada de
+    bateria (e o que marca o produto como hibrido para o teto de matriz)."""
+    return FakeProduct(power=7.5, qty_mppt=3, qty_inputs_per_mppt=1,
+                       voc_max_voltage=600.0, short_circuit_current_inverter=20.0,
+                       battery_inputs=1)
 
 
-def test_capacidade_cc_limitada_pela_potencia_e_nao_so_pela_tensao():
-    inv, mod = _siw200h_m075(), _modulo_550()
-    # eletricamente caberiam 12 em serie x 1 x 3 MPPT = 36 modulos (19,8 kWp)
+def _string_6kw():
+    """Inversor string: sem entrada de bateria."""
+    return FakeProduct(power=6.0, qty_mppt=3, qty_inputs_per_mppt=1,
+                       voc_max_voltage=600.0, short_circuit_current_inverter=20.0)
+
+
+def test_teto_de_matriz_do_hibrido_e_o_dobro_da_potencia_ca():
+    """Datasheet WEG, "Maxima Potencia da Matriz": M050 5 kW -> 10.000 Wp,
+    S075 7,5 kW -> 15.000 Wp. Aqui: 7,5 kW -> 15.000 Wp / 550 = 27 modulos."""
+    cap = dc_capacity_modules(_siw200h_m075(), 1, _modulo_550())
+    assert cap == 27
+    assert cap * 550 / 1000 <= 7.5 * MAX_MATRIZ_DC_AC_HIBRIDO
+
+
+def test_teto_eletrico_ainda_limita_quando_e_menor():
+    """36 modulos cabem eletricamente (12 serie x 3 MPPT), mas a matriz para em 27."""
     assert math.floor(600 / 50) * 1 * 3 == 36
-    cap = dc_capacity_modules(inv, 1, mod)
-    # 7,5 kW x 1,5 = 11,25 kWp -> 20 modulos de 550 Wp
-    assert cap == 20
-    assert cap * mod.wp / 1000 <= 7.5 * OVERSIZE_DC_AC
+    assert dc_capacity_modules(_siw200h_m075(), 1, _modulo_550()) == 27
 
 
-def test_capacidade_cc_nao_permite_o_caso_reportado_de_17kwp():
-    """31 modulos de 550 Wp = 17,05 kWp num inversor de 7,5 kW."""
+def test_caso_reportado_de_17kwp_continua_bloqueado():
+    """31 modulos = 17,05 kWp num hibrido de 7,5 kW (matriz max 15 kWp)."""
     assert dc_capacity_modules(_siw200h_m075(), 1, _modulo_550()) < 31
 
 
-def test_teto_de_potencia_escala_com_a_quantidade_de_inversores():
+def test_inversor_string_usa_a_razao_menor():
+    """String nao tem entrada de bateria: 1,5x, nao 2,0x. 6 kW -> 9 kWp -> 16 modulos."""
+    assert dc_capacity_modules(_string_6kw(), 1, _modulo_550()) == 16
+
+
+def test_dado_do_produto_tem_prioridade_sobre_a_razao():
+    """Quando max_pv_power_w existir no cadastro, manda nele."""
+    inv = _siw200h_m075()
+    inv.max_pv_power_w = 11000.0        # datasheet hipotetico, menor que 2x
+    assert dc_capacity_modules(inv, 1, _modulo_550()) == 20   # 11000/550
+
+
+def test_teto_escala_com_a_quantidade_de_inversores():
     inv, mod = _siw200h_m075(), _modulo_550()
-    assert dc_capacity_modules(inv, 2, mod) == 40   # 15 kW x 1,5 = 22,5 kWp
-    # com 3 unidades o limite volta a ser o eletrico (36 x 3 = 108 < 61 x ...)
-    assert dc_capacity_modules(inv, 3, mod) == 61
+    assert dc_capacity_modules(inv, 2, mod) == 54    # 30 kWp
+    # com 3 unidades quem limita volta a ser o eletrico: 36 x 3 = 108 < 81
+    assert dc_capacity_modules(inv, 3, mod) == 81
 
 
 def test_limite_eletrico_continua_valendo_quando_e_o_mais_restritivo():
     """Inversor potente mas com pouca tensao de entrada: quem manda e a tensao."""
-    inv = _Inv(power=50.0, qty_mppt=1, qty_inputs_per_mppt=1,
-               voc_max_voltage=300.0, short_circuit_current_inverter=20.0)
-    # 6 em serie x 1 x 1 = 6 modulos, bem abaixo do teto de potencia
+    inv = FakeProduct(power=50.0, qty_mppt=1, qty_inputs_per_mppt=1,
+                      voc_max_voltage=300.0, short_circuit_current_inverter=20.0,
+                      battery_inputs=1)
     assert dc_capacity_modules(inv, 1, _modulo_550()) == 6
 
 
 def test_sem_potencia_cadastrada_mantem_so_o_limite_eletrico():
-    """Nao inventa teto quando o produto nao tem potencia — sinaliza a lacuna
-    deixando passar, como manda a skill, em vez de bloquear silenciosamente."""
-    inv = _Inv(qty_mppt=3, qty_inputs_per_mppt=1, voc_max_voltage=600.0,
-               short_circuit_current_inverter=20.0)
+    """Nao inventa teto quando o produto nao tem potencia — deixa passar e a
+    lacuna fica visivel, como manda a skill."""
+    inv = FakeProduct(qty_mppt=3, qty_inputs_per_mppt=1, voc_max_voltage=600.0,
+                      short_circuit_current_inverter=20.0, battery_inputs=1)
     assert dc_capacity_modules(inv, 1, _modulo_550()) == 36
 
 

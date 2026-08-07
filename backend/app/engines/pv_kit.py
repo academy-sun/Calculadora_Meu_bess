@@ -33,6 +33,15 @@ DIAS_MES = 30
 CABO_STEP_M = 25
 OVERSIZE_DC_AC = 1.5   # razão DC/AC alvo para seleção de inversor string (mesma da MeuBESS)
 
+# Teto de matriz FV do inversor HÍBRIDO, quando o produto não traz o dado.
+# Datasheets WEG, campo "Máxima Potência da Matriz [Wp]" (ou "Potência Máxima
+# FV (STC)"), consistente em 2,0 × a potência CA nominal nas três linhas:
+#   M050  5,0 kW → 10.000 Wp    S075  7,5 kW → 15.000 Wp
+#   T015 15,0 kW → 30.000 Wp (380/220)
+# Não confundir com "Máxima Potência Recomendada de Entrada PV", que é ~1,5× —
+# aquele é potência CC entregue, este é Wp de placa, que é o que comparamos.
+MAX_MATRIZ_DC_AC_HIBRIDO = 2.0
+
 
 def _tit(p) -> str:
     return str(eff(p, "title") or getattr(p, "meubess_id", "?"))
@@ -155,20 +164,24 @@ def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
 
     cap_eletrica = n_serie * inputs_per_mppt * qty_mppt * qtd_inv
 
-    # Limite de potência CC. O ideal seria a "potência máxima do gerador FV" do
-    # datasheet, que HOJE NÃO EXISTE no cadastro (ver
-    # .claude/skills/dimensionamento-kit-bess-hibrido) — na ausência dela usamos
-    # o mesmo oversizing DC/AC já adotado na seleção de inversor string, em vez
-    # de deixar sem teto nenhum. Quando o atributo for cadastrado, ele deve ter
-    # prioridade sobre esta conta.
-    potencia_ca_kw = eff_float(inv, "power") or eff_float(inv, "max_output_power")
-    if potencia_ca_kw and potencia_ca_kw > 0 and modulo.wp > 0:
-        cap_potencia = math.floor(
-            potencia_ca_kw * qtd_inv * OVERSIZE_DC_AC * 1000 / modulo.wp
-        )
-        return max(0, min(cap_eletrica, cap_potencia))
+    # Teto de matriz FV. Preferência para o dado do produto; sem ele, a razão
+    # por tipo de inversor. `max_pv_power_w` ainda NÃO existe no cadastro
+    # meubess_products — é a lacuna a fechar para deixar de depender da razão.
+    if modulo.wp <= 0:
+        return cap_eletrica
 
-    return cap_eletrica
+    max_matriz_w = eff_float(inv, "max_pv_power_w")
+    if not max_matriz_w:
+        potencia_ca_kw = eff_float(inv, "power") or eff_float(inv, "max_output_power")
+        if not potencia_ca_kw or potencia_ca_kw <= 0:
+            return cap_eletrica
+        # híbrido tem entrada de bateria; inversor string, não
+        e_hibrido = bool(eff_int(inv, "battery_inputs"))
+        razao = MAX_MATRIZ_DC_AC_HIBRIDO if e_hibrido else OVERSIZE_DC_AC
+        max_matriz_w = potencia_ca_kw * 1000 * razao
+
+    cap_matriz = math.floor(max_matriz_w * qtd_inv / modulo.wp)
+    return max(0, min(cap_eletrica, cap_matriz))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

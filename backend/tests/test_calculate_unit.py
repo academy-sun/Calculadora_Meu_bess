@@ -604,3 +604,38 @@ def test_combinado_leva_alternativas():
                             alternativas=[_FakeCombinedOption(kit_alt, "split")])
     assert len(result.alternativas) == 1
     assert result.alternativas[0].preco_total == 35000.0
+
+
+# ── R8 no caminho COMBINADO (FV + armazenamento) ──────────────────────────────
+# Reportado em campo: abajur TRIFASICO com FV no projeto voltou com inversor
+# MONOfasico. A R8 filtrava kits_storage, mas o caminho "hibrido ampliado"
+# SUBSTITUI o inversor depois disso, sem reaplicar a regra.
+
+def test_combinado_nao_oferece_hibrido_incompativel_com_a_fase():
+    from app.engines.kit_builder import compativel_com_cargas
+
+    mono = _FakeProd(meubess_id="m075", title="SIW200H M075 mono 220",
+                     eps_output_voltage="220", split_phase=False, phase="monofasico")
+    tri = _FakeProd(meubess_id="t015", title="SIW400H T015 tri 380/220",
+                    eps_output_voltage="380/220", split_phase=False, phase="trifasico")
+
+    ok_mono, motivo = compativel_com_cargas(mono, {"220"}, {"trifasico"})
+    ok_tri, _ = compativel_com_cargas(tri, {"220"}, {"trifasico"})
+
+    assert not ok_mono and "trifásica" in motivo
+    assert ok_tri
+
+
+def test_compativel_com_cargas_sem_restricao_aceita_tudo():
+    """Cotacao sem tensao nem fase informadas nao pode filtrar nada."""
+    from app.engines.kit_builder import compativel_com_cargas
+    qualquer = _FakeProd(meubess_id="x", title="X", eps_output_voltage="220")
+    assert compativel_com_cargas(qualquer, None, None)[0]
+
+
+def test_compativel_com_cargas_ainda_valida_tensao():
+    from app.engines.kit_builder import compativel_com_cargas
+    so_220 = _FakeProd(meubess_id="m", title="M", eps_output_voltage="220",
+                       split_phase=False, phase="monofasico")
+    ok, motivo = compativel_com_cargas(so_220, {"127"}, {"monofasico"})
+    assert not ok and "127" in motivo

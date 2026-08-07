@@ -80,6 +80,29 @@ def _serve_tensoes(inv, tensoes_carga: set[str]) -> tuple[bool, str | None]:
     return True, None
 
 
+def compativel_com_cargas(
+    inv,
+    tensoes_carga: set[str] | None,
+    fases_carga: set[str] | None,
+) -> tuple[bool, str | None]:
+    """R8 completa (tensão + fase) para um inversor.
+
+    Exposta porque o caminho combinado FV+armazenamento **troca** o inversor
+    híbrido depois que build_kits já filtrou (o "híbrido ampliado", que sobe de
+    modelo para absorver mais FV). Sem reaplicar a regra ali, uma carga
+    trifásica voltava com inversor monofásico sempre que havia FV no projeto.
+    """
+    if tensoes_carga:
+        ok, why = _serve_tensoes(inv, tensoes_carga)
+        if not ok:
+            return False, why
+    if fases_carga:
+        ok, why = _serve_fases(inv, fases_carga)
+        if not ok:
+            return False, why
+    return True, None
+
+
 def _norm_fase(v) -> str:
     """'Trifásico' / 'TRIFASICO' → 'trifasico'."""
     import unicodedata

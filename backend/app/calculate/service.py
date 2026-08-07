@@ -11,7 +11,7 @@ from app.calculate.schemas import (
 from app.catalog.service import list_kit_products, list_pv_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
-from app.engines.kit_builder import build_kits, economic_undershoot_kit
+from app.engines.kit_builder import build_kits, compativel_com_cargas, economic_undershoot_kit
 from app.engines.pv_kit import (
     build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
     resolve_kwp_alvo, select_module,
@@ -328,6 +328,13 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         # ── 2: combina PV (quando kWp informado) OU armazenamento puro ───
         if tem_pv and kits:
             voltage_str = "380" if (req.padrao_entrada or "").startswith("tri") else "220"
+            # O caminho combinado pode SUBSTITUIR o híbrido (caminho "scaled")
+            # por um maior que absorva todo o FV. Sem filtrar antes, essa troca
+            # ignora a R8 e devolve inversor monofásico para carga trifásica.
+            hibridos_compativeis = [
+                i for i in inversores
+                if compativel_com_cargas(i, tensoes_carga, fases_carga)[0]
+            ]
             sugerido_opt, alt_opts = build_combined_pv_storage(
                 kits_storage=kits,
                 e_bat_kwh=energy_backup_kwh,
@@ -338,7 +345,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 mc4s=pv["mc4s"],
                 estruturas=pv["estruturas"],
                 inversores_string=pv["inversores_string"],
-                inversores_hibridos=inversores,
+                inversores_hibridos=hibridos_compativeis,
                 voltage=voltage_str,
                 phase=req.tipo_instalacao or "monofasico",
                 jbw_produtos=jbw_produtos,
