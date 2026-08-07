@@ -7,6 +7,7 @@ export interface ProdutoDescartado {
   produto_id: string
   titulo: string
   motivo: string
+  marca?: string
   /** 'dado_ausente' = faltou informação para decidir, não é incompatibilidade. */
   tipo: 'dado_ausente' | 'incompativel'
 }

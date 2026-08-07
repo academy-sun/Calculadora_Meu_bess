@@ -95,6 +95,7 @@ def _montar_diagnostico(
     req: CalculateRequest,
     inversores: list,
     tem_pv: bool,
+    marca_kit: str = "",
 ) -> Diagnostico:
     """Traduz o que o motor descartou em algo que o consultor consegue ler."""
     descartados = [
@@ -103,6 +104,7 @@ def _montar_diagnostico(
             titulo=str(s.titulo),
             motivo=str(s.motivo),
             tipo=_classificar_descarte(s.motivo),
+            marca=str(getattr(s, "marca", "") or ""),
         )
         for s in (skipped or [])
     ]
@@ -123,12 +125,23 @@ def _montar_diagnostico(
             "inversor trifásico) NÃO foi verificada."
         )
 
-    n_dado_ausente = sum(1 for d in descartados if d.tipo == "dado_ausente")
-    if n_dado_ausente:
+    # Só avisa sobre cadastro incompleto de produtos da MESMA MARCA do kit
+    # escolhido — esses seriam alternativas reais. O catálogo tem ~128 baterias
+    # de outras marcas sem spec, e avisar sobre elas em toda cotação treina o
+    # consultor a ignorar o painel inteiro.
+    marca_kit = (marca_kit or "").strip().lower()
+    relevantes = [
+        d for d in descartados
+        if d.tipo == "dado_ausente" and marca_kit
+        and (d.marca or "").strip().lower() == marca_kit
+    ]
+    if relevantes:
+        nomes = ", ".join(d.titulo for d in relevantes[:2])
         avisos.append(
-            f"{n_dado_ausente} produto(s) ficaram de fora por falta de dado "
-            f"cadastrado, não por incompatibilidade — pode haver opção melhor "
-            f"não avaliada."
+            f"{len(relevantes)} produto(s) {marca_kit.upper()} ficaram de fora por "
+            f"falta de dado cadastrado, não por incompatibilidade — pode haver "
+            f"opção melhor não avaliada: {nomes}"
+            f"{'…' if len(relevantes) > 2 else ''}"
         )
 
     # Inversor sem dados de entrada FV nao "recusa" modulos: o motor apenas nao
@@ -343,7 +356,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 kit_selecionado=kit_selecionado,
                 alternativas=[],
                 frete=_resolver_frete(req, kit_selecionado),
-                diagnostico=_montar_diagnostico(skipped_total, req, inversores, True),
+                diagnostico=_montar_diagnostico(
+                    skipped_total, req, inversores, True,
+                    kit_selecionado.marca if kit_selecionado else "",
+                ),
                 solar_dimensionamento=_solar_dim_ongrid(ongrid_detalhe, kwp_alvo_calculado),
             )
 
@@ -633,7 +649,8 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             alternativas=alternativas,
             frete=frete_info,
             diagnostico=_montar_diagnostico(
-                skipped_total, req, inversores, bool(kwp_alvo_calculado)
+                skipped_total, req, inversores, bool(kwp_alvo_calculado),
+                kit_selecionado.marca if kit_selecionado else "",
             ),
             solar_dimensionamento=(
                 SolarDimensionamento(

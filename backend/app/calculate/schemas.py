@@ -162,6 +162,7 @@ class ProdutoDescartado(BaseModel):
     produto_id: str
     titulo: str
     motivo: str
+    marca: str = ""
     # "dado_ausente" = o produto pode até servir, faltou informação para decidir.
     # "incompativel" = foi avaliado e não atende. Misturar os dois esconde
     # buraco de cadastro atrás de aparência de incompatibilidade técnica.

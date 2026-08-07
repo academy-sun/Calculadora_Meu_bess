@@ -646,8 +646,9 @@ def test_compativel_com_cargas_ainda_valida_tensao():
 # ja produzia SkipReason e o servico jogava fora com `kits, _skipped`.
 
 class _Skip:
-    def __init__(self, produto_id, titulo, motivo):
+    def __init__(self, produto_id, titulo, motivo, marca=""):
         self.produto_id, self.titulo, self.motivo = produto_id, titulo, motivo
+        self.marca = marca
 
 
 def _req_com_cargas(**kw):
@@ -695,13 +696,44 @@ def test_diagnostico_nao_avisa_quando_a_regra_rodou():
     assert "sem fase informada" not in texto
 
 
-def test_diagnostico_avisa_produto_fora_por_falta_de_cadastro():
+def test_avisa_produto_da_mesma_marca_fora_por_falta_de_cadastro():
+    """Produto WEG sem spec num kit WEG e alternativa real perdida."""
     from app.calculate.service import _montar_diagnostico
 
     d = _montar_diagnostico(
-        [_Skip("a", "Inversor A", "faltam dados do inversor: qty_mppt")],
-        _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}), [], False)
-    assert any("falta de dado cadastrado" in a for a in d.avisos)
+        [_Skip("a", "SIW200H M090", "faltam dados do inversor: qty_mppt", "WEG")],
+        _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}),
+        [], False, marca_kit="WEG")
+    assert any("falta de dado cadastrado" in a and "SIW200H M090" in a for a in d.avisos)
+
+
+def test_nao_avisa_sobre_ruido_de_catalogo_de_outras_marcas():
+    """O catalogo tem ~128 baterias de outras marcas sem spec. Avisar sobre elas
+    em toda cotacao treina o consultor a ignorar o painel inteiro."""
+    from app.calculate.service import _montar_diagnostico
+
+    ruido = [_Skip(str(i), f"Bateria generica {i}",
+                   "faltam dados da bateria: usable_kwh", "OUTRA MARCA")
+             for i in range(128)]
+    d = _montar_diagnostico(
+        ruido, _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}),
+        [], False, marca_kit="WEG")
+
+    assert not any("falta de dado cadastrado" in a for a in d.avisos)
+    # mas a lista completa continua disponivel para quem cuida do catalogo
+    assert len(d.descartados) == 128
+    assert all(x.tipo == "dado_ausente" for x in d.descartados)
+
+
+def test_sem_kit_escolhido_nao_avisa_sobre_cadastro():
+    """Sem marca de referencia nao da para dizer o que seria alternativa."""
+    from app.calculate.service import _montar_diagnostico
+
+    d = _montar_diagnostico(
+        [_Skip("a", "X", "faltam dados do inversor: qty_mppt", "WEG")],
+        _req_com_cargas(carga={"tensao": "220", "fase": "monofasico"}),
+        [], False, marca_kit="")
+    assert not any("falta de dado cadastrado" in a for a in d.avisos)
 
 
 def test_diagnostico_avisa_inversor_sem_dados_de_entrada_fv():

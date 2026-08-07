@@ -49,6 +49,10 @@ class SkipReason:
     produto_id: str
     titulo: str
     motivo: str
+    # Separa "produto que poderia ser alternativa deste kit" de ruído de
+    # catálogo: 128 baterias de outras marcas sem spec são descartadas em TODA
+    # cotação, e um aviso que sempre aparece é um aviso que ninguém lê.
+    marca: str = ""
 
 
 # ── helpers de tensão ─────────────────────────────────────────────────────────
@@ -374,24 +378,27 @@ def build_kits(
     def _tit(p):
         return eff(p, "title") or _id(p)
 
+    def _skip(p, motivo):
+        return SkipReason(_id(p), _tit(p), motivo, str(eff(p, "marca") or ""))
+
     for inv in inversores:
         ia, motivo = _attrs_inversor(inv)
         if motivo:
-            skipped.append(SkipReason(_id(inv), _tit(inv), motivo))
+            skipped.append(_skip(inv, motivo))
             continue
 
         # R8 — tensão de saída EPS × cargas (quando informado)
         if tensoes_carga:
             ok, why = _serve_tensoes(inv, tensoes_carga)
             if not ok:
-                skipped.append(SkipReason(_id(inv), _tit(inv), why))
+                skipped.append(_skip(inv, why))
                 continue
 
         # R8 — fase das cargas × saída do inversor (bloqueante)
         if fases_carga:
             ok, why = _serve_fases(inv, fases_carga)
             if not ok:
-                skipped.append(SkipReason(_id(inv), _tit(inv), why))
+                skipped.append(_skip(inv, why))
                 continue
 
         # R7 — alertas de compatibilidade com a rede da unidade (não bloqueia)
@@ -405,7 +412,7 @@ def build_kits(
             1,
         )
         if qtd_inv > ia["max_paralelo"]:
-            skipped.append(SkipReason(_id(inv), _tit(inv),
+            skipped.append(_skip(inv,
                 f"potência exige {qtd_inv} inversores (máx paralelo {ia['max_paralelo']})"))
             continue
 
@@ -414,7 +421,7 @@ def build_kits(
         for bat in baterias:
             ba, motivo_b = _attrs_bateria(bat)
             if motivo_b:
-                skipped.append(SkipReason(_id(bat), _tit(bat), motivo_b))
+                skipped.append(_skip(bat, motivo_b))
                 continue
             if require_same_brand and (eff(inv, "marca") or "") != (eff(bat, "marca") or ""):
                 continue
@@ -435,13 +442,13 @@ def build_kits(
                     n_pot = n
                     break
             if n_pot is None:
-                skipped.append(SkipReason(_id(inv), _tit(inv),
+                skipped.append(_skip(inv,
                     f"nem o banco cheio entrega o pico {pp_kva:.1f} kVA (com {_tit(bat)})"))
                 continue
 
             n = max(n_energia, n_pot)
             if n > cap_bat:
-                skipped.append(SkipReason(_id(inv), _tit(inv),
+                skipped.append(_skip(inv,
                     f"energia exige {n} baterias (máx {cap_bat} neste arranjo)"))
                 continue
 
