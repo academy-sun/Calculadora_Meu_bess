@@ -18,8 +18,10 @@ export function DiagnosticoKit({ diagnostico }: { diagnostico?: Diagnostico | nu
   const porFaltaDeDado = descartados.filter(d => d.tipo === 'dado_ausente')
   if (avisos.length === 0 && descartados.length === 0) return null
 
-  // Aviso é o que exige atenção agora; a lista de descartados é consulta.
-  const grave = avisos.length > 0 || porFaltaDeDado.length > 0
+  // Só aviso destaca o painel. Volume de cadastro incompleto é higiene de
+  // catálogo e aparece em toda cotação — destacar isso faria o consultor
+  // ignorar o painel, junto com os avisos que de fato importam.
+  const grave = avisos.length > 0
 
   return (
     <div className={`rounded-2xl border px-4 py-3 ${
@@ -42,7 +44,12 @@ export function DiagnosticoKit({ diagnostico }: { diagnostico?: Diagnostico | nu
         className="flex w-full items-center gap-1.5 text-left text-xs font-semibold text-ink/60 hover:text-ink"
       >
         <HelpCircle size={14} />
-        Por que este kit — {descartados.length} produto(s) avaliado(s) e não usado(s)
+        Por que este kit — {descartados.length} avaliado(s) e não usado(s)
+        {porFaltaDeDado.length > 0 && (
+          <span className="font-normal text-ink/40">
+            ({porFaltaDeDado.length} por cadastro incompleto)
+          </span>
+        )}
         <ChevronDown size={14} className={`ml-auto transition ${aberto ? 'rotate-180' : ''}`} />
       </button>
 

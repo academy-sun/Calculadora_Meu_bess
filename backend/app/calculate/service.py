@@ -125,24 +125,13 @@ def _montar_diagnostico(
             "inversor trifásico) NÃO foi verificada."
         )
 
-    # Só avisa sobre cadastro incompleto de produtos da MESMA MARCA do kit
-    # escolhido — esses seriam alternativas reais. O catálogo tem ~128 baterias
-    # de outras marcas sem spec, e avisar sobre elas em toda cotação treina o
-    # consultor a ignorar o painel inteiro.
-    marca_kit = (marca_kit or "").strip().lower()
-    relevantes = [
-        d for d in descartados
-        if d.tipo == "dado_ausente" and marca_kit
-        and (d.marca or "").strip().lower() == marca_kit
-    ]
-    if relevantes:
-        nomes = ", ".join(d.titulo for d in relevantes[:2])
-        avisos.append(
-            f"{len(relevantes)} produto(s) {marca_kit.upper()} ficaram de fora por "
-            f"falta de dado cadastrado, não por incompatibilidade — pode haver "
-            f"opção melhor não avaliada: {nomes}"
-            f"{'…' if len(relevantes) > 2 else ''}"
-        )
+    # NÃO vira aviso o volume de produtos sem cadastro completo. Medido em
+    # produção: 128 descartes por dado ausente em toda cotação, e mesmo
+    # filtrando pela marca do kit sobram 110 — são "Cabine de Baterias" e
+    # afins, classificados como `bateria` na réplica sem serem módulos
+    # candidatos. Isso é higiene de catálogo, não alarme de cotação; um alerta
+    # que aparece sempre faz o consultor ignorar o painel inteiro, inclusive os
+    # avisos que importam. A contagem fica no painel, sob demanda.
 
     # Inversor sem dados de entrada FV nao "recusa" modulos: o motor apenas nao
     # sabe quantos cabem, e o efeito pratico e empurrar todo o FV para um
