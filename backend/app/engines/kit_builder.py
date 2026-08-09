@@ -427,7 +427,13 @@ def build_kits(
                 continue
             ok, why = _compativel(inv, bat)
             if not ok:
-                continue  # incompatível: não é erro de cadastro, só não casa
+                # R5 rejeitava em silêncio: o par sumia sem explicação, e ficar
+                # sem kit "sem motivo" foi o que tornou os erros de campo tão
+                # difíceis de diagnosticar. Não casar é resultado legítimo, mas
+                # tem que ser dizível.
+                skipped.append(_skip(
+                    inv, f"{why or 'incompatível'} (com {_tit(bat)})"))
+                continue
 
             cap_bat = ba["max_paralelo"] * n_entradas
             n_energia = max(1, math.ceil(e_bat_kwh / ba["usable_kwh"]))

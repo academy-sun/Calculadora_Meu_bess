@@ -361,3 +361,153 @@ def test_carga_bifasica_em_trifasico_nao_alerta():
     kits, _ = _montar_por_fase([t015()], {"bifasico"})
     assert len(kits) == 1
     assert not any("bifásica" in a for a in (kits[0].alertas or []))
+
+
+# ═══ AUDITORIA R1–R9 ═════════════════════════════════════════════════════════
+# Cada regra da skill com um teste que a PROVA. As duas falhas encontradas em
+# campo (R8 so de tensao; R8 contornada no caminho combinado) existiam porque
+# ninguem tinha conferido que a regra escrita estava inteira no motor.
+# Referencia: .claude/skills/dimensionamento-kit-bess-hibrido/reference/
+#             restricoes-composicao-kit.md
+
+class TestR1TetoDeBaterias:
+    """total_baterias <= inversor.entradas_bateria x bateria.max_em_paralelo"""
+
+    def test_energia_alem_do_teto_descarta_o_inversor(self):
+        # M050: 1 entrada; CB100: 4 em paralelo -> teto 4 baterias (~40 kWh).
+        # 45 kWh exigem 5 -> inviavel nesse arranjo.
+        kits, skipped = build_kits(
+            [m050()], [cb100()], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=45.0)
+        assert kits == []
+        assert any("energia exige 5 baterias" in s.motivo and "máx 4" in s.motivo
+                   for s in skipped)
+
+    def test_no_limite_do_teto_ainda_monta(self):
+        kits, _ = build_kits(
+            [m050()], [cb100()], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=40.0)
+        assert len(kits) == 1
+        assert kits[0].qtd_baterias == 4          # exatamente o teto
+        assert kits[0].distribuicao_baterias == [4]
+
+    def test_inversor_com_2_entradas_dobra_o_teto(self):
+        """T030 tem 2 entradas -> 8 baterias, onde o M050 so aceita 4."""
+        kits, _ = build_kits(
+            [t030()], [cb100()], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=70.0)
+        assert len(kits) == 1
+        assert kits[0].qtd_baterias == 7
+
+
+class TestR2PotenciaPorEntrada:
+    """A corrente soma dentro da entrada, mas trunca no teto DELA. Distribuir
+    entre entradas entrega mais potencia do que concentrar."""
+
+    def test_potencia_pode_exigir_mais_baterias_que_a_energia(self):
+        # Energia pede 1 bateria (10 kWh / 10,07). Mas o pico de 30 kVA nao cabe
+        # em 1: dist [1,0] -> min(65,50)=50 A x 384 V = 19,2 kW < 30.
+        # Com 2, dist [1,1] -> 100 A = 38,4 kW, limitado ao pico do T030 (36 kW).
+        kits, _ = build_kits(
+            [t030()], [cb100()], pn_kva=5.0, pp_kva=30.0, e_bat_kwh=10.0)
+        assert len(kits) == 1
+        assert kits[0].qtd_baterias == 2, "potencia deve mandar quando exige mais que a energia"
+        assert kits[0].distribuicao_baterias == [1, 1]
+        assert kits[0].pico_entregavel_kw >= 30.0
+
+    def test_distribuir_entrega_mais_potencia_que_concentrar(self):
+        """O exemplo do treinamento, verificado pelo motor: 3 baterias em 2
+        entradas saem como 2+1, nao 3+0."""
+        from app.engines.kit_builder import _distribuir, _pico_dc_kw
+
+        i_entrada, i_pico_bat, tensao = 50.0, 65.0, 384.0
+        concentrado = _pico_dc_kw([3, 0], i_entrada, i_pico_bat, tensao)
+        distribuido = _pico_dc_kw(_distribuir(3, 2), i_entrada, i_pico_bat, tensao)
+
+        assert _distribuir(3, 2) == [2, 1]
+        assert distribuido > concentrado
+        assert concentrado == 50.0 * tensao / 1000        # uma entrada saturada
+        assert distribuido == 100.0 * tensao / 1000       # duas entradas saturadas
+
+    def test_bateria_extra_na_entrada_saturada_so_agrega_energia(self):
+        from app.engines.kit_builder import _pico_dc_kw
+        uma = _pico_dc_kw([1], 50.0, 65.0, 384.0)
+        duas = _pico_dc_kw([2], 50.0, 65.0, 384.0)
+        assert uma == duas, "2a bateria na MESMA entrada nao acrescenta potencia"
+
+
+class TestR4TetoDeParalelismo:
+    """qtd_inversores <= inversor.max_paralelo"""
+
+    def test_pico_alem_do_paralelismo_descarta(self):
+        # T015: pico 18 kVA, max 4 unidades -> teto 72 kVA. 100 kVA nao cabe.
+        kits, skipped = build_kits(
+            [t015()], [cb100()], pn_kva=40.0, pp_kva=100.0, e_bat_kwh=20.0)
+        assert kits == []
+        assert any("máx paralelo" in s.motivo for s in skipped)
+
+    def test_no_limite_do_paralelismo_ainda_monta(self):
+        kits, _ = build_kits(
+            [t015()], [cb100()], pn_kva=40.0, pp_kva=72.0, e_bat_kwh=20.0)
+        assert kits and kits[0].qtd_inversores == 4
+
+
+class TestR5CompatibilidadeInversorBateria:
+    """A lista do datasheet da bateria e autoritativa; sem ela, faixa de tensao."""
+
+    def test_lista_do_datasheet_bloqueia_inversor_fora_dela(self):
+        bat = cb100()
+        bat.compatible_inverters = "SIW500X"        # nao inclui SIW200H
+        kits, skipped = build_kits(
+            [m050()], [bat], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0)
+        assert kits == []
+        assert any(s.produto_id in ("m050", "cb100") for s in skipped)
+
+    def test_mesma_marca_nao_basta(self):
+        """A skill e explicita: nao assumir que mesma marca = compativel."""
+        bat = cb100()
+        bat.compatible_inverters = "SIW400H"        # so o trifasico
+        kits, _ = build_kits([m050(), t015()], [bat],
+                             pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0)
+        assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+    def test_sem_lista_vale_a_faixa_de_tensao(self):
+        bat = cb100()
+        bat.compatible_inverters = None
+        bat.operating_voltage_min_v = 700           # fora da janela do M050 (80-480)
+        bat.operating_voltage_max_v = 900
+        kits, skipped = build_kits(
+            [m050()], [bat], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0)
+        assert kits == []
+
+
+class TestR6CargaMonoEmTrifasico:
+    """Advisory, nao bloqueante."""
+
+    def test_gera_alerta_sem_bloquear(self):
+        kits, _ = build_kits(
+            [t015()], [cb100()], pn_kva=5.0, pp_kva=10.0, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", tensoes_carga={"220"})
+        assert kits, "R6 nao pode bloquear"
+        assert any("1/3 da potência" in a for a in (kits[0].alertas or []))
+
+    def test_instalacao_mono_nao_gera_o_alerta(self):
+        kits, _ = build_kits(
+            [m050()], [cb100()], pn_kva=2.0, pp_kva=3.0, e_bat_kwh=10.0,
+            fase_instalacao="monofasico", tensoes_carga={"220"})
+        assert not any("1/3 da potência" in a for a in (kits[0].alertas or []))
+
+
+class TestR9CaixaDeJuncao:
+    """n_jbw = numero de ENTRADAS com >= 2 baterias em paralelo."""
+
+    def test_uma_bateria_por_entrada_nao_usa_caixa(self):
+        kits, _ = build_kits(
+            [t030()], [cb100()], pn_kva=5.0, pp_kva=30.0, e_bat_kwh=15.0)
+        kit = kits[0]
+        assert kit.distribuicao_baterias == [1, 1]
+        assert kit.n_caixas_juncao == 0, "1+1 sao ligacoes diretas"
+
+    def test_conta_por_entrada_com_duas_ou_mais(self):
+        kits, _ = build_kits(
+            [t030()], [cb100()], pn_kva=5.0, pp_kva=30.0, e_bat_kwh=40.0)
+        kit = kits[0]
+        assert kit.distribuicao_baterias == [2, 2]
+        assert kit.n_caixas_juncao == 2
