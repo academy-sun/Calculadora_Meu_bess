@@ -11,7 +11,9 @@ from app.calculate.schemas import (
 from app.catalog.service import list_kit_products, list_pv_products, get_bess_comercial, list_products
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
-from app.engines.kit_builder import build_kits, compativel_com_cargas, economic_undershoot_kit
+from app.engines.kit_builder import (
+    _alertas_rede, build_kits, compativel_com_cargas, economic_undershoot_kit,
+)
 from app.engines.pv_kit import (
     build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
     resolve_kwp_alvo, select_module,
@@ -191,22 +193,29 @@ def _solar_dim_ongrid(detalhe, kwp_alvo: float) -> SolarDimensionamento | None:
     )
 
 
-#: Tensão de conexão (entre fases) de cada padrão de entrada, como o catálogo
-#: registra o campo `voltage` do inversor. Os dois caminhos que precisavam
-#: disso derivavam por conta própria — um com `"220" in padrao`, outro com
-#: `padrao.startswith("tri")` — e cada um acertava só metade dos casos:
-#: o primeiro mandava 380 V para uma rede mono 127, o segundo mandava 380 V
-#: para uma rede trifásica 127/220.
-TENSAO_REDE = {
-    "mono_127": "127",
-    "mono_220": "220",
-    "tri_127_220": "220",
-    "tri_220_380": "380",
+#: Tensões de conexão disponíveis em cada padrão de entrada, por tipo de
+#: inversor. Um padrão trifásico oferece DUAS tensões, não uma: a de linha
+#: (entre fases) e a de fase (entre fase e neutro). Numa rede 220/380, um
+#: inversor trifásico se liga em 380 V entre as fases, e um monofásico de
+#: 220 V se liga entre uma fase e o neutro — as duas conexões são válidas,
+#: e a segunda costuma sair mais barata (2× 7,5 kW mono < 1× 15 kW tri).
+#:
+#: Modelar isso como um valor único descartava metade das opções válidas.
+CONEXOES_REDE: dict[str, dict[str, str]] = {
+    "mono_127":    {"monofasico": "127"},
+    "mono_220":    {"monofasico": "220"},
+    "tri_127_220": {"monofasico": "127", "trifasico": "220"},
+    "tri_220_380": {"monofasico": "220", "trifasico": "380"},
 }
 
 
-def _tensao_rede(padrao_entrada: str | None) -> str:
-    return TENSAO_REDE.get(padrao_entrada or "", "220")
+def _conexoes_rede(padrao_entrada: str | None) -> dict[str, str]:
+    """{fase do inversor: tensão de conexão} para o padrão de entrada.
+
+    Ausência da chave significa "esse tipo de inversor não se conecta nessa
+    rede" — um trifásico não tem onde se ligar num padrão monofásico.
+    """
+    return CONEXOES_REDE.get(padrao_entrada or "", {"monofasico": "220"})
 
 
 def _resolver_frete(req: CalculateRequest, kit: KitInfo | None) -> dict | None:
@@ -320,8 +329,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 mc4s=pv["mc4s"],
                 estruturas=pv["estruturas"],
                 inversores_string=pv["inversores_string"],
-                voltage=_tensao_rede(req.padrao_entrada),
-                phase=req.tipo_instalacao or "monofasico",
+                conexoes=_conexoes_rede(req.padrao_entrada),
             )
             if ongrid_itens:
                 preco_total_ongrid = sum(i["preco_total"] for i in ongrid_itens)
@@ -330,6 +338,19 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                     if ongrid_detalhe else kwp_alvo_calculado,
                     3,
                 )
+                # R7 no on-grid puro. Os alertas de rede só eram emitidos dentro
+                # de build_kits, que este caminho não chama — kit sem bateria
+                # saía sempre com o aviso genérico e mais nada, mesmo quando a
+                # conexão exigia ressalva.
+                alertas_ongrid = ["Kit on-grid puro — sem armazenamento"]
+                if ongrid_detalhe and ongrid_detalhe.inversor is not None:
+                    alertas_ongrid += _alertas_rede(
+                        ongrid_detalhe.inversor,
+                        req.tipo_instalacao,
+                        req.padrao_entrada,
+                        qtd_inversores=ongrid_detalhe.qtd_inversores or 1,
+                    )
+
                 # KitBESS-like estrutura fake sem bateria para _kit_to_info
                 from app.engines.kit_builder import KitBESS
                 kit_ongrid_fake = KitBESS(
@@ -399,14 +420,17 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
         fases_carga = {_normalizar_fase(c.fase) for c in req.cargas_backup if c.fase} or None
-        # Tensão exigida ENTRE FASES — cargas alimentadas por dois condutores
-        # vivos. Uma carga trifásica OU bifásica 220 V não é servida por um
-        # inversor 380/220, que entrega 220 V só entre fase e neutro; entre
-        # fases ele dá 380 V. A checagem de tensão sozinha não separava os
-        # dois casos porque tratava o par '380/220' como conjunto plano.
+        # Tensão exigida ENTRE FASES. Só carga TRIFÁSICA entra aqui: ela ocupa
+        # as três fases e precisa da tensão de linha exata, que não dá para
+        # remanejar — um 380/220 nunca entrega 220 V entre fases.
+        #
+        # Bifásica NÃO entra: ela usa dois condutores e só precisa da diferença
+        # de potencial certa entre eles. Num 380/220, ligada entre fase e
+        # neutro, recebe os 220 V que precisa. Continua sendo decisão de
+        # instalação, e por isso segue como alerta (_alertas_fase_carga).
         tensoes_entre_fases_carga = {
             c.tensao for c in req.cargas_backup
-            if c.tensao and _normalizar_fase(c.fase) in ("trifasico", "bifasico")
+            if c.tensao and _normalizar_fase(c.fase) == "trifasico"
         } or None
         kits, _skipped_i = build_kits(
             inversores, baterias,
@@ -437,7 +461,6 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         # ── 2: combina PV (quando kWp informado) OU armazenamento puro ───
         if tem_pv and kits:
-            voltage_str = _tensao_rede(req.padrao_entrada)
             # O caminho combinado pode SUBSTITUIR o híbrido (caminho "scaled")
             # por um maior que absorva todo o FV. Sem filtrar antes, essa troca
             # ignora a R8 e devolve inversor monofásico para carga trifásica.
@@ -457,8 +480,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 estruturas=pv["estruturas"],
                 inversores_string=pv["inversores_string"],
                 inversores_hibridos=hibridos_compativeis,
-                voltage=voltage_str,
-                phase=req.tipo_instalacao or "monofasico",
+                conexoes=_conexoes_rede(req.padrao_entrada),
                 jbw_produtos=jbw_produtos,
             )
             if sugerido_opt:

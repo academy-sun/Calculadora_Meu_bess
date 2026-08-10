@@ -80,9 +80,11 @@ def _tensoes_entre_fases(eps_output_voltage: str | None) -> set[str]:
     220 V" e ser oferecido para carga TRIFÁSICA 220 V — que precisa de 220 V
     *entre fases* e receberia 380 V. Carga queimada.
 
-    Vale igual para carga BIFÁSICA: dois condutores vivos a 220 V entre si é
-    a tensão de linha, não a de fase. Um chuveiro bifásico 220 V numa rede
-    127/220 recebe 220 V entre duas fases; num 380/220 receberia 380 V.
+    Só vale para carga TRIFÁSICA, que ocupa as três fases e não tem como ser
+    remanejada. Carga bifásica usa dois condutores e só precisa da diferença
+    de potencial correta entre eles: num 380/220 ela é ligada entre fase e
+    neutro e recebe os 220 V de que precisa. Por isso bifásica não passa por
+    aqui — fica no alerta de instalação (_alertas_fase_carga).
 
     Usa max() em vez da posição porque a ordem do par não é constante no
     cadastro ('380/220' nos trifásicos, '127/220' nos monofásicos split-phase);
@@ -201,7 +203,12 @@ def _inversor_e_trifasico(inv) -> bool:
     return (eff(inv, "phase") or "").strip().lower() == "trifasico"
 
 
-def _alertas_rede(inv, fase_instalacao: str | None, padrao_entrada: str | None) -> list[str]:
+def _alertas_rede(
+    inv,
+    fase_instalacao: str | None,
+    padrao_entrada: str | None,
+    qtd_inversores: int = 1,
+) -> list[str]:
     """
     R7 — compatibilidade do inversor com a rede da unidade (apenas ALERTA).
     `padrao_entrada` ∈ {mono_127, mono_220, tri_127_220, tri_220_380} (opcional).
@@ -220,6 +227,15 @@ def _alertas_rede(inv, fase_instalacao: str | None, padrao_entrada: str | None) 
         alertas.append(
             "Rede trifásica 127/220 V com inversor 380/220 V — requer autotransformador "
             "de potência adequada."
+        )
+    # Monofásico em rede trifásica é conexão válida (fase-neutro) e costuma ser
+    # mais barata que um trifásico equivalente — mas carrega uma fase por
+    # inversor. Com 1 ou 2 unidades a geração fica desequilibrada entre as três.
+    if (padrao_entrada or "").startswith("tri") and not inv_tri and qtd_inversores % 3 != 0:
+        alertas.append(
+            f"{qtd_inversores}× inversor monofásico em rede trifásica — conexão "
+            f"fase-neutro, com geração desequilibrada entre as fases. Confirmar "
+            f"o limite de desequilíbrio da concessionária."
         )
     return alertas
 

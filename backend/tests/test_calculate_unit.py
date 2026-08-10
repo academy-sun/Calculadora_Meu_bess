@@ -249,7 +249,7 @@ def test_combined_kit_includes_pv_items_when_module_fits_hybrid_dc():
                               groups="structure", fixing_type="tile_ceramic", fixing_capacity=4, price=300.0)],
         inversores_string=[],
         inversores_hibridos=[hyb],
-        voltage="220", phase="monofasico",
+        conexoes={"monofasico": "220"},
     )
     assert sugerido is not None
     assert sugerido.rotulo_caminho == "dc"

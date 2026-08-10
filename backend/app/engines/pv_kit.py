@@ -282,12 +282,19 @@ def _pick_string_inverter(
     qty_modules: int,
     modulo: ModuloAttrs,
     inversores_string: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
 ):
     """(inversor, quantidade) escolhidos — critério compartilhado por
     _select_string_inverter_for (que monta o item) e pelo detalhamento do kit
-    on-grid, para os dois nunca divergirem. Retorna None se nenhum serve."""
+    on-grid, para os dois nunca divergirem. Retorna None se nenhum serve.
+
+    `conexoes` mapeia fase do inversor → tensão de conexão disponível na rede
+    (ver CONEXOES_REDE em calculate/service.py). Uma rede trifásica 220/380
+    aceita tanto um inversor trifásico em 380 V (entre fases) quanto
+    monofásicos em 220 V (fase-neutro) — antes o filtro era um par
+    (tensão, fase) único e descartava a segunda opção, que muitas vezes é a
+    mais barata.
+    """
     if kwp_pv <= 0 or qty_modules <= 0:
         return None
 
@@ -295,13 +302,14 @@ def _pick_string_inverter(
     candidatos = []
 
     for inv in inversores_string:
-        # filtra fase/voltagem quando informados e disponíveis
         inv_voltage = str(eff(inv, "voltage") or "")
         inv_phase = str(eff(inv, "phase") or "")
-        if voltage and inv_voltage and inv_voltage != str(voltage):
-            continue
-        if phase and inv_phase and inv_phase != phase:
-            continue
+        if conexoes and inv_phase:
+            tensao_ok = conexoes.get(inv_phase)
+            if tensao_ok is None:
+                continue  # esse tipo de inversor não se liga nessa rede
+            if inv_voltage and inv_voltage != tensao_ok:
+                continue
 
         power_kw = eff_float(inv, "power")
         preco_un = _preco(inv)
@@ -332,15 +340,14 @@ def _select_string_inverter_for(
     qty_modules: int,
     modulo: ModuloAttrs,
     inversores_string: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
 ) -> list[dict] | None:
     """Item do(s) inversor(es) string mais barato(s) que cobrem `kwp_pv` kWp,
     validando eletricamente (capacidade CC ≥ qty_modules) e usando oversizing
     DC/AC = 1.5 como alvo (mesma convenção da MeuBESS)."""
     if kwp_pv <= 0 or qty_modules <= 0:
         return []
-    escolha = _pick_string_inverter(kwp_pv, qty_modules, modulo, inversores_string, voltage, phase)
+    escolha = _pick_string_inverter(kwp_pv, qty_modules, modulo, inversores_string, conexoes)
     if escolha is None:
         return None
     inv_best, qty_best = escolha
@@ -462,8 +469,7 @@ def build_ongrid_kit_detalhado(
     mc4s: list,
     estruturas: list,
     inversores_string: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
 ) -> tuple[list[dict] | None, OngridPVDetail | None]:
     """Kit puramente on-grid: módulos + inversor string + acessórios.
 
@@ -474,11 +480,11 @@ def build_ongrid_kit_detalhado(
     if mod is None:
         return None, None
 
-    inv_itens = _select_string_inverter_for(kwp_alvo, qty, mod, inversores_string, voltage, phase)
+    inv_itens = _select_string_inverter_for(kwp_alvo, qty, mod, inversores_string, conexoes)
     if inv_itens is None:
         return None, None
 
-    escolha = _pick_string_inverter(kwp_alvo, qty, mod, inversores_string, voltage, phase)
+    escolha = _pick_string_inverter(kwp_alvo, qty, mod, inversores_string, conexoes)
     detalhe = (
         OngridPVDetail(modulo=mod, qty_modulos=qty, inversor=escolha[0], qtd_inversores=escolha[1])
         if escolha else None
@@ -497,13 +503,12 @@ def build_ongrid_kit(
     mc4s: list,
     estruturas: list,
     inversores_string: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
 ) -> list[dict] | None:
     """Só os itens do kit on-grid. Ver build_ongrid_kit_detalhado."""
     itens, _ = build_ongrid_kit_detalhado(
         kwp_alvo, modulos, fixing_type, cabos, mc4s, estruturas,
-        inversores_string, voltage, phase,
+        inversores_string, conexoes,
     )
     return itens
 
@@ -550,8 +555,7 @@ def _build_options_for_base(
     mc4s: list,
     estruturas: list,
     inversores_string: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
     inversores_hibridos: list,
     jbw_produtos: list | None = None,
 ) -> list[CombinedOption]:
@@ -569,7 +573,7 @@ def _build_options_for_base(
     modules_remaining = qty_modulos - modules_on_hybrid
     kwp_remaining = modules_remaining * modulo.wp / 1000
     inv_string_itens = _select_string_inverter_for(
-        kwp_remaining, modules_remaining, modulo, inversores_string, voltage, phase,
+        kwp_remaining, modules_remaining, modulo, inversores_string, conexoes,
     )
     if inv_string_itens is not None:
         pv_split = pv_acc + inv_string_itens
@@ -603,8 +607,7 @@ def build_combined_pv_storage(
     estruturas: list,
     inversores_string: list,
     inversores_hibridos: list,
-    voltage: str | None,
-    phase: str | None,
+    conexoes: dict[str, str] | None,
     jbw_produtos: list | None = None,
 ) -> tuple[CombinedOption | None, list[CombinedOption]]:
     """
@@ -641,7 +644,7 @@ def build_combined_pv_storage(
     for base in candidatos:
         todas_opcoes += _build_options_for_base(
             base, qty_modulos, mod, kwp_alvo, fixing_type,
-            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
+            cabos, mc4s, estruturas, inversores_string, conexoes, inversores_hibridos, jbw_produtos,
         )
     if not todas_opcoes:
         return None, []
@@ -664,7 +667,7 @@ def build_combined_pv_storage(
     if eco_base:
         eco_opcoes = _build_options_for_base(
             eco_base, qty_modulos, mod, kwp_alvo, fixing_type,
-            cabos, mc4s, estruturas, inversores_string, voltage, phase, inversores_hibridos, jbw_produtos,
+            cabos, mc4s, estruturas, inversores_string, conexoes, inversores_hibridos, jbw_produtos,
         )
         if eco_opcoes:
             alternativas.append(eco_opcoes[0])

@@ -676,3 +676,38 @@ class TestCargaBifasica:
     def test_k017_serve_bifasica_220(self):
         kits, _ = self._run([k017()])
         assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+
+class TestAlertaDesequilibrioFases:
+    """Monofásico em rede trifásica é conexão válida — mas carrega uma fase.
+
+    É a montagem que o engenheiro descreveu: numa rede 220/380, dois
+    inversores monofásicos de 7,5 kW ligados fase-neutro saem mais baratos
+    que um trifásico de 15 kW. Válido, e com uma ressalva que precisa ser
+    dita: com 2 unidades a geração fica desequilibrada entre as 3 fases.
+    """
+    def _mono(self):
+        return FakeProduct(meubess_id="m075", title="SIW200G M075", marca="WEG",
+                           phase="monofasico", voltage="220",
+                           eps_output_voltage="220", split_phase=False)
+
+    def test_dois_monofasicos_em_rede_trifasica_alertam(self):
+        from app.engines.kit_builder import _alertas_rede
+        a = _alertas_rede(self._mono(), "trifasico", "tri_220_380", qtd_inversores=2)
+        assert any("desequilibrada" in x for x in a), a
+
+    def test_tres_monofasicos_equilibram_e_nao_alertam(self):
+        from app.engines.kit_builder import _alertas_rede
+        a = _alertas_rede(self._mono(), "trifasico", "tri_220_380", qtd_inversores=3)
+        assert not any("desequilibrada" in x for x in a), a
+
+    def test_monofasico_em_rede_monofasica_nao_alerta(self):
+        from app.engines.kit_builder import _alertas_rede
+        a = _alertas_rede(self._mono(), "monofasico", "mono_220", qtd_inversores=2)
+        assert not any("desequilibrada" in x for x in a), a
+
+    def test_autotransformador_continua_valendo_para_hibrido(self):
+        """Contraprova: o alerta de R7 que já existia não foi afetado."""
+        from app.engines.kit_builder import _alertas_rede
+        a = _alertas_rede(t015(), "trifasico", "tri_127_220")
+        assert any("autotransformador" in x for x in a), a
