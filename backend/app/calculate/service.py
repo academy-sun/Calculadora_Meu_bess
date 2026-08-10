@@ -362,7 +362,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                     capacidade_total_kwh=0.0,
                     pico_entregavel_kw=0.0,
                     preco_total=preco_total_ongrid,
-                    alertas=["Kit on-grid puro — sem armazenamento"],
+                    alertas=alertas_ongrid,
                     itens=ongrid_itens,
                 )
                 kit_selecionado = _kit_to_info(

@@ -740,3 +740,44 @@ def test_diagnostico_limpo_quando_esta_tudo_certo():
         [completo], True)
     assert d.avisos == []
     assert d.descartados == []
+
+
+def _ongrid_detalhe_mono(qtd_inversores: int):
+    """Inversor string MONOFÁSICO 220 V, N unidades."""
+    from app.engines.pv_kit import ModuloAttrs, OngridPVDetail
+
+    modulo = ModuloAttrs(
+        produto=_FakeProd(marca="WEG", title="Modulo 635W", price=500.0),
+        voc_v=50.0, imp_a=13.0, isc_a=13.8, wp=635.0, preco=500.0,
+    )
+    inversor = _FakeProd(title="SIW200G M075", voc_max_voltage=600.0, qty_mppt=2,
+                         power=7.5, price=3390.24, phase="monofasico", voltage="220")
+    return OngridPVDetail(modulo=modulo, qty_modulos=14,
+                          inversor=inversor, qtd_inversores=qtd_inversores)
+
+
+def test_ongrid_puro_emite_alerta_de_rede():
+    """R7 no on-grid puro.
+
+    _alertas_rede só rodava dentro de build_kits, que este caminho não chama:
+    kit sem bateria saía com o aviso genérico e mais nada. Dois monofásicos
+    numa rede trifásica é conexão válida (fase-neutro) mas desequilibra a
+    geração entre as fases, e isso precisa aparecer na proposta.
+    """
+    result = _run_ongrid(
+        _make_ongrid_req(tipo_instalacao="trifasico", padrao_entrada="tri_220_380"),
+        detalhe=_ongrid_detalhe_mono(2),
+    )
+    alertas = result.kit_selecionado.alertas or []
+    assert any("desequilibrada" in a for a in alertas), alertas
+    assert any("on-grid puro" in a for a in alertas), alertas
+
+
+def test_ongrid_puro_sem_alerta_quando_equilibrado():
+    """Contraprova: 3 monofásicos cobrem as 3 fases, sem desequilíbrio."""
+    result = _run_ongrid(
+        _make_ongrid_req(tipo_instalacao="trifasico", padrao_entrada="tri_220_380"),
+        detalhe=_ongrid_detalhe_mono(3),
+    )
+    alertas = result.kit_selecionado.alertas or []
+    assert not any("desequilibrada" in a for a in alertas), alertas
