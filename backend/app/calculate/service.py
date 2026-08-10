@@ -381,6 +381,13 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
         fases_carga = {_normalizar_fase(c.fase) for c in req.cargas_backup if c.fase} or None
+        # Tensão exigida ENTRE FASES. Uma carga trifásica 220 V não é servida
+        # por um inversor 380/220 (que entrega 220 V só entre fase e neutro),
+        # e a checagem de tensão sozinha não distinguia os dois casos.
+        tensoes_trifasicas = {
+            c.tensao for c in req.cargas_backup
+            if c.tensao and _normalizar_fase(c.fase) == "trifasico"
+        } or None
         kits, _skipped_i = build_kits(
             inversores, baterias,
             pn_kva=backup_result.total_pn,
@@ -389,6 +396,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             fase_instalacao=req.tipo_instalacao or "monofasico",
             tensoes_carga=tensoes_carga,
             fases_carga=fases_carga,
+            tensoes_trifasicas=tensoes_trifasicas,
             padrao_entrada=req.padrao_entrada,
             jbw_produtos=jbw_produtos,
         )
@@ -415,7 +423,8 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             # ignora a R8 e devolve inversor monofásico para carga trifásica.
             hibridos_compativeis = [
                 i for i in inversores
-                if compativel_com_cargas(i, tensoes_carga, fases_carga)[0]
+                if compativel_com_cargas(
+                    i, tensoes_carga, fases_carga, tensoes_trifasicas)[0]
             ]
             sugerido_opt, alt_opts = build_combined_pv_storage(
                 kits_storage=kits,

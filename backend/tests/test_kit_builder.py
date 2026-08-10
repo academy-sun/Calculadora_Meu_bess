@@ -568,3 +568,74 @@ class TestDesempateEntreKits:
         b, _ = build_kits([m050()], [cb100(preco=2 * 5987.03), self._cb050()],
                           pn_kva=2.0, pp_kva=4.5, e_bat_kwh=15.6)
         assert [k.bateria.meubess_id for k in a] == [k.bateria.meubess_id for k in b]
+
+
+# ── R8, tensão ENTRE FASES (achado do engenheiro na validação) ────────────────
+
+def k017():
+    """SIW400H K017: saída SELECIONÁVEL 380/220 ou 220/127.
+
+    Diferente do T015/T030, ele consegue entregar 220 V entre fases — é o que
+    a segunda configuração significa.
+    """
+    return FakeProduct(
+        meubess_id="k017", title="W - WEG - SIW400H K017 - Trifásico", marca="WEG",
+        peak_power_kw=19.0, max_eps_power=17.3, battery_inputs=2,
+        battery_input_max_current_a=50, max_parallel_units=4, phase="trifasico",
+        eps_output_voltage="380/220;220/127", split_phase=False,
+        battery_voltage_min_v=150, battery_voltage_max_v=800, preco=15474.38,
+    )
+
+
+class TestTensaoEntreFases:
+    """Carga trifásica 220 V não pode receber inversor 380/220.
+
+    '380/220' = 380 V entre fases, 220 V entre fase e neutro. A carga
+    trifásica 220 V precisa de 220 V entre fases; esse inversor entrega 380 V
+    ali. Antes o par era achatado num conjunto e o '220' fazia a regra passar.
+    """
+    def _run(self, inversores):
+        return build_kits(
+            inversores, [cb100()],
+            pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
+            fase_instalacao="trifasico", tensoes_carga={"220"},
+            fases_carga={"trifasico"}, tensoes_trifasicas={"220"},
+        )
+
+    def test_t015_recusado_para_carga_trifasica_220(self):
+        kits, skipped = self._run([t015()])
+        assert kits == []
+        assert any("entre fases" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
+
+    def test_k017_aceito_para_carga_trifasica_220(self):
+        kits, _ = self._run([k017()])
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+    def test_t015_continua_valendo_para_carga_trifasica_380(self):
+        """Contraprova: o bloqueio é da tensão, não do modelo."""
+        kits, _ = build_kits(
+            [t015()], [cb100()],
+            pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
+            fase_instalacao="trifasico", tensoes_carga={"380"},
+            fases_carga={"trifasico"}, tensoes_trifasicas={"380"},
+        )
+        assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+    def test_carga_mono_220_ainda_aceita_saida_380_220(self):
+        """Fase-neutro 220 V o 380/220 entrega — só a trifásica é que não."""
+        kits, _ = build_kits(
+            [t015()], [cb100()],
+            pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
+            fase_instalacao="trifasico", tensoes_carga={"220"},
+            fases_carga={"monofasico"}, tensoes_trifasicas=None,
+        )
+        assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+    def test_entre_fases_ignora_ordem_do_par(self):
+        from app.engines.kit_builder import _tensoes_entre_fases
+        assert _tensoes_entre_fases("380/220") == {"380"}
+        assert _tensoes_entre_fases("380/220;220/127") == {"380", "220"}
+        assert _tensoes_entre_fases("127/220") == {"220"}   # ordem invertida
+        assert _tensoes_entre_fases("220") == {"220"}
+        assert _tensoes_entre_fases(None) == set()

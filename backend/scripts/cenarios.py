@@ -446,8 +446,9 @@ def gerar_tabela(atual: dict) -> str:
     """Markdown para revisão de engenharia."""
     linhas = [
         "| Cenário | FV (kWp) | Cargas de armazenamento | Kit escolhido | "
-        "Sequência de cálculo | Bloqueados por cadastro incompleto | Preço |",
-        "|---|---|---|---|---|---|---|",
+        "Sequência de cálculo | Bloqueados por cadastro incompleto | "
+        "Preço do kit | Frete | Total |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     por_nome = dict(CENARIOS)
     for nome, r in atual.items():
@@ -458,10 +459,23 @@ def gerar_tabela(atual: dict) -> str:
         if pp:
             cargas += f"<br>**Pp total {br(pp)} kVA**"
         preco = (r.get("kit") or {}).get("preco")
+        # Frete em coluna própria: ele nunca entrou no preco_total do kit, então
+        # dois cenários idênticos com fretes diferentes saíam com o mesmo número
+        # e pareciam bug. É o mesmo kit — o que muda está aqui do lado.
+        frete = r.get("frete")
+        rotulo_frete = "—"
+        if extra.get("tipo_frete") == "cif":
+            rotulo_frete = f"CIF {extra.get('uf_entrega') or ''}".strip()
+        elif extra.get("tipo_frete") == "fob":
+            rotulo_frete = "FOB"
+        cel_frete = (f"{rotulo_frete}<br>R$ {br(frete)}" if frete
+                     else rotulo_frete)
+        total = (preco or 0) + (frete or 0)
         linhas.append(
             f"| **{nome}** | {kwp:g} | {cargas} | {descrever_kit(r)} | "
             f"{sequencia_calculo(r, extra)} | {equipamentos_bloqueados(r)} | "
-            f"{'R$ ' + br(preco) if preco else '—'} |"
+            f"{'R$ ' + br(preco) if preco else '—'} | {cel_frete} | "
+            f"{'R$ ' + br(total) if preco else '—'} |"
         )
     return "\n".join(linhas)
 

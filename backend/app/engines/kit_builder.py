@@ -69,9 +69,46 @@ def _parse_eps_voltages(eps_output_voltage: str | None) -> set[str]:
     return out
 
 
-def _serve_tensoes(inv, tensoes_carga: set[str]) -> tuple[bool, str | None]:
-    """R8: a saída EPS do inversor atende todas as tensões de carga?"""
-    eps = _parse_eps_voltages(eff(inv, "eps_output_voltage"))
+def _tensoes_entre_fases(eps_output_voltage: str | None) -> set[str]:
+    """Tensão ENTRE FASES de cada configuração de saída.
+
+    '380/220' -> {'380'}; '380/220;220/127' -> {'380','220'}; '220' -> {'220'}.
+
+    Um inversor trifásico é cadastrado como par `linha/fase`: '380/220' quer
+    dizer 380 V entre fases e 220 V entre fase e neutro. Achatar o par num
+    conjunto só ('380' e '220' valem igual) fazia o SIW400H T015 "atender
+    220 V" e ser oferecido para carga TRIFÁSICA 220 V — que precisa de 220 V
+    *entre fases* e receberia 380 V. Carga queimada.
+
+    Usa max() em vez da posição porque a ordem do par não é constante no
+    cadastro ('380/220' nos trifásicos, '127/220' nos monofásicos split-phase);
+    a tensão de linha é sempre a maior das duas (√3 × a de fase).
+    """
+    if not eps_output_voltage:
+        return set()
+    out: set[str] = set()
+    for config in str(eps_output_voltage).split(";"):
+        valores = [p.strip() for p in config.split("/") if p.strip()]
+        numericos = [v for v in valores if v.replace(",", ".").replace(".", "").isdigit()]
+        if numericos:
+            out.add(max(numericos, key=lambda v: float(v.replace(",", "."))))
+        elif valores:
+            out.update(valores)
+    return out
+
+
+def _serve_tensoes(
+    inv,
+    tensoes_carga: set[str],
+    tensoes_trifasicas: set[str] | None = None,
+) -> tuple[bool, str | None]:
+    """R8: a saída EPS do inversor atende todas as tensões de carga?
+
+    `tensoes_trifasicas` é o subconjunto exigido por cargas trifásicas, que
+    precisa casar com a tensão ENTRE FASES — ver _tensoes_entre_fases.
+    """
+    eps_raw = eff(inv, "eps_output_voltage")
+    eps = _parse_eps_voltages(eps_raw)
     split = bool(eff_bool(inv, "split_phase"))
     if not eps:
         return False, "tensão de saída EPS não cadastrada"
@@ -81,6 +118,13 @@ def _serve_tensoes(inv, tensoes_carga: set[str]) -> tuple[bool, str | None]:
     faltando = {t for t in tensoes_carga if t not in servidas}
     if faltando:
         return False, f"saída EPS não atende carga(s) {sorted(faltando)} V"
+    if tensoes_trifasicas:
+        linha = _tensoes_entre_fases(eps_raw)
+        faltando_tri = sorted(t for t in tensoes_trifasicas if t not in linha)
+        if faltando_tri:
+            return False, (
+                f"saída {eps_raw} V não entrega {faltando_tri} V entre fases "
+                f"(carga trifásica)")
     return True, None
 
 
@@ -88,6 +132,7 @@ def compativel_com_cargas(
     inv,
     tensoes_carga: set[str] | None,
     fases_carga: set[str] | None,
+    tensoes_trifasicas: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     """R8 completa (tensão + fase) para um inversor.
 
@@ -97,7 +142,7 @@ def compativel_com_cargas(
     trifásica voltava com inversor monofásico sempre que havia FV no projeto.
     """
     if tensoes_carga:
-        ok, why = _serve_tensoes(inv, tensoes_carga)
+        ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_trifasicas)
         if not ok:
             return False, why
     if fases_carga:
@@ -361,6 +406,7 @@ def build_kits(
     fase_instalacao: str | None = None,
     tensoes_carga: set[str] | None = None,
     fases_carga: set[str] | None = None,
+    tensoes_trifasicas: set[str] | None = None,
     padrao_entrada: str | None = None,
     require_same_brand: bool = True,
     jbw_produtos: list | None = None,
@@ -389,7 +435,7 @@ def build_kits(
 
         # R8 — tensão de saída EPS × cargas (quando informado)
         if tensoes_carga:
-            ok, why = _serve_tensoes(inv, tensoes_carga)
+            ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_trifasicas)
             if not ok:
                 skipped.append(_skip(inv, why))
                 continue
