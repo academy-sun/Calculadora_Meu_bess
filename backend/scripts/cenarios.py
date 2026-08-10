@@ -96,6 +96,94 @@ CENARIOS = [
 ]
 
 
+FASE_CURTA = {"monofasico": "mono", "bifasico": "bi", "trifasico": "tri"}
+
+
+def br(v: float, casas: int = 2) -> str:
+    """Número em pt-BR — o documento vai para revisão de engenharia."""
+    return f"{v:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def plural(n: int, singular: str, plural_: str) -> str:
+    return f"{n} {singular if n == 1 else plural_}"
+
+
+def descrever_cargas(extra: dict) -> str:
+    """As cargas do cenário em português, para o engenheiro conferir."""
+    cargas = extra.get("cargas_backup") or []
+    if not cargas:
+        return "—"
+    partes = []
+    for c in cargas:
+        fase = FASE_CURTA.get(c.get("fase") or "", "fase não informada")
+        tensao = f"{c['tensao']} V" if c.get("tensao") else "tensão não informada"
+        partes.append(f"{c['qtd']}× {c['nome']} {c['pnom_w']} W {fase} {tensao} "
+                      f"(IP/IN {c['ip_in']:g}, {c['tdia_h']:g} h/dia)")
+    dias = extra.get("autonomia_dias")
+    sufixo = f" — autonomia {dias:g} dia(s)" if dias else ""
+    return "; ".join(partes) + sufixo
+
+
+def descrever_kit(r: dict) -> str:
+    """Todos os itens do kit, não só o inversor."""
+    if not r.get("kit"):
+        return "nenhum kit compatível"
+    ordem = {"inversor": 0, "inversor_string": 1, "bateria": 2, "modulo_fv": 3}
+    itens = sorted(r.get("itens") or [], key=lambda i: ordem.get(i["tipo"], 9))
+    partes = [f"{i['qtd']}× {i['nome']}" for i in itens]
+    k = r["kit"]
+    if k.get("n_jbw"):
+        partes.append(f"{k['n_jbw']}× caixa de junção (JBW)")
+    return "<br>".join(partes) if partes else "—"
+
+
+def explicar_escolha(r: dict, extra: dict) -> str:
+    """Por que ESTE kit. Composto do que o motor de fato usou para decidir."""
+    if not r.get("kit"):
+        avisos = r.get("avisos") or []
+        return "Nenhum inversor atende. " + (avisos[0] if avisos else "")
+    k, motivos = r["kit"], []
+
+    cargas = extra.get("cargas_backup") or []
+    fases = {c.get("fase") for c in cargas if c.get("fase")}
+    tensoes = {c.get("tensao") for c in cargas if c.get("tensao")}
+    if "trifasico" in fases:
+        motivos.append("carga trifásica exige inversor trifásico (R8)")
+    if len(tensoes) > 1:
+        motivos.append(f"cargas em {'/'.join(sorted(tensoes))} V exigem saída "
+                       f"que atenda as duas (R8)")
+
+    # baterias: energia ou potência de partida?
+    if k.get("qtd_baterias"):
+        n = k["qtd_baterias"]
+        usavel = (k["capacidade_kwh"] / n) if n else 0
+        e_nec = r.get("energia_necessaria_kwh") or 0
+        n_energia = max(1, -(-e_nec // usavel)) if usavel else n
+        if n > n_energia:
+            motivos.append(
+                f"{plural(n, 'bateria', 'baterias')} definidas pela potência de "
+                f"partida, não pela energia ({int(n_energia)} bastaria) (R2)")
+        else:
+            motivos.append(f"{plural(n, 'bateria', 'baterias')} pela energia "
+                           f"exigida ({br(e_nec, 1)} kWh)")
+        if k.get("distribuicao") and len(k["distribuicao"]) > 1:
+            motivos.append(f"distribuídas {'+'.join(map(str, k['distribuicao']))} "
+                           f"entre as entradas para extrair potência (R2)")
+    if (k.get("qtd_inversores") or 1) > 1:
+        motivos.append(f"{k['qtd_inversores']} inversores em paralelo "
+                       f"para atender o pico (R4)")
+
+    tem_string = any(i["tipo"] == "inversor_string" for i in (r.get("itens") or []))
+    if tem_string and k.get("qtd_baterias"):
+        motivos.append("FV acima do teto de matriz do híbrido; excedente em "
+                       "inversor string")
+    motivos.append("mais barato entre os compatíveis")
+
+    for a in k.get("alertas") or []:
+        motivos.append(f"⚠ {a}")
+    return ". ".join(motivos)
+
+
 def resumir(d: dict) -> dict:
     """Só o que importa comparar — nada de timestamp ou id, que mudam sempre."""
     k = d.get("kit_selecionado")
@@ -126,6 +214,10 @@ def resumir(d: dict) -> dict:
         "frete": (d.get("frete") or {}).get("valor"),
         "alternativas": len(d.get("alternativas") or []),
         "avisos": sorted(diag.get("avisos") or []),
+        # usados para explicar a escolha na tabela de validação
+        "energia_necessaria_kwh": d.get("energia_necessaria_kwh"),
+        "total_pp_kva": d.get("total_pp_kva"),
+        "kwp_alvo": d.get("kwp_alvo"),
     }
 
 
@@ -169,8 +261,45 @@ def descrever(nome: str, r: dict) -> str:
     return " ".join(partes)
 
 
+def gerar_tabela(atual: dict) -> str:
+    """Markdown para revisão de engenharia."""
+    linhas = [
+        "| Cenário | FV (kWp) | Cargas de armazenamento | Kit escolhido | "
+        "Motivo da escolha | Preço |",
+        "|---|---|---|---|---|---|",
+    ]
+    por_nome = dict(CENARIOS)
+    for nome, r in atual.items():
+        extra = por_nome.get(nome, {})
+        kwp = r.get("kwp_alvo") or extra.get("powerpeak_kwp") or 0
+        pp = r.get("total_pp_kva")
+        cargas = descrever_cargas(extra)
+        if pp:
+            cargas += f"<br>**Pp total {br(pp)} kVA**"
+        preco = (r.get("kit") or {}).get("preco")
+        linhas.append(
+            f"| **{nome}** | {kwp:g} | {cargas} | {descrever_kit(r)} | "
+            f"{explicar_escolha(r, extra)} | "
+            f"{'R$ ' + br(preco) if preco else '—'} |"
+        )
+    return "\n".join(linhas)
+
+
 def main() -> None:
     atual = rodar()
+    if "--tabela" in sys.argv:
+        destino = Path(__file__).resolve().parent.parent.parent / "docs" / "cenarios-validacao.md"
+        destino.write_text(
+            "# Cenários para validação de engenharia\n\n"
+            "Gerado por `backend/scripts/cenarios.py --tabela` contra o catálogo\n"
+            "de produção. Cada linha é um caso que um consultor monta de verdade.\n"
+            "O motivo da escolha é derivado do que o motor usou para decidir —\n"
+            "as siglas R2/R4/R8 remetem a\n"
+            "[auditoria-regras-r1-r9.md](auditoria-regras-r1-r9.md).\n\n"
+            + gerar_tabela(atual) + "\n",
+            encoding="utf-8")
+        print(f"\ntabela gravada: {destino}")
+        return
     if "--gravar" in sys.argv:
         BASE.parent.mkdir(parents=True, exist_ok=True)
         BASE.write_text(json.dumps(atual, indent=2, ensure_ascii=False), encoding="utf-8")
