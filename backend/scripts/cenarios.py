@@ -254,18 +254,48 @@ def sequencia_calculo(r: dict, extra: dict) -> str:
                        if teto else ""))
         passos.append(txt)
 
-    linhas_conc = [f"• **escolhido**: {k['qtd_baterias'] or 0}× "
-                   f"{(k.get('bateria') or '—')[-14:]} → R$ {br(k['preco'])}"]
+    # Escolha final. A resposta traz duas alternativas com significados
+    # diferentes, e misturá-las faria parecer que o motor não pegou a mais
+    # barata: "outra composição" é a 2ª colocada entre as VIÁVEIS (mais cara,
+    # por definição); "mais econômica" é sub-dimensionada de propósito — não
+    # cobre a autonomia pedida, então é mais barata e está fora da disputa.
+    if not bat and not (r.get("concorrentes") or []):
+        # On-grid puro: não há disputa inversor×bateria para explicar.
+        passos.append(f"**Escolha final** — R$ {br(k['preco'])}")
+        for a in k.get("alertas") or []:
+            passos.append(f"⚠ {a}")
+        return "<br><br>".join(passos)
+
+    linhas_conc = [f"• **escolhida** — {k['qtd_baterias'] or 0}× "
+                   f"{(k.get('bateria') or '—')[-14:]}, "
+                   f"{br(k.get('capacidade_kwh') or 0, 1)} kWh → "
+                   f"**R$ {br(k['preco'])}**"]
+    fora_disputa = []
     for c in r.get("concorrentes") or []:
-        empate = c["preco"] and abs(c["preco"] - k["preco"]) < 0.01
-        linhas_conc.append(
-            f"• {c['qtd_baterias']}× {(c['bateria'] or '—')[-14:]} "
-            f"({(c['inversor'] or '')[:26]}) → R$ {br(c['preco'] or 0)}"
-            + (" ← **empate**, desempatado por menos componentes" if empate else ""))
+        desc = (f"{c['qtd_baterias']}× {(c['bateria'] or '—')[-14:]} "
+                f"({(c['inversor'] or '')[:26]}), "
+                f"{br(c.get('capacidade_kwh') or 0, 1)} kWh → "
+                f"R$ {br(c['preco'] or 0)}")
+        if "econômica" in (c.get("rotulo") or ""):
+            fora_disputa.append(
+                f"• {desc} — **sub-dimensionada de propósito**: cobre "
+                f"{br(c.get('capacidade_kwh') or 0, 1)} dos "
+                f"{br(e_nec or 0, 1)} kWh pedidos. É mais barata porque "
+                f"entrega menos autonomia; não competiu.")
+        elif c["preco"] and abs(c["preco"] - k["preco"]) < 0.01:
+            linhas_conc.append(
+                f"• {desc} ← **empatou no centavo**. Mesma energia, mesmo "
+                f"pico ({br(k.get('pico_kw') or 0)} kW, limitado pelo "
+                f"inversor). Desempate: menos componentes.")
+        else:
+            linhas_conc.append(f"• {desc} — 2ª colocada entre as viáveis")
     passos.append(
-        "**Escolha final** — o motor montou TODAS as combinações viáveis e "
-        "ordenou por preço; só então escolheu. Concorrentes:<br>"
-        + "<br>".join(linhas_conc))
+        "**Escolha final** — o motor não escolheu o inversor primeiro. Ele "
+        "montou TODAS as combinações inversor×bateria que passaram nos "
+        "filtros acima, cada uma com seu preço, e só então ordenou. "
+        "Classificação:<br>" + "<br>".join(linhas_conc)
+        + (("<br><br>_Fora da disputa:_<br>" + "<br>".join(fora_disputa))
+           if fora_disputa else ""))
     for a in k.get("alertas") or []:
         passos.append(f"⚠ {a}")
     return "<br><br>".join(passos)
@@ -466,8 +496,17 @@ def main() -> None:
             "exatamente o dobro da CB050, então 4×CB050 e 2×CB100 dão o mesmo\n"
             "total — o desempate é explícito, não a ordem da lista.\n\n"
             "A coluna **Sequência de cálculo** mostra esses passos com os números\n"
-            "de cada cenário, e termina listando as combinações concorrentes com\n"
-            "seus preços.\n\n"
+            "de cada cenário e termina com a classificação por preço.\n\n"
+            "Duas ressalvas sobre essa classificação:\n\n"
+            "- Ela mostra o 1º e o 2º colocados, não a lista inteira — é o que a\n"
+            "  API devolve para a tela. As demais combinações viáveis existiram e\n"
+            "  perderam no preço; não aparecem aqui.\n"
+            "- A linha **_fora da disputa_**, quando aparece, é a \"alternativa\n"
+            "  mais econômica\": um kit **sub-dimensionado de propósito**, que\n"
+            "  NÃO cobre a autonomia pedida. Ele é mais barato justamente por\n"
+            "  isso, e por isso não concorreu. É uma oferta comercial para o\n"
+            "  cliente que quer gastar menos e aceita menos autonomia — nunca\n"
+            "  uma resposta ao dimensionamento solicitado.\n\n"
             + gerar_tabela(atual) + "\n",
             encoding="utf-8")
         print(f"\ntabela gravada: {destino}")
