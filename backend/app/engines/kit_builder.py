@@ -470,5 +470,13 @@ def build_kits(
 
             kits.append(_montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, _tit, jbw_produtos))
 
-    kits.sort(key=lambda k: k.preco_total)
+    # Ordenação final. O preço decide, mas empate é comum: no catálogo WEG a
+    # CB100 custa exatamente o dobro da CB050, então 4×CB050 e 2×CB100 dão o
+    # mesmo total. Antes o desempate era a ordem de iteração da lista —
+    # arbitrário e não explicável para um engenheiro. Critérios, nesta ordem:
+    #   1. menor preço
+    #   2. maior pico entregável (folga de partida de graça, pelo mesmo valor)
+    #   3. menos componentes (menos conexões, menos espaço, menos mão de obra)
+    kits.sort(key=lambda k: (k.preco_total, -k.pico_entregavel_kw,
+                             k.qtd_baterias + k.qtd_inversores))
     return kits, skipped

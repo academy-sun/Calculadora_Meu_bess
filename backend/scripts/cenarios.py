@@ -254,8 +254,18 @@ def sequencia_calculo(r: dict, extra: dict) -> str:
                        if teto else ""))
         passos.append(txt)
 
-    passos.append(f"**Escolha final** — mais barato entre os que passaram em "
-                  f"todos os filtros (R$ {br(k['preco'])})")
+    linhas_conc = [f"• **escolhido**: {k['qtd_baterias'] or 0}× "
+                   f"{(k.get('bateria') or '—')[-14:]} → R$ {br(k['preco'])}"]
+    for c in r.get("concorrentes") or []:
+        empate = c["preco"] and abs(c["preco"] - k["preco"]) < 0.01
+        linhas_conc.append(
+            f"• {c['qtd_baterias']}× {(c['bateria'] or '—')[-14:]} "
+            f"({(c['inversor'] or '')[:26]}) → R$ {br(c['preco'] or 0)}"
+            + (" ← **empate**, desempatado por menos componentes" if empate else ""))
+    passos.append(
+        "**Escolha final** — o motor montou TODAS as combinações viáveis e "
+        "ordenou por preço; só então escolheu. Concorrentes:<br>"
+        + "<br>".join(linhas_conc))
     for a in k.get("alertas") or []:
         passos.append(f"⚠ {a}")
     return "<br><br>".join(passos)
@@ -317,6 +327,14 @@ def resumir(d: dict) -> dict:
         "itens": sorted(itens, key=lambda x: (x["tipo"], x["nome"])),
         "frete": (d.get("frete") or {}).get("valor"),
         "alternativas": len(d.get("alternativas") or []),
+        "concorrentes": [
+            {"rotulo": a.get("rotulo"), "inversor": a.get("inversor_modelo"),
+             "qtd_baterias": a.get("qtd_baterias"),
+             "bateria": a.get("bateria_modelo"),
+             "capacidade_kwh": a.get("capacidade_total_kwh"),
+             "preco": a.get("preco_total")}
+            for a in (d.get("alternativas") or [])
+        ],
         **comum,
     }
 
@@ -425,10 +443,31 @@ def main() -> None:
         destino.write_text(
             "# Cenários para validação de engenharia\n\n"
             "Gerado por `backend/scripts/cenarios.py --tabela` contra o catálogo\n"
-            "de produção. Cada linha é um caso que um consultor monta de verdade.\n"
-            "O motivo da escolha é derivado do que o motor usou para decidir —\n"
-            "as siglas R2/R4/R8 remetem a\n"
+            "de produção. As siglas R1–R9 remetem a\n"
             "[auditoria-regras-r1-r9.md](auditoria-regras-r1-r9.md).\n\n"
+            "## Como o motor decide (vale para todas as linhas)\n\n"
+            "**Não é uma busca gulosa.** O motor não escolhe o inversor mais\n"
+            "barato para depois testar se ele serve. A ordem é:\n\n"
+            "1. **Enumera todas as combinações** — laço duplo sobre *cada*\n"
+            "   inversor × *cada* bateria do catálogo.\n"
+            "2. **Aplica os filtros em cada par**, nesta ordem: dados completos →\n"
+            "   saída EPS compatível com tensão e fase das cargas (R8) →\n"
+            "   potência de pico e nominal, escalando inversores em paralelo se\n"
+            "   preciso (R3/R4) → compatibilidade inversor×bateria (R5) →\n"
+            "   nº de baterias por energia e por potência de partida, respeitando\n"
+            "   o teto de entradas (R1/R2).\n"
+            "3. **Cada par que sobrevive vira um kit completo, com preço.**\n"
+            "4. **Só no fim ordena**, por: menor preço → maior pico entregável →\n"
+            "   menos componentes. O preço decide *entre os viáveis*; nunca\n"
+            "   dispensa uma restrição.\n\n"
+            "Consequência prática: um inversor caro que é o único a atender a\n"
+            "fase da carga vence um barato incompatível, porque o barato nem\n"
+            "chega à etapa de preço. E quando dois kits empatam — a CB100 custa\n"
+            "exatamente o dobro da CB050, então 4×CB050 e 2×CB100 dão o mesmo\n"
+            "total — o desempate é explícito, não a ordem da lista.\n\n"
+            "A coluna **Sequência de cálculo** mostra esses passos com os números\n"
+            "de cada cenário, e termina listando as combinações concorrentes com\n"
+            "seus preços.\n\n"
             + gerar_tabela(atual) + "\n",
             encoding="utf-8")
         print(f"\ntabela gravada: {destino}")

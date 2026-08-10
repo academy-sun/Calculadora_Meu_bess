@@ -529,3 +529,42 @@ class TestR9CaixaDeJuncao:
         kit = kits[0]
         assert kit.distribuicao_baterias == [2, 2]
         assert kit.n_caixas_juncao == 2
+
+
+class TestDesempateEntreKits:
+    """No catalogo WEG a CB100 custa exatamente o dobro da CB050, entao
+    4xCB050 e 2xCB100 empatam no preco. O desempate era a ordem da lista."""
+
+    def _cb050(self, preco=5987.03):
+        return FakeProduct(
+            meubess_id="cb050", title="SBW CB050 W00", marca="WEG",
+            usable_capacity_kwh=5.02, max_parallel_batteries=4,
+            max_continuous_current_a=27, peak_discharge_current_a=65,
+            nominal_voltage_v=192, operating_voltage_min_v=174,
+            operating_voltage_max_v=218, compatible_inverters="SIW200H; SIW400H",
+            preco=preco)
+
+    def test_empate_de_preco_prefere_menos_componentes(self):
+        # a CB100 real custa exatamente 2x a CB050 (11.974,06 = 2 x 5.987,03)
+        kits, _ = build_kits(
+            [m050()], [self._cb050(), cb100(preco=2 * 5987.03)],
+            pn_kva=2.0, pp_kva=4.5, e_bat_kwh=15.6)
+        precos = {k.bateria.meubess_id: k.preco_total for k in kits}
+        assert abs(precos["cb050"] - precos["cb100"]) < 0.01, "premissa: empatam"
+        assert kits[0].bateria.meubess_id == "cb100"
+        assert kits[0].qtd_baterias == 2, "2 modulos em vez de 4, pelo mesmo preco"
+
+    def test_preco_ainda_manda_sobre_a_contagem(self):
+        """Menos componentes so desempata; nao inverte uma diferenca de preco."""
+        kits, _ = build_kits(
+            [m050()], [self._cb050(preco=4000.0), cb100()],
+            pn_kva=2.0, pp_kva=4.5, e_bat_kwh=15.6)
+        assert kits[0].bateria.meubess_id == "cb050"   # 4x4000 < 2x11974
+
+    def test_ordenacao_e_deterministica(self):
+        """Mesma entrada, mesma saida — independente da ordem da lista."""
+        a, _ = build_kits([m050()], [self._cb050(), cb100(preco=2 * 5987.03)],
+                          pn_kva=2.0, pp_kva=4.5, e_bat_kwh=15.6)
+        b, _ = build_kits([m050()], [cb100(preco=2 * 5987.03), self._cb050()],
+                          pn_kva=2.0, pp_kva=4.5, e_bat_kwh=15.6)
+        assert [k.bateria.meubess_id for k in a] == [k.bateria.meubess_id for k in b]
