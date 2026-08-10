@@ -479,13 +479,31 @@ class TestR5CompatibilidadeInversorBateria:
 
 
 class TestR6CargaMonoEmTrifasico:
-    """Advisory, nao bloqueante."""
+    """Advisory, nao bloqueante — e so quando ha carga mono de verdade."""
 
     def test_gera_alerta_sem_bloquear(self):
         kits, _ = build_kits(
             [t015()], [cb100()], pn_kva=5.0, pp_kva=10.0, e_bat_kwh=10.0,
-            fase_instalacao="trifasico", tensoes_carga={"220"})
+            fase_instalacao="trifasico", tensoes_carga={"220"},
+            fases_carga={"monofasico", "trifasico"})
         assert kits, "R6 nao pode bloquear"
+        assert any("1/3 da potência" in a for a in (kits[0].alertas or []))
+
+    def test_projeto_so_com_carga_trifasica_nao_gera_o_alerta(self):
+        """Antes disparava em qualquer projeto trifasico, mesmo sem nenhuma
+        carga mono — alerta sem motivo se aprende a ignorar."""
+        kits, _ = build_kits(
+            [t015()], [cb100()], pn_kva=5.0, pp_kva=10.0, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", tensoes_carga={"220"},
+            fases_carga={"trifasico"})
+        assert kits
+        assert not any("1/3 da potência" in a for a in (kits[0].alertas or []))
+
+    def test_carga_bifasica_em_tri_tambem_alerta(self):
+        kits, _ = build_kits(
+            [t015()], [cb100()], pn_kva=5.0, pp_kva=10.0, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", tensoes_carga={"220"},
+            fases_carga={"bifasico"})
         assert any("1/3 da potência" in a for a in (kits[0].alertas or []))
 
     def test_instalacao_mono_nao_gera_o_alerta(self):

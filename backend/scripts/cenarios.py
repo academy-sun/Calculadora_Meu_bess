@@ -60,6 +60,10 @@ CENARIOS = [
     ("trifasico-com-bomba", dict(
         cargas_backup=[AR_TRI, BOMBA_TRI], tipo_instalacao="trifasico",
         padrao_entrada="tri_220_380", autonomia_dias=1)),
+    ("trifasico-380v", dict(
+        cargas_backup=[carga("Motor trifásico 380 V", 7500, ip_in=3.0, tdia=6,
+                             tensao="380", fase="trifasico")],
+        tipo_instalacao="trifasico", padrao_entrada="tri_220_380", autonomia_dias=1)),
     ("bifasico-220", dict(
         cargas_backup=[carga("Chuveiro bifásico", 5500, ip_in=1.0, tdia=1,
                              fase="bifasico")],
@@ -137,61 +141,161 @@ def descrever_kit(r: dict) -> str:
     return "<br>".join(partes) if partes else "—"
 
 
-def explicar_escolha(r: dict, extra: dict) -> str:
-    """Por que ESTE kit. Composto do que o motor de fato usou para decidir."""
-    if not r.get("kit"):
-        avisos = r.get("avisos") or []
-        return "Nenhum inversor atende. " + (avisos[0] if avisos else "")
-    k, motivos = r["kit"], []
+def sequencia_calculo(r: dict, extra: dict) -> str:
+    """O passo a passo que levou a ESTE inversor, com os números de cada etapa.
 
+    Não é texto decorativo: cada passo cita o valor que o motor comparou, para
+    o engenheiro poder refazer a conta na mão e discordar com fundamento.
+    """
+    passos = []
     cargas = extra.get("cargas_backup") or []
+    pn, pp = r.get("total_pn_kva"), r.get("total_pp_kva")
+    e_nec = r.get("energia_necessaria_kwh")
+    kwp = r.get("kwp_alvo") or extra.get("powerpeak_kwp")
+
+    # 1. levantamento
+    if cargas:
+        dias = extra.get("autonomia_dias") or 1
+        passos.append(
+            f"**1. Levantamento das cargas** — Pn {br(pn or 0)} kVA, "
+            f"Pp {br(pp or 0)} kVA (pico de partida = Pn × IP/IN), "
+            f"energia {br(e_nec or 0, 1)} kWh para {dias:g} dia(s)")
+    else:
+        passos.append("**1. Sem cargas de backup** — dimensionamento só pelo FV")
+
+    # 2. filtro de compatibilidade AC
     fases = {c.get("fase") for c in cargas if c.get("fase")}
-    tensoes = {c.get("tensao") for c in cargas if c.get("tensao")}
-    if "trifasico" in fases:
-        motivos.append("carga trifásica exige inversor trifásico (R8)")
-    if len(tensoes) > 1:
-        motivos.append(f"cargas em {'/'.join(sorted(tensoes))} V exigem saída "
-                       f"que atenda as duas (R8)")
-
-    # baterias: energia ou potência de partida?
-    if k.get("qtd_baterias"):
-        n = k["qtd_baterias"]
-        usavel = (k["capacidade_kwh"] / n) if n else 0
-        e_nec = r.get("energia_necessaria_kwh") or 0
-        n_energia = max(1, -(-e_nec // usavel)) if usavel else n
-        if n > n_energia:
-            motivos.append(
-                f"{plural(n, 'bateria', 'baterias')} definidas pela potência de "
-                f"partida, não pela energia ({int(n_energia)} bastaria) (R2)")
+    tensoes = sorted({c.get("tensao") for c in cargas if c.get("tensao")})
+    if cargas:
+        if not fases and not tensoes:
+            passos.append("**2. Compatibilidade de saída (R8)** — ⚠ carga sem "
+                          "tensão nem fase: a regra NÃO foi aplicada")
         else:
-            motivos.append(f"{plural(n, 'bateria', 'baterias')} pela energia "
-                           f"exigida ({br(e_nec, 1)} kWh)")
-        if k.get("distribuicao") and len(k["distribuicao"]) > 1:
-            motivos.append(f"distribuídas {'+'.join(map(str, k['distribuicao']))} "
-                           f"entre as entradas para extrair potência (R2)")
-    if (k.get("qtd_inversores") or 1) > 1:
-        motivos.append(f"{k['qtd_inversores']} inversores em paralelo "
-                       f"para atender o pico (R4)")
+            exig = []
+            if "trifasico" in fases:
+                exig.append("saída trifásica")
+            if tensoes:
+                exig.append(f"atender {'/'.join(tensoes)} V")
+            passos.append(f"**2. Compatibilidade de saída (R8)** — exige "
+                          f"{' e '.join(exig)}; inversores que não atendem são "
+                          f"descartados antes de qualquer conta de potência")
 
-    tem_string = any(i["tipo"] == "inversor_string" for i in (r.get("itens") or []))
-    if tem_string and k.get("qtd_baterias"):
-        motivos.append("FV acima do teto de matriz do híbrido; excedente em "
-                       "inversor string")
-    motivos.append("mais barato entre os compatíveis")
+    if not r.get("kit"):
+        motivos = r.get("motivos_incompat") or []
+        detalhe = ("<br>".join(f"• {m}" for m in motivos[:6])
+                   if motivos else "sem detalhe registrado")
+        passos.append("**3. Nenhum inversor atende** — motivo por modelo:<br>"
+                      + detalhe)
+        return "<br><br>".join(passos)
 
+    k = r["kit"]
+    itens = r.get("itens") or []
+    inv = next((i for i in itens if i["tipo"] == "inversor"), None)
+    bat = next((i for i in itens if i["tipo"] == "bateria"), None)
+    n_inv = k.get("qtd_inversores") or 1
+
+    # 3. potência do inversor
+    if inv and cargas:
+        pico_un = inv.get("potencia_pico_kw")
+        nom_un = inv.get("potencia_inversao_kw")
+        detalhe = []
+        if pico_un:
+            detalhe.append(f"pico {br(pico_un)} kVA × {n_inv} = "
+                           f"{br(pico_un * n_inv)} kVA ≥ Pp {br(pp or 0)}")
+        if nom_un:
+            detalhe.append(f"nominal {br(nom_un)} kW × {n_inv} = "
+                           f"{br(nom_un * n_inv)} kW ≥ Pn {br(pn or 0)}")
+        passos.append(f"**3. Potência do inversor (R3/R4)** — {'; '.join(detalhe)}"
+                      + (f". {n_inv} unidades em paralelo" if n_inv > 1 else ""))
+
+    # 4. energia -> baterias
+    if bat and k.get("qtd_baterias"):
+        n = k["qtd_baterias"]
+        util = bat.get("energia_unit_kwh") or (k["capacidade_kwh"] / n)
+        n_energia = max(1, int(-(-(e_nec or 0) // util))) if util else n
+        entradas = (inv or {}).get("entradas_bateria")
+        teto = f", teto de {entradas * n_inv * 4} pelo nº de entradas (R1)" if entradas else ""
+        passos.append(
+            f"**4. Energia → nº de baterias (R1)** — {br(e_nec or 0, 1)} kWh ÷ "
+            f"{br(util)} kWh úteis = {n_energia} bateria(s){teto}")
+
+        # 5. potência de partida -> distribuicao
+        dist = k.get("distribuicao") or []
+        i_ent = (inv or {}).get("corrente_entrada_a")
+        i_pico = bat.get("corrente_pico_a")
+        tensao_bat = bat.get("tensao_v")
+        if dist and i_ent and i_pico and tensao_bat:
+            parcelas = [f"min({d}×{br(i_pico,0)}; {br(i_ent,0)}) A"
+                        for d in dist if d > 0]
+            passos.append(
+                f"**5. Potência de partida (R2)** — {n} baterias distribuídas "
+                f"{'+'.join(map(str, dist))} entre as entradas; corrente = "
+                f"{' + '.join(parcelas)} → pico entregável "
+                f"{br(k.get('pico_kw') or 0)} kW"
+                + (f" (subiu de {n_energia} para {n} baterias porque a energia "
+                   f"sozinha não entregava o pico)" if n > n_energia else ""))
+        if k.get("n_jbw"):
+            passos.append(f"**6. Acessório (R9)** — {k['n_jbw']} caixa(s) de "
+                          f"junção, uma por entrada com 2+ baterias")
+
+    # FV
+    if kwp:
+        tem_string = any(i["tipo"] == "inversor_string" for i in itens)
+        teto = (inv or {}).get("potencia_inversao_kw")
+        txt = (f"**7. Fotovoltaico** — {br(kwp)} kWp alvo; ")
+        if tem_string and bat:
+            txt += ("acima do teto de matriz do híbrido, excedente vai para "
+                    "inversor string (caminho split)")
+        elif tem_string:
+            txt += "sem armazenamento, todo o FV em inversor string"
+        else:
+            txt += (f"cabe na entrada CC do híbrido"
+                    + (f" (teto ≈ {br((teto or 0) * 2)} kWp = 2× a potência CA)"
+                       if teto else ""))
+        passos.append(txt)
+
+    passos.append(f"**Escolha final** — mais barato entre os que passaram em "
+                  f"todos os filtros (R$ {br(k['preco'])})")
     for a in k.get("alertas") or []:
-        motivos.append(f"⚠ {a}")
-    return ". ".join(motivos)
+        passos.append(f"⚠ {a}")
+    return "<br><br>".join(passos)
+
+
+def equipamentos_bloqueados(r: dict) -> str:
+    """O que poderia ter entrado se o cadastro estivesse completo."""
+    f = r.get("fora_por_cadastro") or {}
+    linhas = []
+    for t in f.get("inversores") or []:
+        linhas.append(f"🔌 {t}")
+    for t in f.get("baterias") or []:
+        linhas.append(f"🔋 {t}")
+    if f.get("outros"):
+        linhas.append(f"_+ {f['outros']} itens sem spec (cabines BSCW e baterias "
+                      f"de outras marcas) — não são módulos candidatos_")
+    return "<br>".join(linhas) if linhas else "nenhum"
 
 
 def resumir(d: dict) -> dict:
     """Só o que importa comparar — nada de timestamp ou id, que mudam sempre."""
     k = d.get("kit_selecionado")
+    diag = d.get("diagnostico") or {}
+    comum = {
+        "energia_necessaria_kwh": d.get("energia_necessaria_kwh"),
+        "total_pn_kva": d.get("total_pn_kva"),
+        "total_pp_kva": d.get("total_pp_kva"),
+        "kwp_alvo": d.get("kwp_alvo"),
+        "avisos": sorted(diag.get("avisos") or []),
+        "fora_por_cadastro": _fora_por_cadastro(diag),
+        "motivos_incompat": _motivos_incompat(diag),
+    }
     if not k:
-        diag = d.get("diagnostico") or {}
-        return {"kit": None, "avisos": sorted(diag.get("avisos") or [])}
+        return {"kit": None, **comum}
+    ELETRICOS = ("potencia_inversao_kw", "potencia_pico_kw", "entradas_bateria",
+                 "corrente_entrada_a", "energia_unit_kwh", "corrente_pico_a",
+                 "tensao_v")
     itens = [
-        {"tipo": i["tipo"], "qtd": i["qtd"], "nome": i["nome"]}
+        {"tipo": i["tipo"], "qtd": i["qtd"], "nome": i["nome"],
+         **{c: i[c] for c in ELETRICOS if i.get(c) is not None}}
         for i in (k.get("itens") or [])
         if i["tipo"] in ("inversor", "inversor_string", "bateria", "modulo_fv")
     ]
@@ -213,12 +317,41 @@ def resumir(d: dict) -> dict:
         "itens": sorted(itens, key=lambda x: (x["tipo"], x["nome"])),
         "frete": (d.get("frete") or {}).get("valor"),
         "alternativas": len(d.get("alternativas") or []),
-        "avisos": sorted(diag.get("avisos") or []),
-        # usados para explicar a escolha na tabela de validação
-        "energia_necessaria_kwh": d.get("energia_necessaria_kwh"),
-        "total_pp_kva": d.get("total_pp_kva"),
-        "kwp_alvo": d.get("kwp_alvo"),
+        **comum,
     }
+
+
+def _motivos_incompat(diag: dict) -> list:
+    """Motivos distintos de incompatibilidade dos INVERSORES — o que explica um
+    cenario sem solucao."""
+    out, vistos = [], set()
+    for d in diag.get("descartados") or []:
+        t = d.get("titulo") or ""
+        if d.get("tipo") != "incompativel" or "SIW" not in t or t in vistos:
+            continue
+        vistos.add(t)
+        out.append(f"{t}: {d.get('motivo')}")
+    return out[:12]
+
+
+def _fora_por_cadastro(diag: dict) -> dict:
+    inversores, baterias, outros = [], [], 0
+    vistos = set()
+    for d in diag.get("descartados") or []:
+        if d.get("tipo") != "dado_ausente":
+            continue
+        t = d.get("titulo") or ""
+        if t in vistos:
+            continue
+        vistos.add(t)
+        falta = (d.get("motivo") or "").split(":", 1)[-1].strip()
+        if "SIW" in t:
+            inversores.append(f"{t} (falta {falta})")
+        elif "Módulo de Bateria" in t:
+            baterias.append(f"{t} (falta {falta})")
+        else:
+            outros += 1
+    return {"inversores": inversores, "baterias": baterias, "outros": outros}
 
 
 def rodar() -> dict:
@@ -265,8 +398,8 @@ def gerar_tabela(atual: dict) -> str:
     """Markdown para revisão de engenharia."""
     linhas = [
         "| Cenário | FV (kWp) | Cargas de armazenamento | Kit escolhido | "
-        "Motivo da escolha | Preço |",
-        "|---|---|---|---|---|---|",
+        "Sequência de cálculo | Bloqueados por cadastro incompleto | Preço |",
+        "|---|---|---|---|---|---|---|",
     ]
     por_nome = dict(CENARIOS)
     for nome, r in atual.items():
@@ -279,7 +412,7 @@ def gerar_tabela(atual: dict) -> str:
         preco = (r.get("kit") or {}).get("preco")
         linhas.append(
             f"| **{nome}** | {kwp:g} | {cargas} | {descrever_kit(r)} | "
-            f"{explicar_escolha(r, extra)} | "
+            f"{sequencia_calculo(r, extra)} | {equipamentos_bloqueados(r)} | "
             f"{'R$ ' + br(preco) if preco else '—'} |"
         )
     return "\n".join(linhas)

@@ -459,8 +459,13 @@ def build_kits(
                 continue
 
             alertas: list[str] = list(alertas_rede)
-            # R6 — carga mono em inversor tri (advisory; precisa da maior carga mono)
-            if fase_instalacao == "trifasico" and tensoes_carga:
+            # R6 — carga mono em inversor tri (advisory).
+            # Só faz sentido quando EXISTE carga monofásica: antes disparava em
+            # qualquer projeto trifásico, inclusive com 100% de cargas tri, e
+            # alerta que aparece sem motivo é alerta que se aprende a ignorar.
+            tem_carga_mono = bool(fases_carga) and any(
+                f in ("monofasico", "bifasico") for f in fases_carga)
+            if fase_instalacao == "trifasico" and tem_carga_mono:
                 alertas.append("verifique cargas monofásicas ≤ 1/3 da potência (alerta)")
 
             kits.append(_montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, _tit, jbw_produtos))
