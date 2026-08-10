@@ -80,6 +80,10 @@ def _tensoes_entre_fases(eps_output_voltage: str | None) -> set[str]:
     220 V" e ser oferecido para carga TRIFÁSICA 220 V — que precisa de 220 V
     *entre fases* e receberia 380 V. Carga queimada.
 
+    Vale igual para carga BIFÁSICA: dois condutores vivos a 220 V entre si é
+    a tensão de linha, não a de fase. Um chuveiro bifásico 220 V numa rede
+    127/220 recebe 220 V entre duas fases; num 380/220 receberia 380 V.
+
     Usa max() em vez da posição porque a ordem do par não é constante no
     cadastro ('380/220' nos trifásicos, '127/220' nos monofásicos split-phase);
     a tensão de linha é sempre a maior das duas (√3 × a de fase).
@@ -100,12 +104,14 @@ def _tensoes_entre_fases(eps_output_voltage: str | None) -> set[str]:
 def _serve_tensoes(
     inv,
     tensoes_carga: set[str],
-    tensoes_trifasicas: set[str] | None = None,
+    tensoes_entre_fases: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     """R8: a saída EPS do inversor atende todas as tensões de carga?
 
-    `tensoes_trifasicas` é o subconjunto exigido por cargas trifásicas, que
-    precisa casar com a tensão ENTRE FASES — ver _tensoes_entre_fases.
+    `tensoes_entre_fases` é o subconjunto exigido por cargas que se alimentam
+    entre dois condutores vivos — trifásicas e bifásicas. Essas precisam casar
+    com a tensão de LINHA do inversor, não com a de fase; ver
+    _tensoes_entre_fases.
     """
     eps_raw = eff(inv, "eps_output_voltage")
     eps = _parse_eps_voltages(eps_raw)
@@ -118,13 +124,12 @@ def _serve_tensoes(
     faltando = {t for t in tensoes_carga if t not in servidas}
     if faltando:
         return False, f"saída EPS não atende carga(s) {sorted(faltando)} V"
-    if tensoes_trifasicas:
+    if tensoes_entre_fases:
         linha = _tensoes_entre_fases(eps_raw)
-        faltando_tri = sorted(t for t in tensoes_trifasicas if t not in linha)
-        if faltando_tri:
+        faltando_linha = sorted(t for t in tensoes_entre_fases if t not in linha)
+        if faltando_linha:
             return False, (
-                f"saída {eps_raw} V não entrega {faltando_tri} V entre fases "
-                f"(carga trifásica)")
+                f"saída {eps_raw} V não entrega {faltando_linha} V entre fases")
     return True, None
 
 
@@ -132,7 +137,7 @@ def compativel_com_cargas(
     inv,
     tensoes_carga: set[str] | None,
     fases_carga: set[str] | None,
-    tensoes_trifasicas: set[str] | None = None,
+    tensoes_entre_fases_carga: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     """R8 completa (tensão + fase) para um inversor.
 
@@ -142,7 +147,7 @@ def compativel_com_cargas(
     trifásica voltava com inversor monofásico sempre que havia FV no projeto.
     """
     if tensoes_carga:
-        ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_trifasicas)
+        ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga)
         if not ok:
             return False, why
     if fases_carga:
@@ -406,7 +411,7 @@ def build_kits(
     fase_instalacao: str | None = None,
     tensoes_carga: set[str] | None = None,
     fases_carga: set[str] | None = None,
-    tensoes_trifasicas: set[str] | None = None,
+    tensoes_entre_fases_carga: set[str] | None = None,
     padrao_entrada: str | None = None,
     require_same_brand: bool = True,
     jbw_produtos: list | None = None,
@@ -435,7 +440,7 @@ def build_kits(
 
         # R8 — tensão de saída EPS × cargas (quando informado)
         if tensoes_carga:
-            ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_trifasicas)
+            ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga)
             if not ok:
                 skipped.append(_skip(inv, why))
                 continue

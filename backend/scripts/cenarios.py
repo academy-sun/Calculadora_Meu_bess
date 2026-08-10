@@ -74,6 +74,12 @@ CENARIOS = [
     ("ongrid-puro-20kwp", dict(
         powerpeak_kwp=20.0, tipo_instalacao="monofasico",
         padrao_entrada="mono_220")),
+    # Mesmos 20 kWp do cenário acima, mudando só o padrão de entrada. Sem
+    # cargas não há tensão de carga para restringir nada — quem limita o
+    # inversor é a rede em que ele será ligado, e é isso que este par mostra.
+    ("ongrid-puro-20kwp-tri-380", dict(
+        powerpeak_kwp=20.0, tipo_instalacao="trifasico",
+        padrao_entrada="tri_220_380")),
     ("combinado-mono-8kwp", dict(
         cargas_backup=[GELADEIRA, AR_MONO], powerpeak_kwp=8.5,
         tipo_instalacao="monofasico", padrao_entrada="mono_220", autonomia_dias=1)),

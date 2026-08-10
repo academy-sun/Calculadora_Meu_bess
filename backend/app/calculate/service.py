@@ -191,6 +191,24 @@ def _solar_dim_ongrid(detalhe, kwp_alvo: float) -> SolarDimensionamento | None:
     )
 
 
+#: Tensão de conexão (entre fases) de cada padrão de entrada, como o catálogo
+#: registra o campo `voltage` do inversor. Os dois caminhos que precisavam
+#: disso derivavam por conta própria — um com `"220" in padrao`, outro com
+#: `padrao.startswith("tri")` — e cada um acertava só metade dos casos:
+#: o primeiro mandava 380 V para uma rede mono 127, o segundo mandava 380 V
+#: para uma rede trifásica 127/220.
+TENSAO_REDE = {
+    "mono_127": "127",
+    "mono_220": "220",
+    "tri_127_220": "220",
+    "tri_220_380": "380",
+}
+
+
+def _tensao_rede(padrao_entrada: str | None) -> str:
+    return TENSAO_REDE.get(padrao_entrada or "", "220")
+
+
 def _resolver_frete(req: CalculateRequest, kit: KitInfo | None) -> dict | None:
     """Frete do kit escolhido.
 
@@ -302,7 +320,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 mc4s=pv["mc4s"],
                 estruturas=pv["estruturas"],
                 inversores_string=pv["inversores_string"],
-                voltage=str(220 if "220" in (req.padrao_entrada or "mono_220") else 380),
+                voltage=_tensao_rede(req.padrao_entrada),
                 phase=req.tipo_instalacao or "monofasico",
             )
             if ongrid_itens:
@@ -381,12 +399,14 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         tensoes_carga = {c.tensao for c in req.cargas_backup if c.tensao} or None
         fases_carga = {_normalizar_fase(c.fase) for c in req.cargas_backup if c.fase} or None
-        # Tensão exigida ENTRE FASES. Uma carga trifásica 220 V não é servida
-        # por um inversor 380/220 (que entrega 220 V só entre fase e neutro),
-        # e a checagem de tensão sozinha não distinguia os dois casos.
-        tensoes_trifasicas = {
+        # Tensão exigida ENTRE FASES — cargas alimentadas por dois condutores
+        # vivos. Uma carga trifásica OU bifásica 220 V não é servida por um
+        # inversor 380/220, que entrega 220 V só entre fase e neutro; entre
+        # fases ele dá 380 V. A checagem de tensão sozinha não separava os
+        # dois casos porque tratava o par '380/220' como conjunto plano.
+        tensoes_entre_fases_carga = {
             c.tensao for c in req.cargas_backup
-            if c.tensao and _normalizar_fase(c.fase) == "trifasico"
+            if c.tensao and _normalizar_fase(c.fase) in ("trifasico", "bifasico")
         } or None
         kits, _skipped_i = build_kits(
             inversores, baterias,
@@ -396,7 +416,7 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             fase_instalacao=req.tipo_instalacao or "monofasico",
             tensoes_carga=tensoes_carga,
             fases_carga=fases_carga,
-            tensoes_trifasicas=tensoes_trifasicas,
+            tensoes_entre_fases_carga=tensoes_entre_fases_carga,
             padrao_entrada=req.padrao_entrada,
             jbw_produtos=jbw_produtos,
         )
@@ -417,14 +437,14 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
 
         # ── 2: combina PV (quando kWp informado) OU armazenamento puro ───
         if tem_pv and kits:
-            voltage_str = "380" if (req.padrao_entrada or "").startswith("tri") else "220"
+            voltage_str = _tensao_rede(req.padrao_entrada)
             # O caminho combinado pode SUBSTITUIR o híbrido (caminho "scaled")
             # por um maior que absorva todo o FV. Sem filtrar antes, essa troca
             # ignora a R8 e devolve inversor monofásico para carga trifásica.
             hibridos_compativeis = [
                 i for i in inversores
                 if compativel_com_cargas(
-                    i, tensoes_carga, fases_carga, tensoes_trifasicas)[0]
+                    i, tensoes_carga, fases_carga, tensoes_entre_fases_carga)[0]
             ]
             sugerido_opt, alt_opts = build_combined_pv_storage(
                 kits_storage=kits,

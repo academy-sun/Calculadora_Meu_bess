@@ -599,7 +599,7 @@ class TestTensaoEntreFases:
             inversores, [cb100()],
             pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
             fase_instalacao="trifasico", tensoes_carga={"220"},
-            fases_carga={"trifasico"}, tensoes_trifasicas={"220"},
+            fases_carga={"trifasico"}, tensoes_entre_fases_carga={"220"},
         )
 
     def test_t015_recusado_para_carga_trifasica_220(self):
@@ -618,7 +618,7 @@ class TestTensaoEntreFases:
             [t015()], [cb100()],
             pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
             fase_instalacao="trifasico", tensoes_carga={"380"},
-            fases_carga={"trifasico"}, tensoes_trifasicas={"380"},
+            fases_carga={"trifasico"}, tensoes_entre_fases_carga={"380"},
         )
         assert [k.inversor.meubess_id for k in kits] == ["t015"]
 
@@ -628,7 +628,7 @@ class TestTensaoEntreFases:
             [t015()], [cb100()],
             pn_kva=4.0, pp_kva=12.0, e_bat_kwh=32.0,
             fase_instalacao="trifasico", tensoes_carga={"220"},
-            fases_carga={"monofasico"}, tensoes_trifasicas=None,
+            fases_carga={"monofasico"}, tensoes_entre_fases_carga=None,
         )
         assert [k.inversor.meubess_id for k in kits] == ["t015"]
 
@@ -639,3 +639,40 @@ class TestTensaoEntreFases:
         assert _tensoes_entre_fases("127/220") == {"220"}   # ordem invertida
         assert _tensoes_entre_fases("220") == {"220"}
         assert _tensoes_entre_fases(None) == set()
+
+
+class TestCargaBifasica:
+    """Bifásica também se alimenta entre dois vivos — mesma regra da trifásica.
+
+    Um chuveiro bifásico 220 V numa rede 127/220 recebe 220 V entre duas
+    fases. Num inversor 380/220 receberia 380 V. Só a fase é que não bloqueia
+    (bifásica em saída mono continua sendo alerta, não recusa).
+    """
+    def _run(self, inversores):
+        return build_kits(
+            inversores, [cb100()],
+            pn_kva=6.11, pp_kva=6.11, e_bat_kwh=6.1,
+            fase_instalacao="monofasico", tensoes_carga={"220"},
+            fases_carga={"bifasico"}, tensoes_entre_fases_carga={"220"},
+        )
+
+    def test_t015_recusado_para_carga_bifasica_220(self):
+        kits, skipped = self._run([t015()])
+        assert kits == []
+        assert any("entre fases" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
+
+    def test_split_phase_serve_bifasica_220(self):
+        """'127/220' entrega 220 V entre os dois vivos — é o caso correto."""
+        kits, _ = self._run([s057()])
+        assert [k.inversor.meubess_id for k in kits] == ["s057"]
+
+    def test_mono_220_serve_bifasica_220_com_alerta(self):
+        """Saída mono 220 V dá 220 V entre seus dois terminais: passa, com aviso."""
+        kits, _ = self._run([m050()])
+        assert [k.inversor.meubess_id for k in kits] == ["m050"]
+        assert any("bifásica" in a for a in kits[0].alertas), kits[0].alertas
+
+    def test_k017_serve_bifasica_220(self):
+        kits, _ = self._run([k017()])
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
