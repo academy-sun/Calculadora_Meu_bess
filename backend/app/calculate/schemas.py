@@ -188,6 +188,11 @@ class Diagnostico(BaseModel):
 
 class CalculateResponse(BaseModel):
     projeto_id: Optional[str] = None   # só existe depois que a cotação é salva (POST /projects)
+    #: Qual versão desta resposta foi entregue — "completo" ou "restrito".
+    #: A tela renderiza pelo que o servidor DIZ ter mandado, não pela ausência
+    #: de campos: inferir "não veio preço, então é restrito" quebra silencioso
+    #: no dia em que um preço legítimo vier zerado.
+    perfil: str = "completo"
     tipo_calculo: str
     origem: str
     negocio_id: Optional[str]

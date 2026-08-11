@@ -82,6 +82,7 @@ async def _rodar_uma_vez() -> None:
 
 async def _loop(intervalo_s: int) -> None:
     while True:
+        comeco = datetime.now(timezone.utc)
         try:
             await _rodar_uma_vez()
         except asyncio.CancelledError:
@@ -97,7 +98,12 @@ async def _loop(intervalo_s: int) -> None:
                 "em": datetime.now(timezone.utc).isoformat(),
             }
             log.exception("sync FALHOU: %r", exc)
-        await asyncio.sleep(intervalo_s)
+        # Desconta o tempo da rodada. Dormir o intervalo cheio DEPOIS do sync
+        # dava um ciclo de 64 min (4 min de sync + 60 de espera), e o atraso
+        # acumulava: ~1h30 de deriva por dia. Medido em produção entre as
+        # execuções de 15:12:45 e 16:16:50.
+        gasto = (datetime.now(timezone.utc) - comeco).total_seconds()
+        await asyncio.sleep(max(0.0, intervalo_s - gasto))
 
 
 def iniciar(app) -> asyncio.Task | None:

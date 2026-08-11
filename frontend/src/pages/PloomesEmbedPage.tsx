@@ -5,11 +5,12 @@ import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
-import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
+import { FreightSection } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
 import { DiagnosticoKit } from '@/components/DiagnosticoKit'
 import { extrairUF, normalizarFixingType, rotuloFixingType } from '@/lib/ploomesContext'
 import { resumoParaProposta } from '@/lib/ploomesProposta'
+import { definirApiKey } from '@/lib/api'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
 /**
@@ -66,6 +67,15 @@ export function PloomesEmbedPage() {
   const [error, setError] = useState<string | null>(null)
   const [enviado, setEnviado] = useState(false)
   const [contextoRecebido, setContextoRecebido] = useState(false)
+  // Só habilita o cálculo depois que o campo desenvolvedor mandar a chave:
+  // calcular antes usaria a do build e devolveria o payload completo mesmo
+  // no campo do usuário final.
+  const [configRecebida, setConfigRecebida] = useState(false)
+  // Modo de TELA. A fronteira de dado é a chave, conferida no servidor; isto
+  // aqui só decide o que desenhar antes da primeira resposta chegar (o frete,
+  // por exemplo, é escolhido antes de calcular). Depois que `result` existe,
+  // `result.perfil` é quem manda.
+  const [modoUI, setModoUI] = useState<'completo' | 'restrito'>('completo')
 
   // Canal com o campo desenvolvedor: o bridge envia 'ploomes:context' com os
   // valores ATUAIS da proposta (no load e sempre que o consultor clicar em
@@ -74,7 +84,24 @@ export function PloomesEmbedPage() {
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       const d = e.data
-      if (!d || typeof d !== 'object' || d.type !== 'ploomes:context') return
+      if (!d || typeof d !== 'object') return
+
+      // A chave de API vem do campo desenvolvedor, não do build. É ela que
+      // decide o perfil da resposta no servidor: o campo de admin carrega a
+      // chave completa, o do usuário final carrega a restrita. Se as duas
+      // estivessem no bundle (que é público), ler o JavaScript daria acesso
+      // ao payload completo.
+      if (d.type === 'ploomes:config' && typeof d.apiKey === 'string') {
+        definirApiKey(d.apiKey)
+        if (d.modo === 'restrito') {
+          setModoUI('restrito')
+          setTipoFrete('cif')   // sem opção de FOB neste perfil
+        }
+        setConfigRecebida(true)
+        return
+      }
+
+      if (d.type !== 'ploomes:context') return
       if (d.kwp != null && d.kwp !== '') setKwp(String(d.kwp))
 
       // O bridge manda o texto cru dos campos (`estrutura`/`cidade`); o de:para
@@ -144,20 +171,38 @@ export function PloomesEmbedPage() {
   }
 
   function aplicarNaProposta(kit: KitInfo) {
+    // Kit que não cobre a energia pedida (a "alternativa mais econômica" é
+    // sub-dimensionada de propósito). Vale para qualquer kit abaixo de 100%,
+    // não só o rotulado como econômico: o risco de aplicar sem perceber é o
+    // mesmo venha de onde vier.
+    if (kit.cobertura_energia != null && kit.cobertura_energia < 1) {
+      const pct = (kit.cobertura_energia * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+      const kwhKit = kit.capacidade_total_kwh.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+      const kwhPedido = (result?.energia_necessaria_kwh ?? 0)
+        .toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+      const ok = window.confirm(
+        `Este kit cobre ${kwhKit} dos ${kwhPedido} kWh pedidos (${pct}% da autonomia).\n\n`
+        + `Aplicar mesmo assim?`,
+      )
+      if (!ok) return
+    }
+
     const itens: KitItem[] = kit.itens ?? []
-    // arredonda ANTES de somar/enviar — float sujo (ex. 62822.489999999996) fazia a
+    // arredonda ANTES de enviar — float sujo (ex. 62822.489999999996) fazia a
     // máscara de moeda do Ploomes interpretar os dígitos extras como milhares
     const round2 = (v: number) => Math.round(v * 100) / 100
-    const kitPreco = round2(itens.length > 0
-      ? itens.reduce((s, it) => s + it.preco_unitario * it.qtd, 0)
-      : kit.preco_total)
-    const frete = result?.frete
-      ? estimarFreteParaPreco(result.frete as FreteInfo, kitPreco)
-      : null
-    const freteValor = frete ? round2(frete.valor) : null
-    const totalGeral = round2(kitPreco + (freteValor ?? 0))
-    const freteDescricao = frete
-      ? (frete.tipo === 'fob' ? 'FOB — Retirada no CD' : `CIF — ${frete.uf}`)
+    // Valores vêm do servidor, que calcula o frete de CADA kit na faixa de
+    // preço correta. A estimativa que se fazia aqui reaplicava o percentual do
+    // kit sugerido a outro preço e errava quando a alternativa caía em outra
+    // faixa. No perfil restrito esses campos nem chegam — daí os null.
+    const restrito = result?.perfil === 'restrito'
+    const kitPreco = restrito ? null : round2(kit.preco_total)
+    const freteValor = restrito || kit.frete_valor == null ? null : round2(kit.frete_valor)
+    const totalGeral = round2(kit.total_com_frete ?? kit.preco_total)
+    const freteDescricao = result?.frete
+      ? ((result.frete as FreteInfo).tipo === 'fob'
+          ? 'FOB — Retirada no CD'
+          : `CIF — ${(result.frete as FreteInfo).uf}`)
       : null
     // Texto puro só como fallback; o campo é um TinyMCE e recebe a tabela HTML.
     const itensTexto = itens.map(it => `${it.qtd}× ${it.nome}`).join(' | ')
@@ -184,8 +229,12 @@ export function PloomesEmbedPage() {
     const brNum = (v: number | null, casas: number) =>
       v == null ? '' : v.toFixed(casas).replace('.', ',')
 
+    // No perfil restrito, valor do kit e frete saem como null e o bridge não
+    // escreve esses dois campos — é o que impede o usuário final de segmentar
+    // o total. Os outros 16 campos continuam sendo preenchidos normalmente.
     window.parent.postMessage({
       type: 'meubess:saved',
+      perfil: result?.perfil ?? 'completo',
       kit_descricao: kitDescricao,
       kit_preco: kitPreco,
       kit_preco_str: brStr(kitPreco),
@@ -224,6 +273,8 @@ export function PloomesEmbedPage() {
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
+
+  const restritoUI = (result?.perfil ?? modoUI) === 'restrito'
 
   const freteOk = tipoFrete === 'fob' || (tipoFrete === 'cif' && ufEntrega !== '')
   const temDados = parseFloat(kwp) > 0 || rows.length > 0
@@ -360,6 +411,7 @@ export function PloomesEmbedPage() {
         onTipoFrete={handleTipoFrete}
         ufEntrega={ufEntrega}
         onUfEntrega={setUfEntrega}
+        somenteCif={restritoUI}
       />
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
@@ -386,7 +438,7 @@ export function PloomesEmbedPage() {
           <div className="space-y-3">
             <h2 className="font-display text-lg font-bold text-ink">Opções de kit</h2>
             {/* Antes de apresentar ao cliente: o que o motor deixou de fora e por quê */}
-            <DiagnosticoKit diagnostico={result.diagnostico} />
+            {!restritoUI && <DiagnosticoKit diagnostico={result.diagnostico} />}
             {enviado && (
               <p className="flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
                 <CheckCircle2 size={16} /> Kit aplicado à proposta — confira os campos no formulário.
@@ -401,6 +453,7 @@ export function PloomesEmbedPage() {
               kwpInstalado={result.kit_selecionado.kwp_instalado}
               solar={result.solar_dimensionamento}
               frete={result.frete as FreteInfo | null | undefined}
+              ocultarValores={restritoUI}
               editable={false}
               collapsible defaultOpen
               onEscolher={() => aplicarNaProposta(result.kit_selecionado!)}
@@ -415,7 +468,10 @@ export function PloomesEmbedPage() {
                 titulo={alt.rotulo ?? 'Kit alternativo'}
                 energiaNecessariaKwh={result.energia_necessaria_kwh}
                 kwpInstalado={alt.kwp_instalado}
-                frete={result.frete ? estimarFreteParaPreco(result.frete as FreteInfo, alt.preco_total) : undefined}
+                frete={result.frete && alt.frete_valor != null
+                  ? { ...(result.frete as FreteInfo), valor: alt.frete_valor }
+                  : undefined}
+                ocultarValores={restritoUI}
                 editable={false}
                 collapsible defaultOpen={false}
                 onEscolher={() => aplicarNaProposta(alt)}

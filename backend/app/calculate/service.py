@@ -93,6 +93,27 @@ def _classificar_descarte(motivo: str) -> str:
     return "dado_ausente" if any(t in m for t in _MARCAS_DADO_AUSENTE) else "incompativel"
 
 
+#: Horas desde o último sync a partir das quais a cotação avisa. O sync roda de
+#: hora em hora; 3 h significa três ciclos perdidos, o que não é oscilação —
+#: é defeito. Abaixo disso o aviso apareceria à toa e ninguém leria o painel.
+_CATALOGO_VELHO_H = 3.0
+
+
+def _idade_do_catalogo(produtos: list) -> float | None:
+    """Horas desde a sincronização mais recente entre os produtos consultados.
+
+    Sai da própria lista já carregada, sem consulta extra ao banco.
+    """
+    marcas = [p.last_synced_at for p in produtos if getattr(p, "last_synced_at", None)]
+    if not marcas:
+        return None
+    recente = max(marcas)
+    agora = datetime.now(timezone.utc)
+    if recente.tzinfo is None:          # coluna gravada sem timezone
+        recente = recente.replace(tzinfo=timezone.utc)
+    return (agora - recente).total_seconds() / 3600.0
+
+
 def _montar_diagnostico(
     skipped,
     req: CalculateRequest,
@@ -114,6 +135,19 @@ def _montar_diagnostico(
 
     avisos: list[str] = []
     cargas = req.cargas_backup or []
+
+    # Preço defasado é o erro mais caro que esta ferramenta pode cometer, e o
+    # mais silencioso: se o sync horário parar (plataforma fora do ar, chave
+    # revogada, agendador morto), nada muda na tela — a cotação continua saindo,
+    # com o preço de ontem. Quem olha o log é a exceção; quem olha a proposta é
+    # todo mundo. Então o aviso vai na proposta.
+    idade = _idade_do_catalogo(inversores)
+    if idade is not None and idade > _CATALOGO_VELHO_H:
+        avisos.append(
+            f"Catálogo sincronizado há {idade:.0f} h (o normal é 1 h) — os "
+            f"preços podem estar desatualizados. Confira na plataforma MeuBESS "
+            f"antes de enviar a proposta."
+        )
 
     # Regra que NAO rodou e silenciosa por natureza: sem o dado de entrada, o
     # motor nao valida e nada aparece. E preciso dizer que nao validou.

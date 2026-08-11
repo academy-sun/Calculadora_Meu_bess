@@ -24,12 +24,17 @@ interface KitResultProps {
   onEscolher?: () => void
   escolhendo?: boolean
   escolherLabel?: string
+  /** Perfil restrito: o único valor em reais que aparece é o total com frete.
+   *  Some preço unitário, subtotal por item, total do kit isolado, linha de
+   *  frete (com o percentual da UF) e custo dos módulos. */
+  ocultarValores?: boolean
 }
 
 export function KitResult({
   kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, kwpInstalado, solar,
   frete, editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
   escolherLabel = 'Escolher este kit',
+  ocultarValores = false,
 }: KitResultProps) {
   const [showPicker, setShowPicker] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
@@ -69,8 +74,8 @@ export function KitResult({
             <tr className="border-b border-ink/10 bg-ink/[0.03] text-left text-[11px] font-semibold uppercase tracking-wider text-ink/45">
               <th className="px-4 py-3">Item</th>
               <th className="px-4 py-3 w-20 text-center">Qtd</th>
-              <th className="px-4 py-3 w-36 text-right">Preço unit.</th>
-              <th className="px-4 py-3 w-36 text-right">Total</th>
+              {!ocultarValores && <th className="px-4 py-3 w-36 text-right">Preço unit.</th>}
+              {!ocultarValores && <th className="px-4 py-3 w-36 text-right">Total</th>}
               {editable && <th className="px-2 py-3 w-10" />}
             </tr>
           </thead>
@@ -90,6 +95,7 @@ export function KitResult({
                     <span className="font-mono text-sm tabular-nums text-ink/80">{it.qtd}</span>
                   )}
                 </td>
+                {!ocultarValores && (
                 <td className="px-4 py-3 text-right">
                   {editable ? (
                     <input type="number" step="any" min={0} value={it.preco_unitario}
@@ -99,7 +105,10 @@ export function KitResult({
                     <span className="font-mono text-sm tabular-nums text-ink/80">{brl(it.preco_unitario)}</span>
                   )}
                 </td>
+                )}
+                {!ocultarValores && (
                 <td className="px-4 py-3 text-right font-mono tabular-nums text-ink/80">{brl(it.preco_unitario * it.qtd)}</td>
+                )}
                 {editable && (
                   <td className="px-2 py-3 text-center">
                     <button onClick={() => remove(i)} className="text-ink/25 opacity-0 transition hover:text-red-500 group-hover:opacity-100">
@@ -121,12 +130,22 @@ export function KitResult({
                 </td>
               </tr>
             )}
+            {!ocultarValores && (
             <tr className="border-t-2 border-ink/15 bg-ink/[0.03]">
               <td colSpan={3} className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-ink/60">Total do kit</td>
               <td className="px-4 py-3 text-right font-mono text-base font-bold tabular-nums text-primary">{brl(totalKit)}</td>
               {editable && <td />}
             </tr>
-            {frete && (
+            )}
+            {ocultarValores && (
+              <tr className="border-t-2 border-ink/15 bg-primary/[0.04]">
+                <td colSpan={2} className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-ink/70">Total geral (kit + frete)</td>
+                <td className="px-4 py-3 text-right font-mono text-lg font-bold tabular-nums text-primary">
+                  {kit.total_com_frete != null ? brl(kit.total_com_frete) : '—'}
+                </td>
+              </tr>
+            )}
+            {!ocultarValores && frete && (
               <>
                 <tr className="bg-ink/[0.02]">
                   <td colSpan={3} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-ink/50">
@@ -166,7 +185,9 @@ export function KitResult({
             {/* "do consumo" só valia no caminho legado (consumo + HSP). Com kWp
                 vindo pronto do CRM a base é o alvo, não o consumo. */}
             <Detail label="Cobertura" value={`${solar.cobertura_pct}% do kWp alvo`} />
-            <Detail label="Custo dos módulos" value={brl(solar.preco_modulos_total)} />
+            {!ocultarValores && (
+              <Detail label="Custo dos módulos" value={brl(solar.preco_modulos_total)} />
+            )}
           </div>
         </div>
       )}
@@ -207,9 +228,11 @@ export function KitResult({
             {coberturaBadge}
             <div className="text-right">
               <span className="block font-mono text-sm font-semibold tabular-nums text-primary">
-                {frete ? brl(totalKit + frete.valor) : brl(totalKit)}
+                {ocultarValores
+                  ? (kit.total_com_frete != null ? brl(kit.total_com_frete) : '—')
+                  : frete ? brl(totalKit + frete.valor) : brl(totalKit)}
               </span>
-              {frete && (
+              {frete && !ocultarValores && (
                 <span className="block font-mono text-[10px] tabular-nums text-ink/40">kit {brl(totalKit)}</span>
               )}
             </div>

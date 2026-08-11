@@ -61,6 +61,7 @@ def _limpar_kit(kit) -> None:
 
 def aplicar(resp: CalculateResponse, perfil: Perfil) -> CalculateResponse:
     """Devolve a resposta filtrada para o perfil. 'completo' passa intacta."""
+    resp.perfil = perfil
     if perfil == "completo":
         return resp
 

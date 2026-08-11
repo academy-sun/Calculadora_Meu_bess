@@ -1,7 +1,24 @@
 import { supabase } from './supabase'
 
 const API_URL = (import.meta.env.VITE_API_URL as string) || '/api'
-const API_KEY = import.meta.env.VITE_API_KEY_PLOOMES as string
+
+/**
+ * Chave de API em uso.
+ *
+ * Vem do build (VITE_API_KEY_PLOOMES) para a calculadora interna, mas o embed
+ * do Ploomes a SUBSTITUI em tempo de execução com a chave que o script do
+ * campo enviar (ver definirApiKey / PloomesEmbedPage).
+ *
+ * O motivo é que o bundle é público: se as chaves de admin e de usuário final
+ * estivessem as duas no build, bastaria ler o JavaScript para pegar a de
+ * admin e obter o payload completo. Vindo do campo, cada uma existe só onde o
+ * Ploomes permite — e é o Ploomes que esconde o campo de admin dos demais.
+ */
+let apiKeyAtual = (import.meta.env.VITE_API_KEY_PLOOMES as string) || ''
+
+export function definirApiKey(chave: string): void {
+  if (chave) apiKeyAtual = chave
+}
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession()
@@ -15,7 +32,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 export async function apiGet<T>(path: string, useApiKey = false): Promise<T> {
   const headers = await getAuthHeaders()
-  if (useApiKey) headers['X-API-Key'] = API_KEY
+  if (useApiKey) headers['X-API-Key'] = apiKeyAtual
   const res = await fetch(`${API_URL}${path}`, { headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as { detail?: string }
@@ -26,7 +43,7 @@ export async function apiGet<T>(path: string, useApiKey = false): Promise<T> {
 
 export async function apiPost<T>(path: string, body: unknown, useApiKey = false): Promise<T> {
   const headers = await getAuthHeaders()
-  if (useApiKey) headers['X-API-Key'] = API_KEY
+  if (useApiKey) headers['X-API-Key'] = apiKeyAtual
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
     headers,

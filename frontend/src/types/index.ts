@@ -278,6 +278,14 @@ export interface KitInfo {
   capacidade_total_kwh: number
   potencia_total_kw: number
   preco_total: number
+  /** Frete deste kit e total com ele — calculados no servidor, na faixa de
+   *  preço correta de cada kit. No perfil restrito, `frete_valor` e
+   *  `preco_total` não vêm; só `total_com_frete`. */
+  frete_valor?: number
+  total_com_frete?: number
+  /** Fração da energia exigida que o kit cobre (1 = 100%). Abaixo de 1, a
+   *  aplicação na proposta pede confirmação. */
+  cobertura_energia?: number
   economia_mensal_rs?: number
   payback_anos?: number
   // dimensionamento (motor kit_builder R1–R9)
@@ -323,6 +331,10 @@ export interface SolarDimensionamento {
 
 export interface CalculateResponse {
   projeto_id?: string   // só existe depois que a cotação é salva (POST /projects)
+  /** Versão da resposta entregue pelo servidor: 'completo' | 'restrito'.
+   *  A tela renderiza pelo que o servidor diz ter mandado, não pela ausência
+   *  de campos. */
+  perfil?: string
   tipo_calculo: TipoCalculo
   origem: string
   negocio_id?: string

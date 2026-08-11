@@ -21,11 +21,14 @@ export const UF_NAMES: Record<string, string> = {
   RS:'Rio Grande do Sul', SC:'Santa Catarina', SE:'Sergipe', SP:'São Paulo', TO:'Tocantins',
 }
 
-export function FreightSection({ tipoFrete, onTipoFrete, ufEntrega, onUfEntrega }: {
+export function FreightSection({ tipoFrete, onTipoFrete, ufEntrega, onUfEntrega, somenteCif = false }: {
   tipoFrete: TipoFrete | null
   onTipoFrete: (t: TipoFrete) => void
   ufEntrega: string
   onUfEntrega: (v: string) => void
+  /** Esconde a opção FOB. O usuário final cota sempre CIF — deixar a escolha
+   *  visível abre espaço para uma proposta sair sem frete embutido. */
+  somenteCif?: boolean
 }) {
   const preenchido = tipoFrete === 'fob' || (tipoFrete === 'cif' && ufEntrega !== '')
   const badge = tipoFrete === 'fob'
@@ -56,10 +59,12 @@ export function FreightSection({ tipoFrete, onTipoFrete, ufEntrega, onUfEntrega 
         {/* Tipo de frete */}
         <div>
           <p className="mb-2 text-xs font-semibold text-ink/60">Tipo de Frete</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid gap-2 ${somenteCif ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {([
               { v: 'cif' as TipoFrete, label: 'CIF (Frete Incluso)', desc: 'Entregue no endereço do cliente' },
-              { v: 'fob' as TipoFrete, label: 'FOB (Retirada no CD)', desc: 'Cliente retira no armazém — taxa WEG→CD' },
+              ...(somenteCif ? [] : [
+                { v: 'fob' as TipoFrete, label: 'FOB (Retirada no CD)', desc: 'Cliente retira no armazém — taxa WEG→CD' },
+              ]),
             ]).map(o => (
               <button
                 key={o.v}
