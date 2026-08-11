@@ -104,6 +104,11 @@ class CalculateRequest(BaseModel):
 # ── Kit info ──────────────────────────────────────────────────────────────────
 
 class KitItem(BaseModel):
+    #: Id do produto na réplica. Sem ele o servidor não consegue
+    #: reprecificar um kit editado na tela — e no perfil restrito o preço
+    #: não trafega, então recalcular no cliente não é opção.
+    #: Vazio em item que não veio do catálogo (placeholder de JBW sem preço).
+    meubess_id: str = ""
     nome: str
     tipo: str
     qtd: int

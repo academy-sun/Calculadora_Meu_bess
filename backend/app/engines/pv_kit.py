@@ -202,6 +202,7 @@ def _cabo_mc4_items(qty_modulos: int, cabos: list, mc4s: list) -> list[dict]:
         cabo = min(cabos_v, key=_preco)
         for cor in ("Preto", "Vermelho"):
             itens.append({
+                "meubess_id": str(getattr(cabo, "meubess_id", "") or ""),
                 "nome": f"{_tit(cabo)} — {cor}", "tipo": "acessorio", "qtd": metros,
                 "preco_unitario": round(_preco(cabo), 2),
                 "preco_total": round(_preco(cabo) * metros, 2),
@@ -212,6 +213,7 @@ def _cabo_mc4_items(qty_modulos: int, cabos: list, mc4s: list) -> list[dict]:
     if mc4s_v and qty_mc4 > 0:
         mc4 = min(mc4s_v, key=_preco)
         itens.append({
+            "meubess_id": str(getattr(mc4, "meubess_id", "") or ""),
             "nome": _tit(mc4), "tipo": "acessorio", "qtd": qty_mc4,
             "preco_unitario": round(_preco(mc4), 2),
             "preco_total": round(_preco(mc4) * qty_mc4, 2),
@@ -242,6 +244,7 @@ def _structure_item(fixing_type: str | None, qty_modulos: int, estruturas: list)
     cap = eff_int(melhor, "fixing_capacity")
     qty = math.ceil(qty_modulos / cap)
     return {
+        "meubess_id": str(getattr(melhor, "meubess_id", "") or ""),
         "nome": _tit(melhor), "tipo": "acessorio", "qtd": qty,
         "preco_unitario": round(_preco(melhor), 2),
         "preco_total": round(_preco(melhor) * qty, 2),
@@ -258,6 +261,7 @@ def pv_accessory_itens(
 ) -> list[dict]:
     """Retorna [módulo item, cabos×2, mc4, estrutura] para a montagem FV."""
     itens: list[dict] = [{
+        "meubess_id": str(getattr(modulo.produto, "meubess_id", "") or ""),
         "nome": _tit(modulo.produto), "tipo": "modulo_fv", "qtd": qty_modulos,
         "preco_unitario": round(modulo.preco, 2),
         "preco_total": round(modulo.preco * qty_modulos, 2),
@@ -353,6 +357,7 @@ def _select_string_inverter_for(
     inv_best, qty_best = escolha
     power_kw = eff_float(inv_best, "power") or 0.0
     item = {
+        "meubess_id": str(getattr(inv_best, "meubess_id", "") or ""),
         "nome": _tit(inv_best), "tipo": "inversor_string", "qtd": qty_best,
         "preco_unitario": round(_preco(inv_best), 2),
         "preco_total": round(_preco(inv_best) * qty_best, 2),

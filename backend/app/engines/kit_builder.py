@@ -514,17 +514,20 @@ def _attrs_bateria(bat) -> tuple[dict, str | None]:
     return a, None
 
 
-def _jbw_preco(jbw_produtos: list | None, marca: str) -> tuple[float, str, bool]:
+def _jbw_preco(jbw_produtos: list | None, marca: str) -> tuple[float, str, bool, str]:
     """Preço real da caixa de junção no catálogo (mesma marca, senão a mais barata
-    disponível). Retorna (preco, nome, encontrado) — encontrado=False sinaliza que
-    não há JBW cadastrada e o preço 0.0 é um placeholder, não um valor real."""
+    disponível). Retorna (preco, nome, encontrado, meubess_id) — encontrado=False
+    sinaliza que não há JBW cadastrada e o preço 0.0 é um placeholder, não um
+    valor real. O id vai junto porque o item precisa ser reprecificável pelo
+    servidor quando o kit é editado na tela (ver calculate/reprecificar)."""
     if not jbw_produtos:
-        return 0.0, "Caixa de junção (JBW)", False
+        return 0.0, "Caixa de junção (JBW)", False, ""
     mesma_marca = [j for j in jbw_produtos if (eff(j, "marca") or "") == marca]
     candidatos = mesma_marca or jbw_produtos
     melhor = min(candidatos, key=lambda j: eff_float(j, "price") or eff_float(j, "preco") or float("inf"))
     preco = eff_float(melhor, "price") or eff_float(melhor, "preco") or 0.0
-    return preco, str(eff(melhor, "title") or "Caixa de junção (JBW)"), preco > 0
+    return (preco, str(eff(melhor, "title") or "Caixa de junção (JBW)"), preco > 0,
+            str(getattr(melhor, "meubess_id", "") or ""))
 
 
 def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn, jbw_produtos: list | None = None) -> KitBESS:
@@ -538,13 +541,15 @@ def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn, jb
     n_jbw = sum(1 for x in dist if x >= 2)
 
     itens = [
-        {"nome": titulo_fn(inv), "tipo": "inversor", "qtd": qtd_inv,
+        {"meubess_id": str(getattr(inv, "meubess_id", "") or ""),
+         "nome": titulo_fn(inv), "tipo": "inversor", "qtd": qtd_inv,
          "preco_unitario": round(ia["preco"], 2), "preco_total": round(ia["preco"] * qtd_inv, 2),
          "potencia_inversao_kw": round(ia["eps_nominal_kw"], 2),
          "potencia_pico_kw": round(ia["peak_power_kw"], 2),
          "corrente_entrada_a": round(ia["i_input_a"], 2),
          "entradas_bateria": ia["battery_inputs"]},
-        {"nome": titulo_fn(bat), "tipo": "bateria", "qtd": n,
+        {"meubess_id": str(getattr(bat, "meubess_id", "") or ""),
+         "nome": titulo_fn(bat), "tipo": "bateria", "qtd": n,
          "preco_unitario": round(ba["preco"], 2), "preco_total": round(ba["preco"] * n, 2),
          "energia_unit_kwh": round(ba["usable_kwh"], 2),
          "corrente_pico_a": round(ba["i_pico_a"], 2),
@@ -553,9 +558,9 @@ def _montar_kit(inv, bat, qtd_inv, n, ia, ba, n_entradas, alertas, titulo_fn, jb
     preco_jbw_total = 0.0
     if n_jbw > 0:
         marca = str(eff(inv, "marca") or eff(bat, "marca") or "")
-        preco_jbw, nome_jbw, jbw_encontrada = _jbw_preco(jbw_produtos, marca)
+        preco_jbw, nome_jbw, jbw_encontrada, id_jbw = _jbw_preco(jbw_produtos, marca)
         preco_jbw_total = preco_jbw * n_jbw
-        itens.append({"nome": nome_jbw, "tipo": "acessorio", "qtd": n_jbw,
+        itens.append({"meubess_id": id_jbw, "nome": nome_jbw, "tipo": "acessorio", "qtd": n_jbw,
                       "preco_unitario": round(preco_jbw, 2), "preco_total": round(preco_jbw_total, 2)})
         if not jbw_encontrada:
             alertas = [*alertas, "Caixa de junção (JBW) sem preço cadastrado no catálogo — orçamento incompleto"]

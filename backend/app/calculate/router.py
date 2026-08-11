@@ -2,10 +2,28 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import verify_api_key
+from pydantic import BaseModel
+
 from app.calculate import perfil as perfil_mod
+from app.calculate import reprecificar as reprecificar_mod
+from app.calculate.reprecificar import ReprecificarRequest, ReprecificarResponse
 from app.calculate.schemas import CalculateRequest, CalculateResponse
 from app.calculate.service import run_calculation
+from app.catalog import service as catalog_service
 from app.database import get_db
+
+
+class ProdutoParaKit(BaseModel):
+    """Produto do catálogo para o picker do embed.
+
+    `price` vem None no perfil restrito — a barreira é a mesma do
+    /calculate: o valor não sai do servidor, em vez de sair e a tela
+    esconder."""
+    meubess_id: str
+    title: str
+    marca: str
+    tipo: str
+    price: float | None = None
 
 router = APIRouter(tags=["calculate"])
 
@@ -27,3 +45,51 @@ async def calculate(
     """
     resp = await run_calculation(db, req)
     return perfil_mod.aplicar(resp, perfil_mod.resolver(api_key))
+
+
+@router.post("/calculate/reprecificar", response_model=ReprecificarResponse)
+async def reprecificar_kit(
+    req: ReprecificarRequest,
+    db: AsyncSession = Depends(get_db),
+    api_key: str = Depends(verify_api_key),
+):
+    """Totais de um kit editado na tela.
+
+    Existe porque o perfil restrito não recebe preço unitário (ver
+    calculate/perfil.py) e portanto não consegue somar nada no cliente. Recebe
+    id + quantidade, devolve os totais que o perfil permite ver.
+    """
+    resp = await reprecificar_mod.reprecificar(db, req)
+    if perfil_mod.resolver(api_key) == "restrito":
+        return reprecificar_mod.limpar_para_restrito(resp)
+    return resp
+
+
+@router.get("/calculate/produtos", response_model=list[ProdutoParaKit])
+async def produtos_para_kit(
+    q: str | None = None,
+    tipo: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    api_key: str = Depends(verify_api_key),
+):
+    """Catálogo ativo para acrescentar item ao kit, autenticado por API KEY.
+
+    O picker da calculadora interna usa GET /catalog/products, que exige JWT —
+    o embed não tem usuário logado, só chave. Daí este endpoint próprio, com a
+    mesma barreira de perfil: no restrito o preço não vem.
+    """
+    perfil = perfil_mod.resolver(api_key)
+    produtos = await catalog_service.list_products(
+        db, tipo=tipo, titulo=q, active=True, limit=400)
+    restrito = perfil == "restrito"
+    return [
+        ProdutoParaKit(
+            meubess_id=p.meubess_id,
+            title=str(p.title or ""),
+            marca=str(p.marca or ""),
+            tipo=str(p.tipo_manual or p.tipo_auto or ""),
+            price=None if restrito else (float(p.price) if p.price is not None else None),
+        )
+        for p in produtos
+        if p.price is not None and float(p.price) > 0
+    ]
