@@ -161,14 +161,16 @@ class TestR7Rede:
         assert any("trifásico em unidade monofásica" in a.lower() or "monofásica" in a
                    for a in kits[0].alertas)
 
-    def test_autotransformador_127_220_com_inversor_380(self):
-        kits, _ = build_kits(
+    def test_autotransformador_127_220_com_inversor_380_agora_bloqueia(self):
+        """Era alerta; virou bloqueio por decisão comercial (ver _bloqueio_rede)."""
+        kits, skipped = build_kits(
             [t030()], [cb100()],
             pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
             fase_instalacao="trifasico", padrao_entrada="tri_127_220",
         )
-        assert kits
-        assert any("autotransformador" in a.lower() for a in kits[0].alertas)
+        assert kits == []
+        assert any("autotransformador" in s.motivo.lower() for s in skipped), \
+            [s.motivo for s in skipped]
 
     def test_tri_em_unidade_tri_380_sem_alerta_de_rede(self):
         kits, _ = build_kits(
@@ -706,8 +708,45 @@ class TestAlertaDesequilibrioFases:
         a = _alertas_rede(self._mono(), "monofasico", "mono_220", qtd_inversores=2)
         assert not any("desequilibrada" in x for x in a), a
 
-    def test_autotransformador_continua_valendo_para_hibrido(self):
-        """Contraprova: o alerta de R7 que já existia não foi afetado."""
+    def test_alerta_de_unidade_monofasica_continua_valendo(self):
+        """Contraprova: o outro alerta de R7 não foi afetado pelo bloqueio."""
         from app.engines.kit_builder import _alertas_rede
-        a = _alertas_rede(t015(), "trifasico", "tri_127_220")
-        assert any("autotransformador" in x for x in a), a
+        a = _alertas_rede(t015(), "monofasico", "mono_220")
+        assert any("unidade monofásica" in x for x in a), a
+
+
+class TestBloqueioRede:
+    """R7 virou bloqueio para o caso do autotransformador.
+
+    Decisão comercial: a plataforma é usada por vendedores sem formação
+    técnica, e um alerta "requer autotransformador" passa batido.
+    """
+    def _run(self, inv, padrao):
+        return build_kits([inv], [cb100()], pn_kva=4.0, pp_kva=12.0,
+                          e_bat_kwh=10.0, fase_instalacao="trifasico",
+                          padrao_entrada=padrao)
+
+    def test_t015_380v_bloqueado_em_rede_127_220(self):
+        kits, skipped = self._run(t015(), "tri_127_220")
+        assert kits == []
+        assert any("autotransformador" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
+
+    def test_k017_selecionavel_passa_na_rede_127_220(self):
+        """Contraprova: a saída do K é selecionável 380/220 OU 220/127."""
+        kits, _ = self._run(k017(), "tri_127_220")
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+    def test_t015_continua_valendo_na_rede_220_380(self):
+        kits, _ = self._run(t015(), "tri_220_380")
+        assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+    def test_monofasico_nao_e_afetado(self):
+        kits, _ = build_kits([m050()], [cb100()], pn_kva=2.0, pp_kva=4.0,
+                             e_bat_kwh=10.0, padrao_entrada="tri_127_220")
+        assert [k.inversor.meubess_id for k in kits] == ["m050"]
+
+    def test_sem_padrao_de_entrada_nao_bloqueia(self):
+        """Sem o dado, não se inventa restrição."""
+        kits, _ = self._run(t015(), None)
+        assert [k.inversor.meubess_id for k in kits] == ["t015"]

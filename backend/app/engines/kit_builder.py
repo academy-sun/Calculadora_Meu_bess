@@ -203,6 +203,46 @@ def _inversor_e_trifasico(inv) -> bool:
     return (eff(inv, "phase") or "").strip().lower() == "trifasico"
 
 
+#: Tensão ENTRE FASES de cada padrão de entrada trifásico. É a tensão que um
+#: inversor trifásico precisa conseguir operar para se ligar direto na rede.
+TENSAO_LINHA_REDE = {"tri_127_220": "220", "tri_220_380": "380"}
+
+
+def _tensoes_rede_inversor(inv) -> set[str]:
+    """Tensões de linha em que o inversor consegue operar.
+
+    Vem da saída EPS (que nas linhas K é SELECIONÁVEL — '380/220;220/127' são
+    duas configurações) somada à tensão de conexão do cadastro. Um T015 dá
+    {'380'}; um K017 dá {'380','220'}, e é por isso que o K serve as duas redes
+    trifásicas e o T não.
+    """
+    tensoes = set(_tensoes_entre_fases(eff(inv, "eps_output_voltage")))
+    v = str(eff(inv, "voltage") or "").strip()
+    if v:
+        tensoes.add(v)
+    return tensoes
+
+
+def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
+    """R7 BLOQUEANTE: inversor trifásico que não opera na tensão da rede.
+
+    Um SIW400H T015 (380 V) numa rede trifásica 127/220 só funciona com
+    autotransformador. Isso era um alerta, e alerta é o que o vendedor sem
+    formação técnica não lê — decisão do time comercial de bloquear.
+
+    Não confundir com o K017/K008, cuja saída é selecionável entre 380/220 e
+    220/127: esses operam nas duas redes e continuam passando.
+    """
+    tensao_rede = TENSAO_LINHA_REDE.get(padrao_entrada or "")
+    if not tensao_rede or not _inversor_e_trifasico(inv):
+        return None
+    tensoes_inv = _tensoes_rede_inversor(inv)
+    if tensoes_inv and tensao_rede not in tensoes_inv:
+        return (f"inversor trifásico {'/'.join(sorted(tensoes_inv))} V não opera "
+                f"em rede {tensao_rede} V entre fases (exigiria autotransformador)")
+    return None
+
+
 def _alertas_rede(
     inv,
     fase_instalacao: str | None,
@@ -223,11 +263,10 @@ def _alertas_rede(
             "Inversor trifásico em unidade monofásica — requer aumento de carga / "
             "mudança do padrão de entrada junto à concessionária."
         )
-    if padrao_entrada == "tri_127_220" and inv_tri and "380" in eps:
-        alertas.append(
-            "Rede trifásica 127/220 V com inversor 380/220 V — requer autotransformador "
-            "de potência adequada."
-        )
+    # O caso "inversor 380 V em rede 127/220" saiu daqui e virou bloqueio
+    # (_bloqueio_rede): a plataforma é usada por vendedores sem formação
+    # técnica, e um alerta que exige autotransformador passa batido.
+    #
     # Monofásico em rede trifásica é conexão válida (fase-neutro) e costuma ser
     # mais barata que um trifásico equivalente — mas carrega uma fase por
     # inversor. Com 1 ou 2 unidades a geração fica desequilibrada entre as três.
@@ -452,6 +491,13 @@ def build_kits(
         ia, motivo = _attrs_inversor(inv)
         if motivo:
             skipped.append(_skip(inv, motivo))
+            continue
+
+        # R7 — inversor × rede da unidade (bloqueante desde a decisão comercial
+        # de não confiar em alerta para o caso do autotransformador)
+        motivo_rede = _bloqueio_rede(inv, padrao_entrada)
+        if motivo_rede:
+            skipped.append(_skip(inv, motivo_rede))
             continue
 
         # R8 — tensão de saída EPS × cargas (quando informado)

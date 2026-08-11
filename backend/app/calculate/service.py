@@ -12,7 +12,8 @@ from app.catalog.service import list_kit_products, list_pv_products, get_bess_co
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import (
-    _alertas_rede, build_kits, compativel_com_cargas, economic_undershoot_kit,
+    _alertas_rede, _bloqueio_rede, build_kits, compativel_com_cargas,
+    economic_undershoot_kit,
 )
 from app.engines.pv_kit import (
     build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
@@ -463,11 +464,14 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
         if tem_pv and kits:
             # O caminho combinado pode SUBSTITUIR o híbrido (caminho "scaled")
             # por um maior que absorva todo o FV. Sem filtrar antes, essa troca
-            # ignora a R8 e devolve inversor monofásico para carga trifásica.
+            # ignora a R8 e devolve inversor monofásico para carga trifásica —
+            # e ignora a R7, reintroduzindo o 380 V numa rede 127/220 que
+            # build_kits já tinha barrado.
             hibridos_compativeis = [
                 i for i in inversores
                 if compativel_com_cargas(
                     i, tensoes_carga, fases_carga, tensoes_entre_fases_carga)[0]
+                and not _bloqueio_rede(i, req.padrao_entrada)
             ]
             sugerido_opt, alt_opts = build_combined_pv_storage(
                 kits_storage=kits,
