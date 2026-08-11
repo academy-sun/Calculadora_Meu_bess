@@ -1,3 +1,4 @@
+import logging
 import traceback
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,14 @@ from app.projects.router import router as projects_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # O uvicorn configura os loggers DELE ('uvicorn', 'uvicorn.error'), não o
+    # root. Um logger nosso sem handler no root cai no handler de último
+    # recurso do Python, que só emite WARNING para cima — todo log.info() da
+    # aplicação some. Foi o que escondeu o resultado do sync automático.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
     tarefa = catalog_scheduler.iniciar(app)
     try:
         yield

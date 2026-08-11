@@ -129,6 +129,16 @@ class KitInfo(BaseModel):
     capacidade_total_kwh: float
     potencia_total_kw: float
     preco_total: float
+    #: Frete DESTE kit e o total com ele. O frete CIF é percentual sobre o
+    #: valor do kit, então cada alternativa tem o seu — comparar alternativas
+    #: pelo preço sem frete leva à conclusão errada quando a diferença de
+    #: preço entre elas é da ordem do frete.
+    frete_valor: Optional[float] = None
+    total_com_frete: Optional[float] = None
+    #: Fração da energia exigida que este kit cobre (1.0 = 100%). A alternativa
+    #: "mais econômica" é sub-dimensionada de propósito; sem este número não há
+    #: como avisar quem está aplicando o kit na proposta.
+    cobertura_energia: Optional[float] = None
     economia_mensal_rs: Optional[float] = None
     payback_anos: Optional[float] = None
     # dimensionamento (motor kit_builder R1–R9)
