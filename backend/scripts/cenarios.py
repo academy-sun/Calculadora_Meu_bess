@@ -54,12 +54,16 @@ CENARIOS = [
     ("mistura-127-220-exige-split", dict(
         cargas_backup=[CARGA_127, AR_MONO], tipo_instalacao="monofasico",
         padrao_entrada="mono_127", autonomia_dias=1)),
+    # Carga trifásica de 220 V pertence à rede 127/220, onde 220 V é a tensão
+    # ENTRE FASES. Numa rede 220/380 as fases dão 380 V — cenário que o
+    # engenheiro marcou como impossível na revisão da matriz. Estes três
+    # estavam declarados em 220/380 e eram inválidos.
     ("trifasico-pequeno", dict(
         cargas_backup=[AR_TRI], tipo_instalacao="trifasico",
-        padrao_entrada="tri_220_380", autonomia_dias=1)),
+        padrao_entrada="tri_127_220", autonomia_dias=1)),
     ("trifasico-com-bomba", dict(
         cargas_backup=[AR_TRI, BOMBA_TRI], tipo_instalacao="trifasico",
-        padrao_entrada="tri_220_380", autonomia_dias=1)),
+        padrao_entrada="tri_127_220", autonomia_dias=1)),
     ("trifasico-380v", dict(
         cargas_backup=[carga("Motor trifásico 380 V", 7500, ip_in=3.0, tdia=6,
                              tensao="380", fase="trifasico")],
@@ -88,7 +92,7 @@ CENARIOS = [
         tipo_instalacao="monofasico", padrao_entrada="mono_220", autonomia_dias=1)),
     ("combinado-tri-15kwp", dict(
         cargas_backup=[AR_TRI], powerpeak_kwp=15.0,
-        tipo_instalacao="trifasico", padrao_entrada="tri_220_380", autonomia_dias=1)),
+        tipo_instalacao="trifasico", padrao_entrada="tri_127_220", autonomia_dias=1)),
     ("frete-cif-acre", dict(
         cargas_backup=[AR_MONO], tipo_instalacao="monofasico",
         padrao_entrada="mono_220", autonomia_dias=1,
