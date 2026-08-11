@@ -915,12 +915,17 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       writeField(FIELD_KEYS.kit_descricao, d.kit_descricao, false, FIELD_LABELS.kit_descricao);
       // Valor do kit e do frete SEPARADOS só no campo de admin. É o que impede
       // o usuário final de segmentar o total. Dupla proteção de propósito: no
-      // modo restrito o backend já manda null nos dois, e aqui nem se tenta
-      // escrever — se um dia alguém trocar só um dos lados, o outro segura.
-      if (!RESTRITO) {
-        writeField(FIELD_KEYS.kit_valor, d.kit_preco_str || d.kit_preco, false, FIELD_LABELS.kit_valor);
-        writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor, false, FIELD_LABELS.frete_valor);
-      }
+      // modo restrito o backend já manda null nos dois, e aqui não se escreve
+      // valor — se um dia alguém trocar só um dos lados, o outro segura.
+      //
+      // No modo restrito ESVAZIA em vez de pular. Pular deixaria o valor de
+      // uma aplicação anterior parado no campo enquanto o total atualiza: a
+      // proposta ficaria com um kit_valor que não bate com o total_geral, que
+      // é justamente o problema do "reaplicar" resolvido na v4.
+      writeField(FIELD_KEYS.kit_valor,
+        RESTRITO ? '' : (d.kit_preco_str || d.kit_preco), false, FIELD_LABELS.kit_valor);
+      writeField(FIELD_KEYS.frete_valor,
+        RESTRITO ? '' : (d.frete_valor_str || d.frete_valor), false, FIELD_LABELS.frete_valor);
       writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao, false, FIELD_LABELS.frete_modalidade);
       writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral, false, FIELD_LABELS.total_geral);
       // multilinha (TinyMCE): recebe a tabela em HTML

@@ -42,6 +42,12 @@ function chaves(script: string): Record<string, string> {
 const SCRIPT = extrairScript()
 const KEYS = chaves(SCRIPT)
 
+/** Campos que no Ploomes sao editores ricos montados sobre um <textarea>.
+ *  Escrever no textarea nao muda a tela quando ha TinyMCE — foi o bug do
+ *  "Itens do Kit vazio" (v7). Sem TinyMCE, o script cai no textarea, que e o
+ *  caminho que este teste exercita. */
+const MULTILINHA = new Set(['itens_kit', 'tabela_cargas'])
+
 /** Payload equivalente ao que o embed manda no perfil COMPLETO. */
 const RESULTADO_COMPLETO = {
   type: 'meubess:saved',
@@ -101,7 +107,9 @@ function cenario(modo: 'completo' | 'restrito') {
       <div id="mb-diag" style="display:none"></div>
       <iframe id="mb-iframe"></iframe>
     </div>
-    ${Object.values(KEYS).map(k => `<input name="${k}" />`).join('')}
+    ${Object.entries(KEYS).map(([nome, k]) => MULTILINHA.has(nome)
+      ? `<textarea name="${k}"></textarea>`
+      : `<input name="${k}" />`).join('')}
   </body></html>`)
   const { window: w } = dom
   const fonte = SCRIPT
@@ -119,7 +127,8 @@ function cenario(modo: 'completo' | 'restrito') {
       w.dispatchEvent(new w.MessageEvent('message', { data: d }))
     },
     valor(nome: string): string {
-      const el = w.document.querySelector(`input[name="${KEYS[nome]}"]`) as HTMLInputElement | null
+      const el = w.document.querySelector(
+        `[name="${KEYS[nome]}"]`) as HTMLInputElement | HTMLTextAreaElement | null
       if (!el) throw new Error(`campo ${nome} não montado no DOM de teste`)
       return el.value
     },
@@ -196,5 +205,58 @@ describe('bridge do Ploomes — campos escritos por modo', () => {
       expect(c.valor('frete_valor')).toBe('')
       expect(c.valor('total_geral')).toBe('33889,37')
     })
+  })
+})
+
+/**
+ * Os tres casos que custaram caro para funcionar em campo. Nenhum tinha
+ * teste — a v11 mexeu no script e precisa provar que nao os regrediu.
+ */
+describe('bridge do Ploomes — comportamentos conquistados a duras penas', () => {
+  it('campo multilinha recebe o HTML da tabela, nao o texto puro', () => {
+    // v7: o campo e um TinyMCE sobre um <textarea>. Escrever texto puro onde
+    // a tabela deveria ir foi o "Itens do Kit vazio".
+    const c = cenario('completo')
+    c.aplicar(RESULTADO_COMPLETO)
+    expect(c.valor('itens_kit')).toBe(RESULTADO_COMPLETO.itens_html)
+    expect(c.valor('tabela_cargas')).toBe(RESULTADO_COMPLETO.cargas_html)
+  })
+
+  it('multilinha tambem e preenchido no modo restrito', () => {
+    const c = cenario('restrito')
+    c.aplicar(RESULTADO_RESTRITO)
+    expect(c.valor('itens_kit')).toBe(RESULTADO_COMPLETO.itens_html)
+    expect(c.valor('tabela_cargas')).toBe(RESULTADO_COMPLETO.cargas_html)
+  })
+
+  it('reaplicar substitui os valores anteriores, nao acumula', () => {
+    // v4: reaplicar so atualizava a descricao. O consultor mudava um
+    // parametro, aplicava de novo, e a proposta ficava com numero velho.
+    const c = cenario('completo')
+    c.aplicar(RESULTADO_COMPLETO)
+    c.aplicar({
+      ...RESULTADO_COMPLETO,
+      kit_descricao: 'WEG - SIW400H T030 + 5x CB100',
+      kit_preco_str: '80476,76',
+      total_geral_str: '88376,76',
+      energia_total_kwh_str: '50,35',
+      itens_html: '<table><tr><td>5x</td><td>CB100</td></tr></table>',
+    })
+    expect(c.valor('kit_descricao')).toBe('WEG - SIW400H T030 + 5x CB100')
+    expect(c.valor('kit_valor')).toBe('80476,76')
+    expect(c.valor('total_geral')).toBe('88376,76')
+    expect(c.valor('energia_total')).toBe('50.35')
+    expect(c.valor('itens_kit')).toBe('<table><tr><td>5x</td><td>CB100</td></tr></table>')
+  })
+
+  it('no modo restrito, aplicar ESVAZIA valor de kit e frete', () => {
+    // Pular a escrita deixaria o valor de uma aplicacao anterior parado no
+    // campo enquanto o total atualiza — proposta com segmentacao que nao bate
+    // com o total. Esvaziar mantem coerente e nao revela nada.
+    const c = cenario('restrito')
+    c.aplicar(RESULTADO_COMPLETO)
+    expect(c.valor('kit_valor')).toBe('')
+    expect(c.valor('frete_valor')).toBe('')
+    expect(c.valor('total_geral')).toBe('33889,37')
   })
 })
