@@ -52,6 +52,10 @@ async def _rodar_uma_vez() -> None:
             return
         try:
             resumo = await sync_all_products(db)
+            # `synced` traz uma linha por produto — 700 dicionários, ~80 KB por
+            # execução no log do Railway. Para acompanhamento periódico o que
+            # importa é o agregado; o detalhe continua no POST /catalog/sync.
+            resumo = {k: v for k, v in resumo.items() if k not in ("synced", "errors")}
             ultimo_resultado = {
                 "estado": "ok",
                 "em": inicio.isoformat(),
@@ -59,7 +63,7 @@ async def _rodar_uma_vez() -> None:
                     (datetime.now(timezone.utc) - inicio).total_seconds(), 1),
                 **resumo,
             }
-            print(f"[sync] catálogo atualizado: {resumo}")
+            print(f"[sync] catálogo atualizado: {ultimo_resultado}")
         finally:
             await db.execute(text("select pg_advisory_unlock(:k)"), {"k": _LOCK_ID})
             await db.commit()

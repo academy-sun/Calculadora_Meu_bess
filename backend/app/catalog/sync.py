@@ -475,8 +475,14 @@ async def sync_all_products(db: AsyncSession) -> dict:
         for product in products:
             await _process_product(db, product, result)
 
+    # Produto novo chega da plataforma sempre ativo, sem decisão nossa. Sem
+    # este passo o catálogo se repovoa a cada sync: na primeira execução
+    # automática entraram 13 produtos que a curadoria já tinha excluído.
+    from app.catalog.curadoria import aplicar_curadoria
+    curados = await aplicar_curadoria(db)
+
     await db.commit()
-    return result.to_dict()
+    return {**result.to_dict(), "desativados_pela_politica": curados}
 
 
 async def preview_raw_products(limit: int = 5) -> list[dict]:
