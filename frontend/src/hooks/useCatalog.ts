@@ -15,10 +15,13 @@ function buildQuery(filters: ProductFilters): string {
   return qs ? `?${qs}` : ''
 }
 
-export function useProducts(filters: ProductFilters = {}) {
+export function useProducts(filters: ProductFilters = {}, enabled = true) {
   return useQuery({
     queryKey: ['catalog', 'products', filters],
     queryFn: () => apiGet<MeuBESSProduct[]>(`/catalog/products${buildQuery(filters)}`),
+    // O embed não tem JWT: sem isto o picker dispararia um 401 a cada
+    // abertura, só para descartar o resultado.
+    enabled,
   })
 }
 

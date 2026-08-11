@@ -300,6 +300,10 @@ export interface KitInfo {
 }
 
 export interface KitItem {
+  /** Id do produto na réplica. O servidor usa para reprecificar o kit
+   *  editado — no perfil restrito o preço não chega aqui, então somar no
+   *  cliente não é opção. Vazio em item que não veio do catálogo. */
+  meubess_id?: string
   nome: string
   tipo: string
   qtd: number

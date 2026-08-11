@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { X, Search, SlidersHorizontal } from 'lucide-react'
 import { useProducts } from '@/hooks/useCatalog'
+import { buscarProdutosParaKit } from '@/lib/kitEdicao'
+import type { ProdutoParaKit } from '@/lib/kitEdicao'
 import type { KitItem, MeuBESSProduct, ProductFilters, TipoProduto } from '@/types'
 
 const TIPOS: { value: TipoProduto | ''; label: string }[] = [
@@ -12,8 +14,21 @@ const TIPOS: { value: TipoProduto | ''; label: string }[] = [
   { value: 'acessorio', label: 'Acessório' },
 ]
 
+interface ProductPickerProps {
+  onAdd: (item: KitItem) => void
+  onClose: () => void
+  /** Embed: busca por API key em vez de JWT. O picker padrão usa
+   *  GET /catalog/products, que exige usuário logado — no embed só existe
+   *  chave, e é por isso que 'Adicionar item' não funcionaria lá nem com o
+   *  editable ligado. */
+  porApiKey?: boolean
+  /** Perfil restrito: sem coluna de preço. O valor já vem null do servidor
+   *  (ver ProdutoParaKit) — isto aqui é só não deixar buraco na linha. */
+  ocultarPreco?: boolean
+}
+
 /** Dialog para adicionar um produto ao kit, com os mesmos filtros do catálogo (backend). */
-export function ProductPicker({ onAdd, onClose }: { onAdd: (item: KitItem) => void; onClose: () => void }) {
+export function ProductPicker({ onAdd, onClose, porApiKey = false, ocultarPreco = false }: ProductPickerProps) {
   const [titulo, setTitulo] = useState('')
   const [tipo, setTipo] = useState<TipoProduto | ''>('')
   const [marca, setMarca] = useState('')
@@ -38,14 +53,52 @@ export function ProductPicker({ onAdd, onClose }: { onAdd: (item: KitItem) => vo
     return () => clearTimeout(t)
   }, [titulo, tipo, marca, potenciaMin, potenciaMax, somenteAtivos])
 
-  const { data: produtos = [], isLoading } = useProducts(filters)
-  const listados = produtos.filter(p => (p.price ?? 0) > 0)
+  // Duas fontes. O hook por JWT continua servindo a calculadora interna; o
+  // embed usa o endpoint por chave, que devolve menos campos de propósito.
+  const { data: viaJwt = [], isLoading: carregandoJwt } = useProducts(filters, !porApiKey)
+  const [viaChave, setViaChave] = useState<ProdutoParaKit[]>([])
+  const [carregandoChave, setCarregandoChave] = useState(false)
+  useEffect(() => {
+    if (!porApiKey) return
+    let vivo = true
+    setCarregandoChave(true)
+    buscarProdutosParaKit(filters.titulo ?? '', filters.tipo ?? '')
+      .then(r => { if (vivo) setViaChave(r) })
+      .catch(() => { if (vivo) setViaChave([]) })
+      .finally(() => { if (vivo) setCarregandoChave(false) })
+    return () => { vivo = false }
+  }, [porApiKey, filters.titulo, filters.tipo])
 
-  function add(p: MeuBESSProduct) {
+  const isLoading = porApiKey ? carregandoChave : carregandoJwt
+  const listados: Array<{ meubess_id: string; title: string; marca: string; tipo: string; price: number | null; bruto?: MeuBESSProduct }> =
+    porApiKey
+      ? viaChave.map(p => ({ ...p }))
+      : viaJwt.filter(p => (p.price ?? 0) > 0).map(p => ({
+          meubess_id: p.meubess_id,
+          title: p.title ?? p.meubess_id,
+          marca: p.marca ?? '',
+          tipo: (p.tipo_manual ?? p.tipo_auto ?? '') as string,
+          price: p.price ?? 0,
+          bruto: p,
+        }))
+
+  function add(linha: { meubess_id: string; title: string; tipo: string; price: number | null; bruto?: MeuBESSProduct }) {
+    const p = linha.bruto
+    // Sem `bruto` (embed por API key) o item vai mínimo: id, nome e
+    // quantidade. Os atributos de engenharia e o preço voltam do
+    // /calculate/reprecificar, que lê do catálogo — é o mesmo caminho que
+    // mantém o preço fora do navegador no perfil restrito.
+    if (!p) {
+      onAdd({ meubess_id: linha.meubess_id, nome: linha.title, tipo: linha.tipo,
+              qtd: 1, preco_unitario: 0, preco_total: 0 })
+      onClose()
+      return
+    }
     const preco = p.price ?? 0
     const tipoEfetivo = (p.tipo_manual ?? p.tipo_auto ?? 'item') as string
     const isBateria = tipoEfetivo === 'bateria'
     onAdd({
+      meubess_id: p.meubess_id,
       nome: p.title ?? p.meubess_id,
       tipo: tipoEfetivo,
       qtd: 1,
@@ -131,11 +184,13 @@ export function ProductPicker({ onAdd, onClose }: { onAdd: (item: KitItem) => vo
               className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-paper">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{p.title}</p>
-                <p className="text-xs text-ink/40">{p.marca} · {p.tipo_manual ?? p.tipo_auto}</p>
+                <p className="text-xs text-ink/40">{p.marca} · {p.tipo}</p>
               </div>
-              <span className="shrink-0 font-mono text-sm tabular-nums text-ink/70">
-                {(p.price ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
+              {!ocultarPreco && (
+                <span className="shrink-0 font-mono text-sm tabular-nums text-ink/70">
+                  {(p.price ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              )}
             </button>
           ))}
         </div>

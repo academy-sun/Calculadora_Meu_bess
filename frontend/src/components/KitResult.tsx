@@ -28,14 +28,27 @@ interface KitResultProps {
    *  Some preço unitário, subtotal por item, total do kit isolado, linha de
    *  frete (com o percentual da UF) e custo dos módulos. */
   ocultarValores?: boolean
+  /** Total (kit + frete) vindo do servidor depois de uma edição. No perfil
+   *  restrito o preço unitário não chega aqui, então somar no cliente é
+   *  impossível — quem soma é /calculate/reprecificar. */
+  totalComFreteServidor?: number | null
+  /** Uma reprecificação está em voo: o total mostrado é o anterior. */
+  recalculando?: boolean
+  /** Embed: o picker busca por API key em vez de JWT. */
+  pickerPorApiKey?: boolean
 }
 
 export function KitResult({
   kit, itens, onItensChange, titulo, subtitulo, energiaNecessariaKwh, kwpInstalado, solar,
   frete, editable = true, collapsible = false, defaultOpen = true, onEscolher, escolhendo,
   escolherLabel = 'Escolher este kit',
-  ocultarValores = false,
+  ocultarValores = false, totalComFreteServidor = null, recalculando = false,
+  pickerPorApiKey = false,
 }: KitResultProps) {
+  // Quantidade, remover e adicionar seguem `editable`. Editar PREÇO exige
+  // também ver preço: no perfil restrito o valor nem chega ao navegador, e
+  // um campo editável ali mostraria 0,00 e gravaria 0,00 no kit.
+  const editarPreco = editable && !ocultarValores
   const [showPicker, setShowPicker] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
 
@@ -97,7 +110,7 @@ export function KitResult({
                 </td>
                 {!ocultarValores && (
                 <td className="px-4 py-3 text-right">
-                  {editable ? (
+                  {editarPreco ? (
                     <input type="number" step="any" min={0} value={it.preco_unitario}
                       onChange={e => patch(i, { preco_unitario: parseFloat(e.target.value) || 0 })}
                       className="w-28 rounded-lg border border-ink/15 bg-paper/50 px-2 py-1 text-right font-mono text-sm tabular-nums focus:border-primary focus:outline-none" />
@@ -141,7 +154,11 @@ export function KitResult({
               <tr className="border-t-2 border-ink/15 bg-primary/[0.04]">
                 <td colSpan={2} className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-ink/70">Total geral (kit + frete)</td>
                 <td className="px-4 py-3 text-right font-mono text-lg font-bold tabular-nums text-primary">
-                  {kit.total_com_frete != null ? brl(kit.total_com_frete) : '—'}
+                  {recalculando
+                    ? <span className="text-sm font-medium text-ink/40">recalculando…</span>
+                    : (totalComFreteServidor ?? kit.total_com_frete) != null
+                      ? brl((totalComFreteServidor ?? kit.total_com_frete)!)
+                      : '—'}
                 </td>
               </tr>
             )}
@@ -203,7 +220,10 @@ export function KitResult({
         </div>
       )}
 
-      {showPicker && <ProductPicker onAdd={addItem} onClose={() => setShowPicker(false)} />}
+      {showPicker && (
+        <ProductPicker onAdd={addItem} onClose={() => setShowPicker(false)}
+          porApiKey={pickerPorApiKey} ocultarPreco={ocultarValores} />
+      )}
     </>
   )
 
