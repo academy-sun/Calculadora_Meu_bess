@@ -278,7 +278,11 @@ export function PloomesEmbedPage() {
 
   const freteOk = tipoFrete === 'fob' || (tipoFrete === 'cif' && ufEntrega !== '')
   const temDados = parseFloat(kwp) > 0 || rows.length > 0
-  const podeCalcular = freteOk && temDados
+  // Falha FECHADA: sem a chave do campo, a página cairia na chave embutida no
+  // build — que é a completa. Um campo de usuário final com script
+  // desatualizado passaria a receber o payload inteiro sem ninguém perceber.
+  // Melhor não calcular e dizer por quê.
+  const podeCalcular = freteOk && temDados && configRecebida
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 bg-paper p-4">
@@ -416,7 +420,16 @@ export function PloomesEmbedPage() {
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
-      {!podeCalcular && (
+      {!configRecebida && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <b>Campo desconfigurado.</b> O script do campo desenvolvedor não
+          enviou a chave de acesso — atualize-o para a versão 11
+          (<code>docs/ploomes-bridge-script.md</code>). Sem ela o cálculo fica
+          bloqueado, para não devolver dados de um perfil que não é o deste
+          campo.
+        </p>
+      )}
+      {configRecebida && !podeCalcular && (
         <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
           {!temDados && 'Informe a potência FV ou adicione cargas de backup. '}
           {!freteOk && 'Preencha a seção Localização e Frete.'}

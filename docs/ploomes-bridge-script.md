@@ -1,7 +1,55 @@
-# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v10)
+# Script do campo desenvolvedor "MeuBESS BESS — Calculadora" (v11)
 
-Cole o conteúdo abaixo no campo desenvolvedor `MeuBESS BESS — Calculadora`
-(`quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294`), substituindo a versão anterior.
+## Mudanças da v11 (2026-08-11) — dois campos, um script
+
+O mesmo script serve os DOIS campos do Ploomes. Muda só o bloco `CONFIG` no
+topo:
+
+```js
+var CONFIG = {
+  apiKey: '<a chave do campo>',
+  modo: 'restrito',        // ou 'completo'
+};
+```
+
+| | campo de admin | campo do usuário final |
+|---|---|---|
+| `modo` | `'completo'` | `'restrito'` |
+| `apiKey` | `API_KEY_EMBED` | `API_KEY_EMBED_RESTRITO` |
+| campos escritos | 18 | 16 (sem `kit_valor` e `frete_valor`) |
+| painel de conferência | sim | não |
+| frete | CIF e FOB | só CIF |
+| valores na tela | todos | só o total (kit + frete) |
+
+**O `modo` é cosmético; quem separa os dados é a `apiKey`.** O servidor decide
+o que devolver pela chave que assinou a requisição (`backend/app/calculate/
+perfil.py`). Trocar `'restrito'` por `'completo'` no campo do usuário final
+não dá acesso a nada: sem a chave de admin, a resposta continua sem preço
+unitário, sem preço de kit isolado e sem frete detalhado. Por isso o campo de
+admin precisa estar **escondido por perfil no Ploomes** — é o que impede o
+usuário final de ler a chave de admin.
+
+Por que uma cópia só: duas versões de ~600 linhas divergem no primeiro ajuste
+que alguém fizer em uma e esquecer na outra.
+
+### Ordem das mensagens
+
+```
+iframe → 'meubess:ready'
+bridge → 'ploomes:config'  { apiKey, modo }   ← antes de tudo
+bridge → 'ploomes:context' { kwp, cidade, estrutura }
+```
+
+A configuração vai primeiro por um motivo concreto: até ela chegar, o iframe
+usaria a chave embutida no build e receberia o payload completo.
+
+Cole o conteúdo do bloco **Script** (mais abaixo) nos dois campos
+desenvolvedor, ajustando o `CONFIG` de cada um:
+
+| campo | key |
+|---|---|
+| MeuBESS BESS — Calculadora (admin) | `quote_15BBB0B5-5B33-4C28-BB87-AC7EBD45A294` |
+| MeuBESS BESS — Calculadora | *a criar* |
 
 ## Mudanças da v10 (2026-08-06)
 
@@ -272,7 +320,29 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
 <script>
 (function () {
+  // ─────────────────────────────────────────────────────────────────────────
+  //  CONFIGURAÇÃO — é SÓ ISTO que muda entre o campo de admin e o do usuário
+  //  final. O resto do script é idêntico nos dois, de propósito: duas cópias
+  //  de 600 linhas divergem com o tempo, uma com dois cabeçalhos não.
+  //
+  //  modo 'completo' → campo de admin. Escreve os 18 campos, mostra o painel
+  //                    de conferência, permite FOB.
+  //  modo 'restrito' → campo do usuário final. Escreve 16 campos (sem valor
+  //                    do kit e sem valor do frete), sem painel de
+  //                    conferência, só CIF.
+  //
+  //  A apiKey NÃO é decoração: é ela que o servidor usa para decidir o que
+  //  devolve. Com a chave restrita, os valores unitários nem saem do backend.
+  //  Trocar 'restrito' por 'completo' aqui não dá acesso a nada — sem a chave
+  //  de admin a resposta continua filtrada.
+  // ─────────────────────────────────────────────────────────────────────────
+  var CONFIG = {
+    apiKey: 'COLE_AQUI_A_CHAVE',
+    modo: 'restrito',
+  };
+
   var EMBED_BASE = 'https://calculadora-meu-bess.vercel.app/embed/ploomes';
+  var RESTRITO = CONFIG.modo === 'restrito';
 
   var FIELD_KEYS = {
     // ENTRADA — texto primeiro (TypeId 1, o input entrega o valor direto);
@@ -648,6 +718,9 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   }
 
   function mostrarDiagnostico(ctx) {
+    // O painel existe para depurar o de:para dos campos do CRM. Para quem só
+    // usa a ferramenta é ruído, e expõe o DOM cru da proposta.
+    if (RESTRITO) return;
     var diag = document.getElementById('mb-diag');
     diag.style.display = 'block';
     var linhas = [
@@ -760,6 +833,7 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   // nenhum no console; sem esta conferência não dá para saber se o problema é
   // a escrita, o elemento encontrado ou o próprio Ploomes descartando o valor.
   function conferirEscrita(d) {
+    if (RESTRITO) return;
     var esperado = {
       kit_descricao: d.kit_descricao,
       kit_valor: d.kit_preco_str || d.kit_preco,
@@ -826,6 +900,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     if (!d || typeof d !== 'object') return;
 
     if (d.type === 'meubess:ready') {
+      // A chave PRIMEIRO: sem ela o iframe usaria a do build e receberia o
+      // payload completo mesmo no campo do usuário final.
+      document.getElementById('mb-iframe').contentWindow.postMessage({
+        type: 'ploomes:config', apiKey: CONFIG.apiKey, modo: CONFIG.modo,
+      }, '*');
       // iframe montou — envia o contexto automaticamente
       puxarValores();
       return;
@@ -834,8 +913,19 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     if (d.type === 'meubess:saved') {
       log('resultado recebido', d);
       writeField(FIELD_KEYS.kit_descricao, d.kit_descricao, false, FIELD_LABELS.kit_descricao);
-      writeField(FIELD_KEYS.kit_valor, d.kit_preco_str || d.kit_preco, false, FIELD_LABELS.kit_valor);
-      writeField(FIELD_KEYS.frete_valor, d.frete_valor_str || d.frete_valor, false, FIELD_LABELS.frete_valor);
+      // Valor do kit e do frete SEPARADOS só no campo de admin. É o que impede
+      // o usuário final de segmentar o total. Dupla proteção de propósito: no
+      // modo restrito o backend já manda null nos dois, e aqui não se escreve
+      // valor — se um dia alguém trocar só um dos lados, o outro segura.
+      //
+      // No modo restrito ESVAZIA em vez de pular. Pular deixaria o valor de
+      // uma aplicação anterior parado no campo enquanto o total atualiza: a
+      // proposta ficaria com um kit_valor que não bate com o total_geral, que
+      // é justamente o problema do "reaplicar" resolvido na v4.
+      writeField(FIELD_KEYS.kit_valor,
+        RESTRITO ? '' : (d.kit_preco_str || d.kit_preco), false, FIELD_LABELS.kit_valor);
+      writeField(FIELD_KEYS.frete_valor,
+        RESTRITO ? '' : (d.frete_valor_str || d.frete_valor), false, FIELD_LABELS.frete_valor);
       writeField(FIELD_KEYS.frete_modalidade, d.frete_descricao, false, FIELD_LABELS.frete_modalidade);
       writeField(FIELD_KEYS.total_geral, d.total_geral_str || d.total_geral, false, FIELD_LABELS.total_geral);
       // multilinha (TinyMCE): recebe a tabela em HTML
@@ -880,6 +970,10 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   // passagem de dados de ponta a ponta (catálogo completo, sem filtro por
   // view). Antes de ir para produção multi-conta, trocar para perfil por
   // API key no backend (ver "Modelo multi-conta" no topo do doc).
+  if (RESTRITO) {
+    var d0 = document.getElementById('mb-diag');
+    if (d0) d0.parentNode.removeChild(d0);
+  }
   document.getElementById('mb-pull').addEventListener('click', puxarValores);
   document.getElementById('mb-iframe').src = EMBED_BASE + '?perfil=admin';
 })();
