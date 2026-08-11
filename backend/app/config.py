@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     meubess_api_key: str = ""
     meubess_api_url: str = "https://plataforma.meubess.com.br/api/v1"
 
+    # Sync periódico do catálogo (preços). 3600 = de hora em hora.
+    # 0 ou negativo desliga o agendador — usado nos testes e em dev, onde não
+    # se quer bater na plataforma a cada execução.
+    sync_intervalo_segundos: int = 3600
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

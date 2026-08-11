@@ -78,7 +78,11 @@ async def list_products(
     if potencia_max is not None:
         stmt = stmt.where(MeuBESSProduct.power <= potencia_max)
     if active is not None:
-        stmt = stmt.where(MeuBESSProduct.active == active)
+        # Efetivo = decisão nossa quando existe, senão o `active` da MeuBESS.
+        # O `active` cru é sobrescrito a cada sync, então filtrar por ele
+        # sozinho faria produtos desativados voltarem sozinhos em uma hora.
+        ativo_efetivo = func.coalesce(MeuBESSProduct.ativo_manual, MeuBESSProduct.active)
+        stmt = stmt.where(ativo_efetivo == active)
     if synced_from is not None:
         stmt = stmt.where(MeuBESSProduct.last_synced_at >= synced_from)
     if synced_to is not None:

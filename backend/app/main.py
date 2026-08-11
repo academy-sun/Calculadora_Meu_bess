@@ -1,4 +1,5 @@
 import traceback
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -6,11 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import router as admin_users_router
 from app.calculate.router import router as calculate_router
+from app.catalog import scheduler as catalog_scheduler
 from app.catalog.router import router as catalog_router
 from app.ploomes.router import router as ploomes_router
 from app.projects.router import router as projects_router
 
-app = FastAPI(title="MeuBess API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tarefa = catalog_scheduler.iniciar(app)
+    try:
+        yield
+    finally:
+        if tarefa:
+            tarefa.cancel()
+
+
+app = FastAPI(title="MeuBess API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

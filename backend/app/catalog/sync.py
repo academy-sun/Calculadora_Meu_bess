@@ -276,6 +276,7 @@ def _map_to_raw(product: dict) -> dict:
 _PRESERVE_ON_CONFLICT = {
     "first_seen_at",
     "tipo_manual",
+    "ativo_manual",
     "overrides_tecnicos",
     "validado_por",
     "validado_em",

@@ -165,6 +165,11 @@ class MeuBESSProduct(Base):
 
     # ── override manual (preservado no upsert) ──────────────────────────────
     tipo_manual: Mapped[str | None] = mapped_column(Text)
+    #: Desativa o produto para o motor sem depender do `active` da MeuBESS,
+    #: que o sync sobrescreve a cada hora. None = segue o `active` da
+    #: plataforma; False = fora do motor por decisão nossa. Mesmo padrão de
+    #: tipo_manual sobre tipo_auto.
+    ativo_manual: Mapped[bool | None] = mapped_column(Boolean)
     overrides_tecnicos: Mapped[Any | None] = mapped_column(JSONB)
     validado_por: Mapped[str | None] = mapped_column(Text)
     validado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

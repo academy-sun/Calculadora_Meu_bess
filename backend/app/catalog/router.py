@@ -37,11 +37,16 @@ async def sync_preview(
 async def sync_status(_=Depends(require_admin)) -> dict:
     """Admin-only: check sync configuration without making external requests."""
     from app.config import settings
+    from app.catalog import scheduler
     key = settings.meubess_api_key
     return {
         "api_key_configured": bool(key),
         "api_key_preview": f"{key[:8]}…" if key else None,
         "api_url": settings.meubess_api_url,
+        # Sem isto, saber se o sync automático rodou exigiria abrir o log do
+        # Railway — e um sync que parou de rodar é silencioso por natureza.
+        "agendador_intervalo_s": settings.sync_intervalo_segundos,
+        "ultimo_sync_automatico": scheduler.ultimo_resultado,
     }
 
 
