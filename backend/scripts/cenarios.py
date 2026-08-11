@@ -51,8 +51,17 @@ CENARIOS = [
     ("mono-2-dias-autonomia", dict(
         cargas_backup=[GELADEIRA, AR_MONO], tipo_instalacao="monofasico",
         padrao_entrada="mono_220", autonomia_dias=2)),
+    # Mistura 127 + 220 V só existe onde as duas tensões existem: a rede
+    # trifásica 127/220. Estava declarada em mono_127, onde o 220 V não existe
+    # — e onde, além disso, nenhum inversor monofásico do catálogo se conecta.
     ("mistura-127-220-exige-split", dict(
-        cargas_backup=[CARGA_127, AR_MONO], tipo_instalacao="monofasico",
+        cargas_backup=[CARGA_127, AR_MONO], tipo_instalacao="trifasico",
+        padrao_entrada="tri_127_220", autonomia_dias=1)),
+    # Padrão de entrada monofásico 127 V: nenhum inversor do catálogo se
+    # conecta (todos os monofásicos entram em 220 V). Cenário mantido de
+    # propósito para a tabela mostrar a recusa, com o motivo.
+    ("mono-127-sem-inversor-compativel", dict(
+        cargas_backup=[CARGA_127], tipo_instalacao="monofasico",
         padrao_entrada="mono_127", autonomia_dias=1)),
     # Carga trifásica de 220 V pertence à rede 127/220, onde 220 V é a tensão
     # ENTRE FASES. Numa rede 220/380 as fases dão 380 V — cenário que o

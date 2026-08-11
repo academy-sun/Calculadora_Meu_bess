@@ -30,7 +30,7 @@ def m050():
         meubess_id="m050", title="W - WEG - SIW200H M050 - Inversor Híbrido", marca="WEG",
         peak_power_kw=6.0, max_eps_power=5.0, battery_inputs=1,
         battery_input_max_current_a=40, max_parallel_units=5,
-        eps_output_voltage="220", split_phase=False,
+        voltage="220", eps_output_voltage="220", split_phase=False,
         battery_voltage_min_v=80, battery_voltage_max_v=480, preco=6919.0,
     )
 
@@ -39,7 +39,7 @@ def s057():
         meubess_id="s057", title="W - WEG - SIW200H S057 - SplitPhase", marca="WEG",
         peak_power_kw=7.695, max_eps_power=5.7, battery_inputs=1,
         battery_input_max_current_a=50, max_parallel_units=4,
-        eps_output_voltage="127/220", split_phase=True,
+        voltage="220", eps_output_voltage="127/220", split_phase=True,
         battery_voltage_min_v=85, battery_voltage_max_v=460, preco=7560.0,
     )
 
@@ -48,7 +48,7 @@ def t015():
         meubess_id="t015", title="W - WEG - SIW400H T015 - Trifásico", marca="WEG",
         peak_power_kw=18.0, max_eps_power=15.0, battery_inputs=2,
         battery_input_max_current_a=50, max_parallel_units=4,
-        eps_output_voltage="380/220", split_phase=False,
+        voltage="380", eps_output_voltage="380/220", split_phase=False,
         battery_voltage_min_v=150, battery_voltage_max_v=800, preco=14715.0,
     )
 
@@ -57,7 +57,7 @@ def t030():
         meubess_id="t030", title="W - WEG - SIW400H T030 - Trifásico", marca="WEG",
         peak_power_kw=36.0, max_eps_power=30.0, battery_inputs=2,
         battery_input_max_current_a=50, max_parallel_units=4,
-        eps_output_voltage="380/220", split_phase=False,
+        voltage="380", eps_output_voltage="380/220", split_phase=False,
         battery_voltage_min_v=150, battery_voltage_max_v=800, preco=17932.0,
     )
 
@@ -584,7 +584,7 @@ def k017():
         meubess_id="k017", title="W - WEG - SIW400H K017 - Trifásico", marca="WEG",
         peak_power_kw=19.0, max_eps_power=17.3, battery_inputs=2,
         battery_input_max_current_a=50, max_parallel_units=4, phase="trifasico",
-        eps_output_voltage="380/220;220/127", split_phase=False,
+        voltage="220", eps_output_voltage="380/220;220/127", split_phase=False,
         battery_voltage_min_v=150, battery_voltage_max_v=800, preco=15474.38,
     )
 
@@ -822,12 +822,21 @@ class TestConexaoDoInversorNaRede:
     def test_mono_220_bloqueado_em_rede_mono_127(self):
         kits, skipped = self._run(m075_220(), "mono_127")
         assert kits == []
-        assert any("não se conecta" in s.motivo for s in skipped), \
+        assert any("se conecta em 220 V" in s.motivo for s in skipped), \
             [s.motivo for s in skipped]
 
-    def test_split_phase_127_220_passa_em_rede_mono_127(self):
-        kits, _ = self._run(s057(), "mono_127")
-        assert [k.inversor.meubess_id for k in kits] == ["s057"]
+    def test_split_phase_tambem_bloqueado_em_rede_mono_127(self):
+        """Ser split-phase não ajuda na CONEXÃO.
+
+        O S057 entrega 127 V na saída EPS, mas se liga na rede em 220 V — o
+        127 V é gerado por ele, não é por onde entra. Todo inversor monofásico
+        do catálogo se conecta em 220 V, então padrão de entrada monofásico
+        127 V não tem kit compatível.
+        """
+        kits, skipped = self._run(s057(), "mono_127")
+        assert kits == []
+        assert any("se conecta em 220 V" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
 
     def test_mono_220_passa_em_rede_mono_220(self):
         kits, _ = self._run(m075_220(), "mono_220")

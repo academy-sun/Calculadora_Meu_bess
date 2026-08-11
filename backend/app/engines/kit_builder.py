@@ -307,18 +307,33 @@ def carga_existe_na_rede(
 
 
 def _tensoes_rede_inversor(inv) -> set[str]:
-    """Tensões de linha em que o inversor consegue operar.
+    """Tensões de linha em que um inversor TRIFÁSICO consegue operar.
 
-    Vem da saída EPS (que nas linhas K é SELECIONÁVEL — '380/220;220/127' são
-    duas configurações) somada à tensão de conexão do cadastro. Um T015 dá
-    {'380'}; um K017 dá {'380','220'}, e é por isso que o K serve as duas redes
-    trifásicas e o T não.
+    Vem da saída EPS — que nas linhas K é SELECIONÁVEL ('380/220;220/127' são
+    duas configurações do mesmo enrolamento, e a seleção vale para os dois
+    lados — somada à tensão de conexão do cadastro. Um T015 dá {'380'}; um
+    K017 dá {'380','220'}, e é por isso que o K serve as duas redes trifásicas
+    e o T não.
     """
     tensoes = set(_tensoes_entre_fases(eff(inv, "eps_output_voltage")))
     v = str(eff(inv, "voltage") or "").strip()
     if v:
         tensoes.add(v)
     return tensoes
+
+
+def _tensao_conexao_monofasico(inv) -> str:
+    """Tensão em que um inversor MONOFÁSICO se liga na rede.
+
+    É o campo `voltage` do cadastro, e só ele. NÃO se deriva da saída EPS: um
+    SIW200H S075 é split-phase e entrega 127 V no EPS, mas se conecta na rede
+    em 220 V — o 127 V é gerado pelo inversor, não é por onde ele é alimentado.
+
+    Usar a saída EPS aqui fazia o motor aceitar os split-phase num padrão de
+    entrada monofásico de 127 V, onde nenhum inversor monofásico do catálogo
+    tem como ser ligado (todos se conectam em 220 V).
+    """
+    return str(eff(inv, "voltage") or "").strip()
 
 
 def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
@@ -357,14 +372,12 @@ def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
                     f"(exigiria autotransformador)")
         return None
 
-    # Monofásico: basta que alguma das tensões que ele entrega exista como
-    # conexão na rede. Um split-phase 127/220 se liga tanto em 127 quanto em 220.
-    do_inversor = _parse_eps_voltages(eff(inv, "eps_output_voltage")) | tensoes_inv
-    if bool(eff_bool(inv, "split_phase")):
-        do_inversor |= {"127", "220"}
-    if da_rede and not (da_rede & do_inversor):
-        return (f"inversor monofásico {'/'.join(sorted(do_inversor))} V não se "
-                f"conecta em padrão de entrada {'/'.join(sorted(da_rede))} V")
+    # Monofásico: vale a tensão de CONEXÃO, não a da saída EPS. Ser split-phase
+    # não ajuda aqui — o 127 V dele é gerado na saída, não é por onde entra.
+    conexao = _tensao_conexao_monofasico(inv)
+    if da_rede and conexao and conexao not in da_rede:
+        return (f"inversor monofásico se conecta em {conexao} V, e o padrão de "
+                f"entrada é {'/'.join(sorted(da_rede))} V")
     return None
 
 
