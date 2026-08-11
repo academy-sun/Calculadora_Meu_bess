@@ -151,15 +151,29 @@ class TestRestricoes:
 
 
 class TestR7Rede:
-    def test_inversor_tri_em_unidade_mono_gera_alerta(self):
-        kits, _ = build_kits(
+    def test_inversor_tri_em_padrao_mono_agora_bloqueia(self):
+        """Era alerta. Deixava um trifásico de R$ 18 mil ganhar a cotação de
+        uma residência monofásica — mesma razão do caso do autotransformador."""
+        kits, skipped = build_kits(
             [t030()], [cb100()],
             pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
             fase_instalacao="monofasico", padrao_entrada="mono_220",
         )
+        assert kits == []
+        assert any("padrão de entrada monofásico" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
+
+    def test_alerta_sobrevive_quando_o_padrao_nao_foi_declarado(self):
+        """Sem padrão de entrada não há bloqueio — mas o alerta ainda avisa,
+        porque a fase da instalação foi informada."""
+        kits, _ = build_kits(
+            [t030()], [cb100()],
+            pn_kva=8.0, pp_kva=20.0, e_bat_kwh=20.0,
+            fase_instalacao="monofasico", padrao_entrada=None,
+        )
         assert kits
-        assert any("trifásico em unidade monofásica" in a.lower() or "monofásica" in a
-                   for a in kits[0].alertas)
+        assert any("unidade monofásica" in a for a in kits[0].alertas), \
+            kits[0].alertas
 
     def test_autotransformador_127_220_com_inversor_380_agora_bloqueia(self):
         """Era alerta; virou bloqueio por decisão comercial (ver _bloqueio_rede)."""

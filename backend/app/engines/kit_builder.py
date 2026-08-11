@@ -365,7 +365,14 @@ def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
 
     if e_tri:
         if not da_rede:
-            return None   # trifásico em rede mono: segue como ALERTA, não bloqueio
+            # Rede monofásica não tem três fases para ligar. Era alerta, e
+            # alerta deixava um SIW400H K008 de R$ 24 mil ganhar a cotação de
+            # uma residência 127 V — mesma razão que fez o caso do
+            # autotransformador virar bloqueio.
+            disponivel = "/".join(sorted(conexoes.get("monofasico") or {"?"}))
+            return (f"inversor trifásico em padrão de entrada monofásico "
+                    f"{disponivel} V — exige mudança do padrão junto à "
+                    f"concessionária")
         if not (da_rede & tensoes_inv):
             return (f"inversor trifásico {'/'.join(sorted(tensoes_inv))} V não opera "
                     f"em rede {'/'.join(sorted(da_rede))} V entre fases "
