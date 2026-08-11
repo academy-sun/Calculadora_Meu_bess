@@ -867,6 +867,11 @@ class TestCargaExisteNaRede:
     def test_carga_trifasica_220_em_rede_220_380(self):
         assert "380 V entre fases" in self._c("tri_220_380", "220", "trifasico")
 
+    def test_carga_127_em_padrao_mono_220(self):
+        """Confirmado: padrão monofásico tem UMA tensão. Se a fase é 220 V,
+        não existe 127 V na instalação — mesmo critério da rede 220/380."""
+        assert "não existe na instalação" in self._c("mono_220", "127", "monofasico")
+
     def test_carga_127_em_rede_220_380(self):
         assert "não existe na instalação" in self._c("tri_220_380", "127", "monofasico")
 
@@ -877,7 +882,6 @@ class TestCargaExisteNaRede:
         """Os 13 que o engenheiro marcou como OK."""
         validos = [
             ("mono_220", "220", "monofasico"), ("mono_220", "220", "bifasico"),
-            ("mono_220", "127", "monofasico"),
             ("tri_127_220", "127", "monofasico"), ("tri_127_220", "220", "monofasico"),
             ("tri_127_220", "220", "bifasico"), ("tri_127_220", "220", "trifasico"),
             ("tri_220_380", "220", "monofasico"), ("tri_220_380", "220", "bifasico"),
@@ -890,3 +894,55 @@ class TestCargaExisteNaRede:
     def test_sem_padrao_declarado_nao_inventa_restricao(self):
         assert self._c(None, "380", "trifasico") is None
         assert self._c("mono_127", None, "monofasico") is None
+
+
+class TestLinhaKPotenciaPorConfiguracao:
+    """A linha K tem duas potências — 8,6 kW em 220/127 e 15 kW em 380/220.
+
+    É o mesmo equipamento reconfigurado, e o título do produto carrega os dois
+    modelos ("K008 T015"). O motor usava só a menor em qualquer rede, o que
+    subdimensionava a linha K em rede 380 V.
+    """
+    def _k008(self):
+        return FakeProduct(
+            meubess_id="k008", title="W - WEG - SIW400H K008 T015", marca="WEG",
+            phase="trifasico", eps_output_voltage="380/220;220/127",
+            max_eps_power=8.6, peak_power_kw=9.5,
+            potencia_por_configuracao={
+                "220": {"max_eps_power": 8.6, "peak_power_kw": 9.5},
+                "380": {"max_eps_power": 15.0, "peak_power_kw": 18.0},
+            },
+            battery_inputs=2, battery_input_max_current_a=50,
+            max_parallel_units=4, split_phase=False,
+            battery_voltage_min_v=150, battery_voltage_max_v=800, preco=12383.03,
+        )
+
+    def _run(self, padrao, pp_kva):
+        return build_kits(
+            [self._k008()], [cb100()], pn_kva=4.0, pp_kva=pp_kva, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", padrao_entrada=padrao,
+        )
+
+    def test_em_rede_380_usa_a_potencia_maior(self):
+        """Pico de 12 kVA: não cabe nos 9,5 de 220/127, cabe nos 18 de 380/220."""
+        kits, _ = self._run("tri_220_380", 12.0)
+        assert len(kits) == 1
+        assert kits[0].qtd_inversores == 1, "não deveria precisar de 2 unidades"
+
+    def test_em_rede_127_220_usa_a_potencia_menor(self):
+        kits, _ = self._run("tri_127_220", 12.0)
+        assert kits, "deveria montar kit, só que escalando"
+        assert kits[0].qtd_inversores == 2, \
+            "9,5 kVA por unidade não cobre 12 kVA — precisa de 2"
+
+    def test_sem_padrao_declarado_usa_o_campo_normal(self):
+        """Sem saber a rede, fica no valor conservador do cadastro."""
+        kits, _ = self._run(None, 12.0)
+        assert kits[0].qtd_inversores == 2
+
+    def test_modelo_de_configuracao_unica_nao_e_afetado(self):
+        kits, _ = build_kits(
+            [t015()], [cb100()], pn_kva=4.0, pp_kva=12.0, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", padrao_entrada="tri_220_380",
+        )
+        assert kits[0].qtd_inversores == 1   # 18 kVA de pico, do campo normal

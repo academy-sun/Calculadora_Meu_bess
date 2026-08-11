@@ -251,14 +251,12 @@ CONEXOES_REDE: dict[str, dict[str, set[str]]] = {
 #: Tensões que EXISTEM na instalação, para conferir as cargas declaradas.
 #: É a união fase-neutro + entre fases de cada padrão.
 #:
-#: O 127 em `mono_220` segue o veredito do engenheiro na revisão da matriz
-#: (linha 10: "rede 220 monofásica + carga 127 monofásica — CENÁRIO OK"), que
-#: contrasta com o dele na linha 24 ("rede 220/380 + carga 127 — inexistente").
-#: PENDENTE DE CONFIRMAÇÃO: se o certo for tratar os dois igual, basta remover
-#: o "127" daqui e o cenário passa a ser recusado como o da linha 24.
+#: Um padrão monofásico tem UMA tensão. Se a tensão de fase é 220 V, não há
+#: 127 V na instalação — mesmo critério que o engenheiro aplicou à rede
+#: 220/380, confirmado por ele para a rede monofásica 220 V também.
 TENSOES_REDE_DISPONIVEIS: dict[str, set[str]] = {
     "mono_127":    {"127"},
-    "mono_220":    {"127", "220"},
+    "mono_220":    {"220"},
     "tri_127_220": {"127", "220"},
     "tri_220_380": {"220", "380"},
 }
@@ -444,11 +442,32 @@ def _compativel(inv, bat) -> tuple[bool, str | None]:
 
 # ── núcleo ────────────────────────────────────────────────────────────────────
 
-def _attrs_inversor(inv) -> tuple[dict, str | None]:
+def _potencias_da_configuracao(inv, padrao_entrada: str | None) -> dict:
+    """Potência nominal e de pico NA CONFIGURAÇÃO em que o inversor vai operar.
+
+    A linha K tem duas potências, não uma: o SIW400H K008 T015 entrega 8,6 kW
+    ligado em 220/127 e 15 kW em 380/220 — é o mesmo equipamento reconfigurado,
+    e o próprio título do produto carrega os dois modelos. O motor usava só a
+    menor, o que subdimensionava a linha K em rede 380 V e às vezes escalava
+    para dois inversores sem necessidade.
+
+    O dado vem de `potencia_por_configuracao` em overrides_tecnicos, chaveado
+    pela tensão entre fases. Sem esse override (todos os outros modelos, que
+    têm configuração única), devolve vazio e o chamador usa os campos normais.
+    """
+    tabela = eff(inv, "potencia_por_configuracao")
+    tensao = TENSAO_LINHA_REDE.get(padrao_entrada or "")
+    if not isinstance(tabela, dict) or not tensao:
+        return {}
+    return tabela.get(tensao) or {}
+
+
+def _attrs_inversor(inv, padrao_entrada: str | None = None) -> tuple[dict, str | None]:
     """Lê os atributos do inversor; retorna (attrs, motivo_se_incompleto)."""
+    cfg = _potencias_da_configuracao(inv, padrao_entrada)
     a = {
-        "peak_power_kw":   eff_float(inv, "peak_power_kw"),
-        "eps_nominal_kw":  eff_float(inv, "max_eps_power") or eff_float(inv, "max_output_power") or eff_float(inv, "power"),
+        "peak_power_kw":   cfg.get("peak_power_kw") or eff_float(inv, "peak_power_kw"),
+        "eps_nominal_kw":  cfg.get("max_eps_power") or eff_float(inv, "max_eps_power") or eff_float(inv, "max_output_power") or eff_float(inv, "power"),
         "battery_inputs":  eff_int(inv, "battery_inputs"),
         "i_input_a":       eff_float(inv, "battery_input_max_current_a"),
         "max_paralelo":    eff_int(inv, "max_parallel_units") or 1,
@@ -615,7 +634,9 @@ def build_kits(
         return SkipReason(_id(p), _tit(p), motivo, str(eff(p, "marca") or ""))
 
     for inv in inversores:
-        ia, motivo = _attrs_inversor(inv)
+        # padrao_entrada define em qual configuração a linha K vai operar, e
+        # com isso qual das duas potências dela vale aqui.
+        ia, motivo = _attrs_inversor(inv, padrao_entrada)
         if motivo:
             skipped.append(_skip(inv, motivo))
             continue
