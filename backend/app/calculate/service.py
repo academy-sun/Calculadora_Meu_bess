@@ -219,6 +219,39 @@ def _resolver_frete(req: CalculateRequest, kit: KitInfo | None) -> dict | None:
     return None
 
 
+def _frete_do_kit(req: CalculateRequest, preco_kit: float) -> float | None:
+    """Valor do frete para um preço de kit. None quando não há frete a cobrar."""
+    if req.tipo_frete == "fob":
+        info = calcular_frete_fob(preco_kit)
+    elif req.tipo_frete == "cif" and req.uf_entrega:
+        info = calcular_frete(req.uf_entrega, preco_kit)
+    else:
+        return None
+    return (info or {}).get("valor")
+
+
+def _aplicar_frete_e_cobertura(
+    req: CalculateRequest,
+    kits: list[KitInfo | None],
+    energia_exigida_kwh: float | None,
+) -> None:
+    """Preenche frete, total e cobertura de CADA kit, no lugar.
+
+    Ponto único de propósito. O frete era calculado só para o kit escolhido,
+    então as alternativas apareciam sem ele — e como o CIF é percentual sobre
+    o valor do kit, comparar alternativas sem frete inverte a conclusão quando
+    a diferença entre elas é da ordem do próprio frete.
+    """
+    for kit in kits:
+        if kit is None:
+            continue
+        kit.frete_valor = _frete_do_kit(req, kit.preco_total)
+        kit.total_com_frete = round(kit.preco_total + (kit.frete_valor or 0.0), 2)
+        if energia_exigida_kwh and energia_exigida_kwh > 0:
+            kit.cobertura_energia = round(
+                kit.capacidade_total_kwh / energia_exigida_kwh, 4)
+
+
 def _select_kits(kits, e_bat_kwh: float, jbw_produtos: list | None = None) -> tuple[KitInfo | None, list[KitInfo]]:
     """
     Seleciona até 3 opções de kit a partir da lista (já ordenada por preço crescente,
@@ -355,6 +388,9 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 )
                 potencia_kw = 0.0
                 capacidade_kwh = 0.0
+            # On-grid puro não tem energia de backup exigida: sem cobertura a
+            # calcular, só frete e total.
+            _aplicar_frete_e_cobertura(req, [kit_selecionado], None)
             # sem backup_rows pois não há cargas
             return CalculateResponse(  # type: ignore[return-value]
                 projeto_id=None,
@@ -656,6 +692,10 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
     calculado_em = datetime.now(timezone.utc)
 
     frete_info = _resolver_frete(req, kit_selecionado)
+    # Todos os kits, não só o escolhido — inclusive as alternativas, que é onde
+    # a falta de frete mais engana na hora de comparar.
+    _aplicar_frete_e_cobertura(
+        req, [kit_selecionado, *alternativas], energia_necessaria_kwh)
 
     # Integração com Ploomes (Sync Automático) — apenas notifica, não persiste mais
     # (o Project só é criado quando o usuário escolhe um kit, via POST /projects)

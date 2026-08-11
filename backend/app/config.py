@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     api_key_ploomes: str = ""      # User-Key do Ploomes (saída) + key legada de entrada
     api_key_embed: str = ""        # key própria do embed Ploomes (entrada em /calculate e /ploomes/*)
+    #: Chave do campo do USUÁRIO FINAL no Ploomes. Recebe a resposta filtrada
+    #: (ver calculate/perfil.py). Separada de propósito: é ela que garante que
+    #: editar o JavaScript do campo não dá acesso ao payload completo.
+    api_key_embed_restrito: str = ""
     ploomes_field_map: str = ""    # JSON: nosso campo → FieldKey da conta (ver app/ploomes/context.py)
     environment: str = "development"
 
