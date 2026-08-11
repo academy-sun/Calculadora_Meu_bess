@@ -103,10 +103,33 @@ def _tensoes_entre_fases(eps_output_voltage: str | None) -> set[str]:
     return out
 
 
+def _eps_efetivo(inv, padrao_entrada: str | None) -> str | None:
+    """Configuração de saída que sobra depois de fixar a ligação na rede.
+
+    A saída das linhas K é SELECIONÁVEL ('380/220;220/127'), mas a seleção é
+    uma só — é o mesmo enrolamento que se liga na rede e alimenta o EPS. Fixado
+    o padrão de entrada, sobra UMA configuração, e é contra ela que a carga tem
+    de ser conferida.
+
+    Sem isso, rede e saída eram tratadas como escolhas independentes: um K017
+    numa rede 127/220 (onde ele está em 220/127) passava para carga trifásica
+    380 V, porque o '380/220' da outra configuração ainda estava na lista.
+    """
+    eps = eff(inv, "eps_output_voltage")
+    tensao_rede = TENSAO_LINHA_REDE.get(padrao_entrada or "")
+    if not eps or not tensao_rede or ";" not in str(eps):
+        return eps
+    for config in str(eps).split(";"):
+        if tensao_rede in _tensoes_entre_fases(config):
+            return config.strip()
+    return eps
+
+
 def _serve_tensoes(
     inv,
     tensoes_carga: set[str],
     tensoes_entre_fases: set[str] | None = None,
+    padrao_entrada: str | None = None,
 ) -> tuple[bool, str | None]:
     """R8: a saída EPS do inversor atende todas as tensões de carga?
 
@@ -115,7 +138,7 @@ def _serve_tensoes(
     com a tensão de LINHA do inversor, não com a de fase; ver
     _tensoes_entre_fases.
     """
-    eps_raw = eff(inv, "eps_output_voltage")
+    eps_raw = _eps_efetivo(inv, padrao_entrada)
     eps = _parse_eps_voltages(eps_raw)
     split = bool(eff_bool(inv, "split_phase"))
     if not eps:
@@ -140,6 +163,7 @@ def compativel_com_cargas(
     tensoes_carga: set[str] | None,
     fases_carga: set[str] | None,
     tensoes_entre_fases_carga: set[str] | None = None,
+    padrao_entrada: str | None = None,
 ) -> tuple[bool, str | None]:
     """R8 completa (tensão + fase) para um inversor.
 
@@ -149,7 +173,8 @@ def compativel_com_cargas(
     trifásica voltava com inversor monofásico sempre que havia FV no projeto.
     """
     if tensoes_carga:
-        ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga)
+        ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga,
+                                 padrao_entrada)
         if not ok:
             return False, why
     if fases_carga:
@@ -207,6 +232,81 @@ def _inversor_e_trifasico(inv) -> bool:
 #: inversor trifásico precisa conseguir operar para se ligar direto na rede.
 TENSAO_LINHA_REDE = {"tri_127_220": "220", "tri_220_380": "380"}
 
+#: Tensões de conexão disponíveis em cada padrão de entrada, por tipo de
+#: inversor. Ausência da chave significa que aquele tipo não se conecta
+#: naquela rede — um trifásico não tem onde se ligar num padrão monofásico.
+#:
+#: O inversor MONOFÁSICO tem duas opções numa rede trifásica: fase-neutro
+#: (tensão de fase) ou entre duas fases (tensão de linha). Numa rede 127/220
+#: ele se liga em 127 V ou em 220 V; as duas são conexões reais e o catálogo
+#: tem modelos das duas. Numa rede monofásica só existe uma tensão, e é por
+#: isso que um inversor de saída 220 V não se conecta num padrão de 127 V.
+CONEXOES_REDE: dict[str, dict[str, set[str]]] = {
+    "mono_127":    {"monofasico": {"127"}},
+    "mono_220":    {"monofasico": {"220"}},
+    "tri_127_220": {"monofasico": {"127", "220"}, "trifasico": {"220"}},
+    "tri_220_380": {"monofasico": {"220", "380"}, "trifasico": {"380"}},
+}
+
+#: Tensões que EXISTEM na instalação, para conferir as cargas declaradas.
+#: É a união fase-neutro + entre fases de cada padrão.
+#:
+#: O 127 em `mono_220` segue o veredito do engenheiro na revisão da matriz
+#: (linha 10: "rede 220 monofásica + carga 127 monofásica — CENÁRIO OK"), que
+#: contrasta com o dele na linha 24 ("rede 220/380 + carga 127 — inexistente").
+#: PENDENTE DE CONFIRMAÇÃO: se o certo for tratar os dois igual, basta remover
+#: o "127" daqui e o cenário passa a ser recusado como o da linha 24.
+TENSOES_REDE_DISPONIVEIS: dict[str, set[str]] = {
+    "mono_127":    {"127"},
+    "mono_220":    {"127", "220"},
+    "tri_127_220": {"127", "220"},
+    "tri_220_380": {"220", "380"},
+}
+
+
+def carga_existe_na_rede(
+    padrao_entrada: str | None,
+    tensao_carga: str | None,
+    fase_carga: str | None,
+) -> str | None:
+    """A carga declarada pode existir nessa instalação? Motivo se não puder.
+
+    Validação de ENTRADA, anterior a qualquer escolha de equipamento. Sem ela o
+    motor aceitava combinações que não existem no mundo — carga 220 V num
+    padrão monofásico 127 V, carga trifásica num padrão monofásico — e ia até o
+    fim montando kit para elas. Um kit correto para um cenário impossível é um
+    erro que ninguém percebe.
+
+    Regras, na ordem em que um projetista confere:
+      1. carga trifásica exige rede trifásica;
+      2. carga trifásica exige a tensão ENTRE FASES da rede (uma rede 220/380
+         entrega 380 V entre fases, então não alimenta carga trifásica 220 V);
+      3. carga mono ou bifásica exige que sua tensão exista na rede, seja
+         fase-neutro ou entre fases.
+    """
+    if not padrao_entrada or not tensao_carga:
+        return None   # sem o dado não se inventa restrição
+    disponiveis = TENSOES_REDE_DISPONIVEIS.get(padrao_entrada)
+    if not disponiveis:
+        return None
+    rede_tri = padrao_entrada.startswith("tri")
+    rotulo = "/".join(sorted(disponiveis, key=float))
+
+    if fase_carga == "trifasico":
+        if not rede_tri:
+            return (f"carga trifásica em padrão de entrada monofásico "
+                    f"{rotulo} V — a instalação não tem três fases")
+        linha = TENSAO_LINHA_REDE.get(padrao_entrada)
+        if linha and tensao_carga != linha:
+            return (f"carga trifásica {tensao_carga} V em rede que entrega "
+                    f"{linha} V entre fases")
+        return None
+
+    if tensao_carga not in disponiveis:
+        return (f"carga {tensao_carga} V em padrão de entrada {rotulo} V — "
+                f"essa tensão não existe na instalação")
+    return None
+
 
 def _tensoes_rede_inversor(inv) -> set[str]:
     """Tensões de linha em que o inversor consegue operar.
@@ -224,22 +324,49 @@ def _tensoes_rede_inversor(inv) -> set[str]:
 
 
 def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
-    """R7 BLOQUEANTE: inversor trifásico que não opera na tensão da rede.
+    """R7 BLOQUEANTE: inversor que não se conecta à rede da unidade.
 
-    Um SIW400H T015 (380 V) numa rede trifásica 127/220 só funciona com
-    autotransformador. Isso era um alerta, e alerta é o que o vendedor sem
-    formação técnica não lê — decisão do time comercial de bloquear.
+    Duas checagens, uma por tipo de inversor:
 
-    Não confundir com o K017/K008, cuja saída é selecionável entre 380/220 e
-    220/127: esses operam nas duas redes e continuam passando.
+    - TRIFÁSICO: precisa operar na tensão entre fases da rede. Um SIW400H T015
+      (380 V) numa rede 127/220 só funciona com autotransformador — era alerta,
+      virou bloqueio por decisão comercial. O K017/K008 tem saída selecionável
+      (380/220 ou 220/127), opera nas duas redes trifásicas, e continua passando.
+
+    - MONOFÁSICO: precisa operar na tensão fase-neutro da rede. Um SIW200H M050
+      (saída 220 V) não se liga num padrão monofásico 127 V. Isso não era
+      verificado: o motor só olhava a tensão da CARGA, então numa rede de 127 V
+      ele oferecia inversores de 220 V que não têm como ser alimentados.
     """
-    tensao_rede = TENSAO_LINHA_REDE.get(padrao_entrada or "")
-    if not tensao_rede or not _inversor_e_trifasico(inv):
+    if not padrao_entrada:
         return None
+    conexoes = CONEXOES_REDE.get(padrao_entrada)
+    if not conexoes:
+        return None
+
+    e_tri = _inversor_e_trifasico(inv)
+    da_rede = conexoes.get("trifasico" if e_tri else "monofasico")
     tensoes_inv = _tensoes_rede_inversor(inv)
-    if tensoes_inv and tensao_rede not in tensoes_inv:
-        return (f"inversor trifásico {'/'.join(sorted(tensoes_inv))} V não opera "
-                f"em rede {tensao_rede} V entre fases (exigiria autotransformador)")
+    if not tensoes_inv:
+        return None
+
+    if e_tri:
+        if not da_rede:
+            return None   # trifásico em rede mono: segue como ALERTA, não bloqueio
+        if not (da_rede & tensoes_inv):
+            return (f"inversor trifásico {'/'.join(sorted(tensoes_inv))} V não opera "
+                    f"em rede {'/'.join(sorted(da_rede))} V entre fases "
+                    f"(exigiria autotransformador)")
+        return None
+
+    # Monofásico: basta que alguma das tensões que ele entrega exista como
+    # conexão na rede. Um split-phase 127/220 se liga tanto em 127 quanto em 220.
+    do_inversor = _parse_eps_voltages(eff(inv, "eps_output_voltage")) | tensoes_inv
+    if bool(eff_bool(inv, "split_phase")):
+        do_inversor |= {"127", "220"}
+    if da_rede and not (da_rede & do_inversor):
+        return (f"inversor monofásico {'/'.join(sorted(do_inversor))} V não se "
+                f"conecta em padrão de entrada {'/'.join(sorted(da_rede))} V")
     return None
 
 
@@ -502,7 +629,8 @@ def build_kits(
 
         # R8 — tensão de saída EPS × cargas (quando informado)
         if tensoes_carga:
-            ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga)
+            ok, why = _serve_tensoes(inv, tensoes_carga, tensoes_entre_fases_carga,
+                                     padrao_entrada)
             if not ok:
                 skipped.append(_skip(inv, why))
                 continue

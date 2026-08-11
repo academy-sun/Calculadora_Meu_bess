@@ -288,7 +288,7 @@ def _pick_string_inverter(
     _select_string_inverter_for (que monta o item) e pelo detalhamento do kit
     on-grid, para os dois nunca divergirem. Retorna None se nenhum serve.
 
-    `conexoes` mapeia fase do inversor → tensão de conexão disponível na rede
+    `conexoes` mapeia fase do inversor → tensões de conexão disponíveis na rede
     (ver CONEXOES_REDE em calculate/service.py). Uma rede trifásica 220/380
     aceita tanto um inversor trifásico em 380 V (entre fases) quanto
     monofásicos em 220 V (fase-neutro) — antes o filtro era um par
@@ -305,10 +305,10 @@ def _pick_string_inverter(
         inv_voltage = str(eff(inv, "voltage") or "")
         inv_phase = str(eff(inv, "phase") or "")
         if conexoes and inv_phase:
-            tensao_ok = conexoes.get(inv_phase)
-            if tensao_ok is None:
+            tensoes_ok = conexoes.get(inv_phase)
+            if not tensoes_ok:
                 continue  # esse tipo de inversor não se liga nessa rede
-            if inv_voltage and inv_voltage != tensao_ok:
+            if inv_voltage and inv_voltage not in tensoes_ok:
                 continue
 
         power_kw = eff_float(inv, "power")

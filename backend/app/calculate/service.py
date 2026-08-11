@@ -12,8 +12,8 @@ from app.catalog.service import list_kit_products, list_pv_products, get_bess_co
 from app.engines.bess import calculate_backup, calculate_peak_shaving, calculate_arbitrage_v2
 from app.engines.kit_attributes import eff, eff_float
 from app.engines.kit_builder import (
-    _alertas_rede, _bloqueio_rede, build_kits, compativel_com_cargas,
-    economic_undershoot_kit,
+    CONEXOES_REDE, _alertas_rede, _bloqueio_rede, build_kits,
+    carga_existe_na_rede, compativel_com_cargas, economic_undershoot_kit,
 )
 from app.engines.pv_kit import (
     build_combined_pv_storage, build_ongrid_kit_detalhado, ongrid_string_layout,
@@ -194,29 +194,13 @@ def _solar_dim_ongrid(detalhe, kwp_alvo: float) -> SolarDimensionamento | None:
     )
 
 
-#: Tensões de conexão disponíveis em cada padrão de entrada, por tipo de
-#: inversor. Um padrão trifásico oferece DUAS tensões, não uma: a de linha
-#: (entre fases) e a de fase (entre fase e neutro). Numa rede 220/380, um
-#: inversor trifásico se liga em 380 V entre as fases, e um monofásico de
-#: 220 V se liga entre uma fase e o neutro — as duas conexões são válidas,
-#: e a segunda costuma sair mais barata (2× 7,5 kW mono < 1× 15 kW tri).
-#:
-#: Modelar isso como um valor único descartava metade das opções válidas.
-CONEXOES_REDE: dict[str, dict[str, str]] = {
-    "mono_127":    {"monofasico": "127"},
-    "mono_220":    {"monofasico": "220"},
-    "tri_127_220": {"monofasico": "127", "trifasico": "220"},
-    "tri_220_380": {"monofasico": "220", "trifasico": "380"},
-}
-
-
 def _conexoes_rede(padrao_entrada: str | None) -> dict[str, str]:
     """{fase do inversor: tensão de conexão} para o padrão de entrada.
 
     Ausência da chave significa "esse tipo de inversor não se conecta nessa
     rede" — um trifásico não tem onde se ligar num padrão monofásico.
     """
-    return CONEXOES_REDE.get(padrao_entrada or "", {"monofasico": "220"})
+    return CONEXOES_REDE.get(padrao_entrada or "", {"monofasico": {"220"}})
 
 
 def _resolver_frete(req: CalculateRequest, kit: KitInfo | None) -> dict | None:
@@ -392,6 +376,32 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 solar_dimensionamento=_solar_dim_ongrid(ongrid_detalhe, kwp_alvo_calculado),
             )
 
+        # ── Cargas × padrão de entrada: o cenário existe? ─────────────────
+        # Antes de escolher qualquer equipamento. Um kit tecnicamente correto
+        # para um cenário que não existe na instalação é o pior tipo de erro:
+        # passa por todas as regras e ninguém percebe.
+        impossiveis = []
+        for c in req.cargas_backup:
+            motivo = carga_existe_na_rede(
+                req.padrao_entrada, c.tensao, _normalizar_fase(c.fase))
+            if motivo:
+                impossiveis.append(f"{c.nome}: {motivo}")
+        if impossiveis:
+            diag = _montar_diagnostico([], req, inversores, tem_pv)
+            diag.avisos = [
+                "Cenário incompatível com o padrão de entrada declarado — "
+                "nenhum kit foi dimensionado. Corrija a tensão/fase das cargas "
+                "ou o padrão de entrada.",
+                *impossiveis,
+            ] + diag.avisos
+            return CalculateResponse(
+                tipo_calculo=req.tipo_calculo,
+                origem_info=req.origem_info,
+                kit_selecionado=None,
+                alternativas=[],
+                diagnostico=diag,
+            )
+
         # ── Com tabela de cargas: dimensiona armazenamento ────────────────
         cargas_engine = [
             LoadRow(
@@ -470,7 +480,8 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
             hibridos_compativeis = [
                 i for i in inversores
                 if compativel_com_cargas(
-                    i, tensoes_carga, fases_carga, tensoes_entre_fases_carga)[0]
+                    i, tensoes_carga, fases_carga, tensoes_entre_fases_carga,
+                    req.padrao_entrada)[0]
                 and not _bloqueio_rede(i, req.padrao_entrada)
             ]
             sugerido_opt, alt_opts = build_combined_pv_storage(

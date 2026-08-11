@@ -750,3 +750,143 @@ class TestBloqueioRede:
         """Sem o dado, não se inventa restrição."""
         kits, _ = self._run(t015(), None)
         assert [k.inversor.meubess_id for k in kits] == ["t015"]
+
+
+class TestSaidaSelecionavelSegueARede:
+    """Rede e saída EPS são a MESMA seleção, não duas escolhas independentes.
+
+    Achado pela matriz de compatibilidade: um K017 numa rede 127/220 está na
+    configuração 220/127, então sua saída dá 220 V entre fases. O motor
+    conferia a carga contra a lista inteira ('380/220;220/127') e deixava
+    passar carga trifásica 380 V nessa rede.
+    """
+    def _run(self, padrao, tensao_carga):
+        return build_kits(
+            [k017()], [cb100()], pn_kva=4.0, pp_kva=12.0, e_bat_kwh=10.0,
+            fase_instalacao="trifasico", tensoes_carga={tensao_carga},
+            fases_carga={"trifasico"}, tensoes_entre_fases_carga={tensao_carga},
+            padrao_entrada=padrao,
+        )
+
+    def test_carga_380_recusada_em_rede_127_220(self):
+        """Barra na checagem plana: fixado o 220/127, o inversor não tem 380 V
+        em lugar nenhum da saída — nem entre fases, nem fase-neutro."""
+        kits, skipped = self._run("tri_127_220", "380")
+        assert kits == []
+        assert any("380" in s.motivo for s in skipped), [s.motivo for s in skipped]
+
+    def test_carga_220_aceita_em_rede_127_220(self):
+        kits, _ = self._run("tri_127_220", "220")
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+    def test_carga_380_aceita_em_rede_220_380(self):
+        """Contraprova: na outra rede o mesmo inversor está em 380/220."""
+        kits, _ = self._run("tri_220_380", "380")
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+    def test_sem_padrao_de_entrada_considera_as_duas_configuracoes(self):
+        """Sem saber a rede, não se escolhe configuração por conta própria."""
+        kits, _ = self._run(None, "380")
+        assert [k.inversor.meubess_id for k in kits] == ["k017"]
+
+    def test_eps_efetivo_isola_a_configuracao(self):
+        from app.engines.kit_builder import _eps_efetivo
+        assert _eps_efetivo(k017(), "tri_127_220") == "220/127"
+        assert _eps_efetivo(k017(), "tri_220_380") == "380/220"
+        assert _eps_efetivo(k017(), None) == "380/220;220/127"
+        assert _eps_efetivo(t015(), "tri_220_380") == "380/220"   # sem ';'
+
+
+def m075_220():
+    """SIW200H M075: saída 220 V, sem split-phase."""
+    return FakeProduct(
+        meubess_id="m075", title="W - WEG - SIW200H M075 - Inversor Híbrido",
+        marca="WEG", peak_power_kw=10.0, max_eps_power=7.5, battery_inputs=1,
+        battery_input_max_current_a=50, max_parallel_units=3, voltage="220",
+        eps_output_voltage="220", split_phase=False,
+        battery_voltage_min_v=85, battery_voltage_max_v=480, preco=8654.16,
+    )
+
+
+class TestConexaoDoInversorNaRede:
+    """Achado do engenheiro (linhas 2 e 3 da matriz).
+
+    Um inversor monofásico de saída 220 V não se conecta num padrão de entrada
+    monofásico 127 V — não há de onde tirar 220 V. O motor só olhava a tensão
+    da CARGA, então numa rede de 127 V ele oferecia inversores de 220 V.
+    """
+    def _run(self, inv, padrao):
+        return build_kits([inv], [cb100()], pn_kva=2.0, pp_kva=4.0,
+                          e_bat_kwh=10.0, padrao_entrada=padrao)
+
+    def test_mono_220_bloqueado_em_rede_mono_127(self):
+        kits, skipped = self._run(m075_220(), "mono_127")
+        assert kits == []
+        assert any("não se conecta" in s.motivo for s in skipped), \
+            [s.motivo for s in skipped]
+
+    def test_split_phase_127_220_passa_em_rede_mono_127(self):
+        kits, _ = self._run(s057(), "mono_127")
+        assert [k.inversor.meubess_id for k in kits] == ["s057"]
+
+    def test_mono_220_passa_em_rede_mono_220(self):
+        kits, _ = self._run(m075_220(), "mono_220")
+        assert [k.inversor.meubess_id for k in kits] == ["m075"]
+
+    def test_mono_220_passa_em_rede_tri_127_220(self):
+        """Confirmado pelo engenheiro na linha 18: liga entre duas fases."""
+        kits, _ = self._run(m075_220(), "tri_127_220")
+        assert [k.inversor.meubess_id for k in kits] == ["m075"]
+
+    def test_mono_220_passa_em_rede_tri_220_380(self):
+        """Fase-neutro numa rede 220/380."""
+        kits, _ = self._run(m075_220(), "tri_220_380")
+        assert [k.inversor.meubess_id for k in kits] == ["m075"]
+
+
+class TestCargaExisteNaRede:
+    """Cenários que a instalação não comporta — validação de ENTRADA.
+
+    Vem dos comentários do engenheiro: 'esse cenário não faz sentido',
+    'cenário impossível', 'cenário inexistente'. Antes o motor dimensionava
+    normalmente para eles.
+    """
+    def _c(self, padrao, tensao, fase):
+        from app.engines.kit_builder import carga_existe_na_rede
+        return carga_existe_na_rede(padrao, tensao, fase)
+
+    def test_carga_220_em_padrao_mono_127(self):
+        assert "não existe na instalação" in self._c("mono_127", "220", "monofasico")
+
+    def test_carga_380_em_padrao_mono_220(self):
+        assert "não existe na instalação" in self._c("mono_220", "380", "bifasico")
+
+    def test_carga_trifasica_em_padrao_monofasico(self):
+        assert "não tem três fases" in self._c("mono_220", "220", "trifasico")
+
+    def test_carga_trifasica_220_em_rede_220_380(self):
+        assert "380 V entre fases" in self._c("tri_220_380", "220", "trifasico")
+
+    def test_carga_127_em_rede_220_380(self):
+        assert "não existe na instalação" in self._c("tri_220_380", "127", "monofasico")
+
+    def test_carga_380_em_rede_127_220(self):
+        assert "não existe na instalação" in self._c("tri_127_220", "380", "bifasico")
+
+    def test_cenarios_validos_passam(self):
+        """Os 13 que o engenheiro marcou como OK."""
+        validos = [
+            ("mono_220", "220", "monofasico"), ("mono_220", "220", "bifasico"),
+            ("mono_220", "127", "monofasico"),
+            ("tri_127_220", "127", "monofasico"), ("tri_127_220", "220", "monofasico"),
+            ("tri_127_220", "220", "bifasico"), ("tri_127_220", "220", "trifasico"),
+            ("tri_220_380", "220", "monofasico"), ("tri_220_380", "220", "bifasico"),
+            ("tri_220_380", "380", "bifasico"), ("tri_220_380", "380", "trifasico"),
+            ("mono_127", "127", "monofasico"),
+        ]
+        for padrao, tensao, fase in validos:
+            assert self._c(padrao, tensao, fase) is None, (padrao, tensao, fase)
+
+    def test_sem_padrao_declarado_nao_inventa_restricao(self):
+        assert self._c(None, "380", "trifasico") is None
+        assert self._c("mono_127", None, "monofasico") is None
