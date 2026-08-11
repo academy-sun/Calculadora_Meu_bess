@@ -123,9 +123,9 @@ export function ProjectDetailPage() {
           </div>
           {autonomiaDias != null && (
             <div className="sm:text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/45">Dias de autonomia</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/45">Ciclos de autonomia</p>
               <p className="font-mono text-lg font-semibold text-primary">
-                {autonomiaDias} {autonomiaDias === 1 ? 'dia' : 'dias'}
+                {autonomiaDias} {autonomiaDias === 1 ? 'ciclo' : 'ciclos'}
               </p>
             </div>
           )}

@@ -167,7 +167,7 @@ export function NewProjectPage() {
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const tipoInstalacao: 'monofasico' | 'trifasico' =
     padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
-  const [autonomia, setAutonomia] = useState('1')   // dias de autonomia
+  const [autonomia, setAutonomia] = useState('1')   // ciclos de autonomia
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
   const [consumoMensal, setConsumoMensal] = useState('')
   const [hspMedia, setHspMedia] = useState<number | null>(null)
@@ -528,20 +528,20 @@ export function NewProjectPage() {
                   </p>
                 )}
 
-                {/* Dias de autonomia (dentro da seção de backup) */}
+                {/* Ciclos de autonomia (dentro da seção de backup) */}
                 <div className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-display text-base font-bold text-ink">Dias de autonomia</p>
+                    <p className="font-display text-base font-bold text-ink">Ciclos de autonomia</p>
                     <p className="mt-0.5 text-xs text-ink/55">
-                      Quantos dias o sistema deve atender com o perfil de uso diário acima.
-                      A energia necessária = consumo diário das cargas × dias.
+                      Quantos ciclos o sistema deve atender com o perfil de uso diário acima.
+                      A energia necessária = consumo diário das cargas × ciclos.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <input type="number" min={1} step={1} value={autonomia}
                       onChange={e => setAutonomia(e.target.value)}
                       className="w-24 rounded-xl border border-primary/30 bg-white px-3 py-2 text-center font-mono text-lg font-semibold tabular-nums text-primary focus:border-primary focus:outline-none" />
-                    <span className="text-sm font-medium text-ink/60">{Number(autonomia) === 1 ? 'dia' : 'dias'}</span>
+                    <span className="text-sm font-medium text-ink/60">{Number(autonomia) === 1 ? 'ciclo' : 'ciclos'}</span>
                   </div>
                 </div>
               </CollapsibleSection>
