@@ -98,20 +98,50 @@ def _classificar_descarte(motivo: str) -> str:
 #: é defeito. Abaixo disso o aviso apareceria à toa e ninguém leria o painel.
 _CATALOGO_VELHO_H = 3.0
 
+#: Idade a partir da qual um produto individual conta como congelado. Bem mais
+#: folgado que o do catálogo: aqui a causa não é o sync ter parado, é o produto
+#: ter saído da listagem da plataforma. 48 h evita alarme por uma listagem que
+#: oscilou entre um ciclo e outro.
+_PRODUTO_CONGELADO_H = 48.0
+
+
+def _horas_desde(marca) -> float:
+    agora = datetime.now(timezone.utc)
+    if marca.tzinfo is None:            # coluna gravada sem timezone
+        marca = marca.replace(tzinfo=timezone.utc)
+    return (agora - marca).total_seconds() / 3600.0
+
 
 def _idade_do_catalogo(produtos: list) -> float | None:
-    """Horas desde a sincronização mais recente entre os produtos consultados.
+    """Horas desde a sincronização MAIS RECENTE entre os produtos consultados.
 
-    Sai da própria lista já carregada, sem consulta extra ao banco.
+    Mede se o sync como um todo parou. Sai da própria lista já carregada, sem
+    consulta extra ao banco.
     """
     marcas = [p.last_synced_at for p in produtos if getattr(p, "last_synced_at", None)]
-    if not marcas:
-        return None
-    recente = max(marcas)
-    agora = datetime.now(timezone.utc)
-    if recente.tzinfo is None:          # coluna gravada sem timezone
-        recente = recente.replace(tzinfo=timezone.utc)
-    return (agora - recente).total_seconds() / 3600.0
+    return _horas_desde(max(marcas)) if marcas else None
+
+
+def _produtos_congelados(produtos: list) -> list[tuple[str, float]]:
+    """Produtos individuais que pararam de vir no sync, com a idade de cada um.
+
+    Diferente de _idade_do_catalogo: aqui olha o mais ANTIGO, um por um. O sync
+    atualiza só o que a plataforma lista, e um produto que sai da listagem
+    congela com o último preço — sem erro, sem log, e continua cotável.
+
+    Medido em produção: o SIW400H T030 ficou 55 dias com o preço de 17/06
+    enquanto os outros 679 atualizavam de hora em hora. A idade do catálogo
+    ficava fresca o tempo todo, porque ela olha o mais recente.
+    """
+    velhos = []
+    for p in produtos:
+        marca = getattr(p, "last_synced_at", None)
+        if not marca:
+            continue
+        horas = _horas_desde(marca)
+        if horas > _PRODUTO_CONGELADO_H:
+            velhos.append((str(eff(p, "title") or "?"), horas))
+    return sorted(velhos, key=lambda x: -x[1])
 
 
 def _montar_diagnostico(
@@ -148,6 +178,16 @@ def _montar_diagnostico(
             f"Catálogo sincronizado há {idade:.0f} h (o normal é 1 h) — os "
             f"preços podem estar desatualizados. Confira na plataforma MeuBESS "
             f"antes de enviar a proposta."
+        )
+
+    # Caso diferente do anterior, e invisível para ele: o sync roda bem, o
+    # catálogo está fresco, mas UM produto saiu da listagem da plataforma e
+    # congelou com o último preço — continuando cotável. Interno porque a ação
+    # é nossa (tirar do catálogo ou reativar na plataforma), não do consultor.
+    for titulo, horas in _produtos_congelados(inversores):
+        avisos_internos.append(
+            f"'{titulo}' não vem no sync há {horas / 24:.0f} dia(s) — preço "
+            f"congelado enquanto o resto do catálogo atualiza de hora em hora."
         )
 
     # Regra que NAO rodou e silenciosa por natureza: sem o dado de entrada, o
