@@ -18,7 +18,7 @@ filtro, a URL do embed e os scripts do Ploomes ficam intocados.
 
 from typing import Literal
 
-from app.calculate.schemas import CalculateResponse
+from app.calculate.schemas import CalculateResponse, Diagnostico
 from app.config import settings
 
 Perfil = Literal["completo", "restrito"]
@@ -69,10 +69,17 @@ def aplicar(resp: CalculateResponse, perfil: Perfil) -> CalculateResponse:
     for alt in resp.alternativas:
         _limpar_kit(alt)
 
-    # Diagnóstico inteiro: `descartados` lista todo produto avaliado com marca
-    # e motivo (expõe o catálogo e quais concorrentes foram considerados), e
-    # `avisos` chega a apontar buraco de cadastro nosso.
-    resp.diagnostico = None
+    # Do diagnóstico sai o que é catálogo: `descartados` lista todo produto
+    # avaliado com marca e motivo, e `avisos_internos` aponta buraco de
+    # cadastro nosso.
+    #
+    # Os `avisos` FICAM. São eles que dizem "preço sincronizado há N horas,
+    # confira antes de enviar" e "a carga veio sem tensão, a compatibilidade
+    # não foi verificada" — falam da cotação que a pessoa está prestes a
+    # mandar para o cliente. Justamente quem só tem o campo restrito é quem
+    # mais precisa vê-los.
+    if resp.diagnostico:
+        resp.diagnostico = Diagnostico(avisos=resp.diagnostico.avisos)
 
     # Frete detalhado: valor separado, percentual por UF e piso mínimo. O que
     # sobra do frete é a modalidade e a UF, que a proposta precisa exibir.

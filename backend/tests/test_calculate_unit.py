@@ -723,8 +723,11 @@ def test_diagnostico_avisa_inversor_sem_dados_de_entrada_fv():
     sem = _FakeProd(title="SIW400H T015", voc_max_voltage=None, qty_mppt=None)
 
     com_pv = _montar_diagnostico([], _req_com_cargas(), [completo, sem], True)
+    # avisos_internos, nao avisos: nomeia produto do catalogo e denuncia buraco
+    # de cadastro nosso, entao nao vai para o perfil restrito
     assert any("sem dados de entrada FV" in a and "SIW400H T015" in a
-               for a in com_pv.avisos)
+               for a in com_pv.avisos_internos)
+    assert not any("sem dados de entrada FV" in a for a in com_pv.avisos)
 
     # sem FV no projeto o aviso nao faz sentido e nao deve poluir
     sem_pv = _montar_diagnostico([], _req_com_cargas(), [completo, sem], False)

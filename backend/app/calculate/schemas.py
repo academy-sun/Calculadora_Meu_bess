@@ -182,7 +182,15 @@ class ProdutoDescartado(BaseModel):
 class Diagnostico(BaseModel):
     """Por que o kit é este. Existe para o consultor conferir ANTES de
     apresentar ao cliente — o motor já sabia disso tudo e não contava."""
+    #: Avisos que QUALQUER usuário precisa ver: preço possivelmente defasado,
+    #: regra que não pôde ser verificada por falta de dado da carga. Falam da
+    #: cotação em si, não do catálogo — sobrevivem ao filtro de perfil.
     avisos: list[str] = []
+    #: Avisos de higiene interna: quantos produtos estão com cadastro
+    #: incompleto e quais. Úteis para nós, ruído (e exposição do catálogo)
+    #: para o usuário final. Separados de `avisos` porque o filtro de perfil
+    #: precisa distinguir os dois — texto não é critério de filtro confiável.
+    avisos_internos: list[str] = []
     descartados: list[ProdutoDescartado] = []
 
 

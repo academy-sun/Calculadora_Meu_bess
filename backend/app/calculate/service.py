@@ -134,6 +134,7 @@ def _montar_diagnostico(
     ]
 
     avisos: list[str] = []
+    avisos_internos: list[str] = []
     cargas = req.cargas_backup or []
 
     # Preço defasado é o erro mais caro que esta ferramenta pode cometer, e o
@@ -180,13 +181,16 @@ def _montar_diagnostico(
             if not eff_float(i, "voc_max_voltage") or not eff(i, "qty_mppt")
         ]
         if sem_fv:
-            avisos.append(
+            # Interno: nomeia produtos do catálogo e denuncia buraco de
+            # cadastro nosso. Não vai para o usuário final.
+            avisos_internos.append(
                 f"{len(sem_fv)} inversor(es) híbrido(s) sem dados de entrada FV "
                 f"cadastrados foram tratados como incapazes de receber módulos: "
                 f"{', '.join(sem_fv[:3])}{'…' if len(sem_fv) > 3 else ''}."
             )
 
-    return Diagnostico(avisos=avisos, descartados=descartados)
+    return Diagnostico(avisos=avisos, avisos_internos=avisos_internos,
+                       descartados=descartados)
 
 
 def _normalizar_fase(v: str | None) -> str:

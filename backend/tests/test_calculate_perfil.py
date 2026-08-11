@@ -112,8 +112,15 @@ class TestPerfilRestrito:
         assert "percentual" not in r.frete
         assert "valor" not in r.frete
 
-    def test_diagnostico_nao_sai(self, r):
-        assert r.diagnostico is None
+    def test_diagnostico_perde_catalogo_mas_mantem_avisos_da_cotacao(self, r):
+        """Os avisos falam da cotacao que a pessoa vai mandar ao cliente —
+        preco possivelmente defasado, regra que nao pode ser verificada. Quem
+        so tem o campo restrito e quem mais precisa deles. O que sai e o que
+        expoe o catalogo."""
+        assert r.diagnostico is not None
+        assert r.diagnostico.avisos == ["8 inversores híbridos sem dados de entrada FV"]
+        assert r.diagnostico.descartados == []
+        assert r.diagnostico.avisos_internos == []
 
     def test_alertas_e_rotulo_interno_nao_saem(self, r):
         assert r.kit_selecionado.alertas is None
