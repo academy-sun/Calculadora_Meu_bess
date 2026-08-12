@@ -3,6 +3,7 @@ import type { ElementType } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BatteryCharging, TrendingUp, Plus } from 'lucide-react'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
+import { NumeroCarga } from '@/components/CampoCarga'
 import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
@@ -483,12 +484,12 @@ export function NewProjectPage() {
                           <tr key={row.id} className="border-t border-gray-100">
                             <td className="px-1 py-1"><TInput value={row.nome} onChange={v => patchRow(row.id, { nome: v })} w="w-32" /></td>
                             <td className="px-1 py-1"><TInput value={row.categoria} onChange={v => patchRow(row.id, { categoria: v })} w="w-24" /></td>
-                            <td className="px-1 py-1"><NInput value={row.qtd} onChange={v => patchRow(row.id, { qtd: v })} /></td>
-                            <td className="px-1 py-1"><NInput value={row.pnom_w} onChange={v => patchRow(row.id, { pnom_w: v })} /></td>
-                            <td className="px-1 py-1"><NInput value={row.tdia_h} onChange={v => patchRow(row.id, { tdia_h: v })} /></td>
-                            <td className="px-1 py-1"><NInput value={row.fp} onChange={v => patchRow(row.id, { fp: v })} /></td>
-                            <td className="px-1 py-1"><NInput value={row.fd} onChange={v => patchRow(row.id, { fd: v })} /></td>
-                            <td className="px-1 py-1"><NInput value={row.ip_in} onChange={v => patchRow(row.id, { ip_in: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.qtd} onChange={v => patchRow(row.id, { qtd: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.pnom_w} onChange={v => patchRow(row.id, { pnom_w: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.tdia_h} onChange={v => patchRow(row.id, { tdia_h: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.fp} onChange={v => patchRow(row.id, { fp: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.fd} onChange={v => patchRow(row.id, { fd: v })} /></td>
+                            <td className="px-1 py-1"><NumeroCarga value={row.ip_in} onChange={v => patchRow(row.id, { ip_in: v })} /></td>
                             <td className="px-1 py-1">
                               <select value={row.tensao} onChange={e => patchRow(row.id, { tensao: e.target.value })}
                                 className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none">
@@ -743,10 +744,3 @@ function TInput({ value, onChange, w = 'w-24' }: { value: string; onChange: (v: 
   )
 }
 
-function NInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <input type="number" step="any" min={0} value={value}
-      onChange={e => onChange(parseFloat(e.target.value) || 0)}
-      className="w-16 rounded border border-gray-200 px-1 py-0.5 text-center text-xs focus:border-primary focus:outline-none" />
-  )
-}

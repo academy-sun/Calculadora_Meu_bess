@@ -5,6 +5,7 @@ import { useCalculate } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
 import type { LoadRowInput } from '@/components/AddLoadDialog'
+import { FaseCarga, NumeroCarga, TensaoCarga } from '@/components/CampoCarga'
 import { FreightSection } from '@/components/FreightSection'
 import { KitResult } from '@/components/KitResult'
 import { DiagnosticoKit } from '@/components/DiagnosticoKit'
@@ -60,6 +61,13 @@ export function PloomesEmbedPage() {
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
   const [autonomia, setAutonomia] = useState('1')
   const [rows, setRows] = useState<BackupRow[]>([])
+
+  /** Edita uma carga já inserida. Pn, Pp, E e os TOTAIS saem de `rows`,
+   *  então acompanham sozinhos — só o kit precisa ser recalculado, e isso
+   *  é o botão "Buscar kits" que faz. */
+  function patchRow(id: string, campos: Partial<BackupRow>) {
+    setRows(prev => prev.map(r => (r.id === id ? { ...r, ...campos } : r)))
+  }
   const [showAddLoad, setShowAddLoad] = useState(false)
   const [tipoFrete, setTipoFrete] = useState<TipoFrete | null>(ufInicial ? 'cif' : null)
   const [ufEntrega, setUfEntrega] = useState(ufInicial)
@@ -457,7 +465,7 @@ export function PloomesEmbedPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50">
                 <tr className="text-left text-gray-500">
-                  {['Equipamento','Qtd','Pot (W)','Uso (h/dia)','Tensão','IP/IN','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
+                  {['Equipamento','Qtd','Pot (W)','Uso (h/dia)','Tensão','Fase','IP/IN','Pn (kVA)','Pp (kVA)','E (kWh)',''].map(h => (
                     <th key={h} className="px-2 py-2 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -465,12 +473,31 @@ export function PloomesEmbedPage() {
               <tbody>
                 {rows.map(r => (
                   <tr key={r.id} className="border-t border-gray-100">
-                    <td className="px-2 py-1.5 font-medium text-ink">{r.nome}</td>
-                    <td className="px-2 py-1.5 text-center tabular-nums">{r.qtd}</td>
-                    <td className="px-2 py-1.5 text-center tabular-nums">{r.pnom_w}</td>
-                    <td className="px-2 py-1.5 text-center tabular-nums">{r.tdia_h}</td>
-                    <td className="px-2 py-1.5 text-center tabular-nums">{r.tensao} V</td>
-                    <td className="px-2 py-1.5 text-center tabular-nums">{r.ip_in}</td>
+                    <td className="px-2 py-1.5">
+                      <input value={r.nome} onChange={e => patchRow(r.id, { nome: e.target.value })}
+                        className="w-full min-w-[9rem] rounded border border-transparent px-1 py-0.5 text-xs
+                                   font-medium text-ink hover:border-gray-200
+                                   focus:border-primary focus:outline-none" />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <NumeroCarga value={r.qtd} onChange={v => patchRow(r.id, { qtd: v })} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <NumeroCarga value={r.pnom_w} onChange={v => patchRow(r.id, { pnom_w: v })} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <NumeroCarga value={r.tdia_h} onChange={v => patchRow(r.id, { tdia_h: v })} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <TensaoCarga value={String(r.tensao)} onChange={v => patchRow(r.id, { tensao: v })} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <FaseCarga value={String(r.fase ?? 'monofasico')} onChange={v => patchRow(r.id, { fase: v })} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      <NumeroCarga value={r.ip_in} onChange={v => patchRow(r.id, { ip_in: v })}
+                        titulo="Relação corrente de partida / corrente nominal" />
+                    </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowPn(r).toFixed(2)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowPp(r).toFixed(2)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-600">{rowE(r).toFixed(2)}</td>
@@ -483,7 +510,7 @@ export function PloomesEmbedPage() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-700">
-                  <td className="px-2 py-2 text-right" colSpan={6}>TOTAIS</td>
+                  <td className="px-2 py-2 text-right" colSpan={7}>TOTAIS</td>
                   <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowPn(r), 0).toFixed(2)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowPp(r), 0).toFixed(2)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{rows.reduce((s, r) => s + rowE(r), 0).toFixed(2)}</td>
