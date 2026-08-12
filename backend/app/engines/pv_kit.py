@@ -263,6 +263,7 @@ def pv_accessory_itens(
     itens: list[dict] = [{
         "meubess_id": str(getattr(modulo.produto, "meubess_id", "") or ""),
         "nome": _tit(modulo.produto), "tipo": "modulo_fv", "qtd": qty_modulos,
+        "potencia_wp": modulo.wp,
         "preco_unitario": round(modulo.preco, 2),
         "preco_total": round(modulo.preco * qty_modulos, 2),
     }]

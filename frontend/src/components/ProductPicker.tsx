@@ -34,7 +34,6 @@ export function ProductPicker({ onAdd, onClose, porApiKey = false, ocultarPreco 
   const [marca, setMarca] = useState('')
   const [potenciaMin, setPotenciaMin] = useState('')
   const [potenciaMax, setPotenciaMax] = useState('')
-  const [somenteAtivos, setSomenteAtivos] = useState(true)
   const [showFiltros, setShowFiltros] = useState(false)
 
   // debounce simples da busca por texto/filtros antes de bater no backend
@@ -47,11 +46,13 @@ export function ProductPicker({ onAdd, onClose, porApiKey = false, ocultarPreco 
         marca: marca || undefined,
         potencia_min: potenciaMin ? parseFloat(potenciaMin) : undefined,
         potencia_max: potenciaMax ? parseFloat(potenciaMax) : undefined,
-        active: somenteAtivos ? true : undefined,
+        // Produto inativo nunca entra em cotação — deixar a opção na tela só
+        // permitia montar kit com item que o motor recusa.
+        active: true,
       })
     }, 300)
     return () => clearTimeout(t)
-  }, [titulo, tipo, marca, potenciaMin, potenciaMax, somenteAtivos])
+  }, [titulo, tipo, marca, potenciaMin, potenciaMax])
 
   // Duas fontes. O hook por JWT continua servindo a calculadora interna; o
   // embed usa o endpoint por chave, que devolve menos campos de propósito.
@@ -62,12 +63,13 @@ export function ProductPicker({ onAdd, onClose, porApiKey = false, ocultarPreco 
     if (!porApiKey) return
     let vivo = true
     setCarregandoChave(true)
-    buscarProdutosParaKit(filters.titulo ?? '', filters.tipo ?? '')
+    buscarProdutosParaKit(filters)
       .then(r => { if (vivo) setViaChave(r) })
       .catch(() => { if (vivo) setViaChave([]) })
       .finally(() => { if (vivo) setCarregandoChave(false) })
     return () => { vivo = false }
-  }, [porApiKey, filters.titulo, filters.tipo])
+  }, [porApiKey, filters.titulo, filters.tipo, filters.marca,
+      filters.potencia_min, filters.potencia_max])
 
   const isLoading = porApiKey ? carregandoChave : carregandoJwt
   const listados: Array<{ meubess_id: string; title: string; marca: string; tipo: string; price: number | null; bruto?: MeuBESSProduct }> =
@@ -165,11 +167,6 @@ export function ProductPicker({ onAdd, onClose, porApiKey = false, ocultarPreco 
                 <input type="number" step="any" min={0} value={potenciaMax} onChange={e => setPotenciaMax(e.target.value)}
                   className="w-full rounded-lg border border-ink/15 bg-white px-2 py-1.5 text-sm focus:border-primary focus:outline-none" />
               </div>
-              <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70 sm:col-span-4">
-                <input type="checkbox" checked={somenteAtivos} onChange={e => setSomenteAtivos(e.target.checked)}
-                  className="rounded border-ink/30 text-primary focus:ring-primary" />
-                Somente produtos ativos
-              </label>
             </div>
           )}
         </div>

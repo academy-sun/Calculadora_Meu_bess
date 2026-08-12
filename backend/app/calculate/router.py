@@ -69,6 +69,9 @@ async def reprecificar_kit(
 async def produtos_para_kit(
     q: str | None = None,
     tipo: str | None = None,
+    marca: str | None = None,
+    potencia_min: float | None = None,
+    potencia_max: float | None = None,
     db: AsyncSession = Depends(get_db),
     api_key: str = Depends(verify_api_key),
 ):
@@ -80,7 +83,9 @@ async def produtos_para_kit(
     """
     perfil = perfil_mod.resolver(api_key)
     produtos = await catalog_service.list_products(
-        db, tipo=tipo, titulo=q, active=True, limit=400)
+        db, tipo=tipo, titulo=q, marca=marca,
+        potencia_min=potencia_min, potencia_max=potencia_max,
+        active=True, limit=400)
     restrito = perfil == "restrito"
     return [
         ProdutoParaKit(

@@ -143,8 +143,12 @@ export function resumoParaProposta(
   autonomiaSolicitadaDias: number | null | undefined,
   cargas: CargaLinha[] = [],
   tipoEstrutura = '',
+  /** Itens como estão na tela. Sem isto TODOS os campos da proposta —
+   *  tabela, descrições, energia, potências, cobertura — sairiam do kit
+   *  original do servidor, ignorando o que o vendedor editou. */
+  itensEditados?: KitItem[],
 ): ResumoProposta {
-  const itens = kit.itens ?? []
+  const itens = itensEditados ?? kit.itens ?? []
   const energia = energiaTotalKwh(itens)
 
   const temBase = !!energiaNecessariaKwh && energiaNecessariaKwh > 0 && energia > 0
@@ -158,7 +162,7 @@ export function resumoParaProposta(
 
   return {
     qtd_modulos: qtdModulos > 0 ? qtdModulos : null,
-    kwp_sistema: kit.kwp_instalado ?? null,
+    kwp_sistema: kwpDosItens(itens) ?? kit.kwp_instalado ?? null,
     descricao_modulos: descreverItens(itens, TIPO_MODULO),
     descricao_inversores: descreverItens(itens, TIPO_INVERSOR),
     descricao_baterias: descreverItens(itens, TIPO_BATERIA),
@@ -173,6 +177,19 @@ export function resumoParaProposta(
     cargas_html: montarTabelaCargasHtml(cargas),
     tipo_estrutura: tipoEstrutura,
   }
+}
+
+/** kWp somado dos módulos que estão no kit AGORA.
+ *
+ * O kit_instalado do servidor descreve o kit que ELE montou. Trocar a
+ * quantidade de módulos na tela mudava o preço e não mudava o kWp, e a
+ * proposta saía com os dois números se contradizendo. Cai no valor do
+ * servidor quando nenhum módulo traz o Wp (item antigo, em cache). */
+function kwpDosItens(itens: KitItem[]): number | null {
+  const wp = itens
+    .filter(i => TIPO_MODULO.includes(i.tipo) && i.potencia_wp)
+    .reduce((s, i) => s + (i.potencia_wp ?? 0) * i.qtd, 0)
+  return wp > 0 ? Math.round(wp / 1000 * 1000) / 1000 : null
 }
 
 function arredondar1(v: number): number | null {

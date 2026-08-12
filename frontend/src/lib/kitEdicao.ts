@@ -18,10 +18,16 @@ export interface KitReprecificado {
   total_com_frete: number
 }
 
-export function buscarProdutosParaKit(q: string, tipo: string) {
+export function buscarProdutosParaKit(f: {
+  titulo?: string; tipo?: string; marca?: string
+  potencia_min?: number; potencia_max?: number
+}) {
   const p = new URLSearchParams()
-  if (q) p.set('q', q)
-  if (tipo) p.set('tipo', tipo)
+  if (f.titulo) p.set('q', f.titulo)
+  if (f.tipo) p.set('tipo', f.tipo)
+  if (f.marca) p.set('marca', f.marca)
+  if (f.potencia_min != null) p.set('potencia_min', String(f.potencia_min))
+  if (f.potencia_max != null) p.set('potencia_max', String(f.potencia_max))
   const qs = p.toString()
   return apiGet<ProdutoParaKit[]>(`/calculate/produtos${qs ? `?${qs}` : ''}`, true)
 }

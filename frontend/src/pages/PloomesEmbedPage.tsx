@@ -68,10 +68,13 @@ export function PloomesEmbedPage() {
   // Itens editáveis do kit sugerido. Ficam fora de `result` porque a
   // resposta do cálculo é o que o servidor mandou; isto é o que o vendedor
   // montou, e é isso que vai para a proposta no clique.
-  const [itensKit, setItensKit] = useState<KitItem[]>([])
-  const [totalServidor, setTotalServidor] = useState<number | null>(null)
-  const [recalculando, setRecalculando] = useState(false)
-  const [editouKit, setEditouKit] = useState(false)
+  // Um estado por kit da tela: 0 é o sugerido, 1..n as alternativas. As
+  // alternativas também são editáveis, e cada uma tem o próprio total.
+  const [itensPorKit, setItensPorKit] = useState<Record<number, KitItem[]>>({})
+  const [totalPorKit, setTotalPorKit] = useState<Record<number, number>>({})
+  const [recalculandoKit, setRecalculandoKit] = useState<Record<number, boolean>>({})
+  const [editadoKit, setEditadoKit] = useState<Record<number, boolean>>({})
+  const [ultimaEdicao, setUltimaEdicao] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [enviado, setEnviado] = useState(false)
   const [contextoRecebido, setContextoRecebido] = useState(false)
@@ -183,7 +186,9 @@ export function PloomesEmbedPage() {
    * antes, o kit original do servidor ia para a proposta mesmo depois de
    * editado, e a diferença passava despercebida.
    */
-  async function aplicarNaProposta(kit: KitInfo, itensAtuais?: KitItem[]) {
+  async function aplicarNaProposta(kit: KitInfo, idxKit = 0) {
+    const itensAtuais = itensPorKit[idxKit]
+    const editou = !!editadoKit[idxKit]
     // Kit que não cobre a energia pedida (a "alternativa mais econômica" é
     // sub-dimensionada de propósito). Vale para qualquer kit abaixo de 100%,
     // não só o rotulado como econômico: o risco de aplicar sem perceber é o
@@ -204,8 +209,8 @@ export function PloomesEmbedPage() {
     // Kit editado: o total tem de vir do servidor. No perfil restrito o
     // preço unitário nem chega aqui, e mesmo no completo o frete CIF muda
     // de faixa com o preço — somar na tela erraria na virada.
-    let totalServidorAplicar = totalServidor
-    if (itensAtuais && editouKit) {
+    let totalServidorAplicar = totalPorKit[idxKit] ?? null
+    if (itensAtuais && editou) {
       try {
         const r = await reprecificarKit(
           itens, tipoFrete, tipoFrete === 'cif' ? ufEntrega : null)
@@ -227,10 +232,10 @@ export function PloomesEmbedPage() {
     // Com kit editado o preço do kit sai da soma dos itens (perfil completo,
     // onde os unitários existem); no restrito continua null, como antes.
     const precoItens = itens.reduce((acc, it) => acc + it.preco_unitario * it.qtd, 0)
-    const kitPreco = restrito ? null : round2(editouKit ? precoItens : kit.preco_total)
+    const kitPreco = restrito ? null : round2(editou ? precoItens : kit.preco_total)
     const freteValor = restrito || kit.frete_valor == null
       ? null
-      : round2(editouKit && totalServidorAplicar != null
+      : round2(editou && totalServidorAplicar != null
           ? totalServidorAplicar - precoItens
           : kit.frete_valor)
     const totalGeral = round2(
@@ -242,23 +247,35 @@ export function PloomesEmbedPage() {
       : null
     // Texto puro só como fallback; o campo é um TinyMCE e recebe a tabela HTML.
     const itensTexto = itens.map(it => `${it.qtd}× ${it.nome}`).join(' | ')
+    // itens do momento do clique: é deles que saem a tabela de Itens do
+    // Kit, as descrições, energia, potências, cobertura e kWp. Antes tudo
+    // isso vinha de kit.itens e a proposta contradizia o preço aplicado.
     const resumo = resumoParaProposta(
       kit,
       result?.energia_necessaria_kwh,
       parseFloat(autonomia) || null,
       rows,
       rotuloFixingType(fixingType),
+      itens,
     )
 
     // Kit sem bateria (on-grid puro): o template híbrido produzia
     // "— — Sistema FV On-Grid + 0× —", porque marca/bateria vêm vazias.
-    const semBateria = !kit.qtd_baterias || !kit.bateria_modelo || kit.bateria_modelo === '—'
-    const kwpTxt = kit.kwp_instalado
-      ? `${kit.kwp_instalado.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kWp`
+    // Descrição derivada dos itens da tela, não dos campos do kit original:
+    // trocar a quantidade de baterias ou o inversor tem de aparecer aqui.
+    const baterias = itens.filter(i => i.tipo === 'bateria')
+    const inversores = itens.filter(i => i.tipo.startsWith('inversor'))
+    const qtdBaterias = baterias.reduce((s, i) => s + i.qtd, 0)
+    const semBateria = qtdBaterias === 0
+    const kwpTxt = resumo.kwp_sistema
+      ? `${resumo.kwp_sistema.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kWp`
       : null
+    const nomeInversores = inversores.length
+      ? inversores.map(i => (i.qtd > 1 ? `${i.qtd}× ` : '') + i.nome).join(' + ')
+      : kit.inversor_modelo
     const kitDescricao = semBateria
-      ? [kit.inversor_modelo || 'Sistema FV On-Grid', kwpTxt].filter(Boolean).join(' — ')
-      : `${kit.marca} — ${kit.inversor_modelo} + ${kit.qtd_baterias}× ${kit.bateria_modelo}`
+      ? [nomeInversores || 'Sistema FV On-Grid', kwpTxt].filter(Boolean).join(' — ')
+      : `${kit.marca} — ${nomeInversores} + ${baterias.map(b => `${b.qtd}× ${b.nome}`).join(' + ')}`
     // string decimal com vírgula, sem milhar — formato que a máscara de moeda
     // pt-BR do Ploomes interpreta corretamente ao ser "digitado" via script
     const brStr = (v: number | null) => v == null ? '' : v.toFixed(2).replace('.', ',')
@@ -310,37 +327,54 @@ export function PloomesEmbedPage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  // Kit novo do servidor: adota os itens dele e zera o estado de edição.
+  // Resultado novo do servidor: adota os itens dele e zera as edições.
   useEffect(() => {
-    setItensKit(result?.kit_selecionado?.itens ?? [])
-    setTotalServidor(null)
-    setEditouKit(false)
+    const mapa: Record<number, KitItem[]> = {}
+    if (result?.kit_selecionado) mapa[0] = result.kit_selecionado.itens ?? []
+    ;(result?.alternativas ?? []).forEach((a, i) => { mapa[i + 1] = a.itens ?? [] })
+    setItensPorKit(mapa)
+    setTotalPorKit({})
+    setEditadoKit({})
+    setUltimaEdicao(null)
   }, [result])
+
+  function editarItens(idx: number, itens: KitItem[]) {
+    setItensPorKit(m => ({ ...m, [idx]: itens }))
+    setEditadoKit(m => ({ ...m, [idx]: true }))
+    setUltimaEdicao(idx)
+  }
 
   // Reprecifica SÓ depois de uma edição — a resposta do cálculo já vem com
   // os totais certos, e bater no servidor à toa a cada abertura só
   // adicionaria latência. Debounce porque quantidade se edita digitando.
   useEffect(() => {
-    if (!editouKit || itensKit.length === 0) return
+    const idx = ultimaEdicao
+    if (idx == null) return
+    const itens = itensPorKit[idx] ?? []
+    if (itens.length === 0) return
     let vivo = true
-    setRecalculando(true)
+    setRecalculando(idx, true)
     const t = setTimeout(() => {
-      reprecificarKit(itensKit, tipoFrete, tipoFrete === 'cif' ? ufEntrega : null)
+      reprecificarKit(itens, tipoFrete, tipoFrete === 'cif' ? ufEntrega : null)
         .then(r => {
           if (!vivo) return
           // Substitui pelos itens do servidor: eles voltam com os atributos
           // de engenharia (energia, potência) que o card usa para recalcular
           // cobertura e potência de partida, e que o item recém-adicionado
           // pelo picker do embed não tinha.
-          setItensKit(r.itens)
-          setTotalServidor(r.total_com_frete)
+          setItensPorKit(m => ({ ...m, [idx]: r.itens }))
+          setTotalPorKit(m => ({ ...m, [idx]: r.total_com_frete }))
         })
-        .catch(() => { if (vivo) setTotalServidor(null) })
-        .finally(() => { if (vivo) setRecalculando(false) })
+        .catch(() => { if (vivo) setTotalPorKit(m => { const n = { ...m }; delete n[idx]; return n }) })
+        .finally(() => { if (vivo) setRecalculando(idx, false) })
     }, 400)
     return () => { vivo = false; clearTimeout(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editouKit, JSON.stringify(itensKit.map(i => [i.meubess_id, i.qtd])), tipoFrete, ufEntrega])
+  }, [ultimaEdicao, JSON.stringify((itensPorKit[ultimaEdicao ?? -1] ?? []).map(i => [i.meubess_id, i.qtd])), tipoFrete, ufEntrega])
+
+  function setRecalculando(idx: number, v: boolean) {
+    setRecalculandoKit(m => ({ ...m, [idx]: v }))
+  }
 
   const restritoUI = (result?.perfil ?? modoUI) === 'restrito'
 
@@ -527,8 +561,8 @@ export function PloomesEmbedPage() {
             )}
             <KitResult
               kit={result.kit_selecionado}
-              itens={itensKit}
-              onItensChange={itens => { setItensKit(itens); setEditouKit(true) }}
+              itens={itensPorKit[0] ?? []}
+              onItensChange={itens => editarItens(0, itens)}
               titulo={result.kit_selecionado.rotulo ?? 'Kit sugerido'}
               energiaNecessariaKwh={result.energia_necessaria_kwh}
               kwpInstalado={result.kit_selecionado.kwp_instalado}
@@ -537,18 +571,18 @@ export function PloomesEmbedPage() {
               ocultarValores={restritoUI}
               editable
               pickerPorApiKey
-              totalComFreteServidor={totalServidor}
-              recalculando={recalculando}
+              totalComFreteServidor={totalPorKit[0] ?? null}
+              recalculando={!!recalculandoKit[0]}
               collapsible defaultOpen
-              onEscolher={() => aplicarNaProposta(result.kit_selecionado!, itensKit)}
+              onEscolher={() => aplicarNaProposta(result.kit_selecionado!, 0)}
               escolherLabel="Aplicar à proposta"
             />
             {result.alternativas.map((alt, i) => (
               <KitResult
                 key={i}
                 kit={alt}
-                itens={alt.itens ?? []}
-                onItensChange={() => {}}
+                itens={itensPorKit[i + 1] ?? []}
+                onItensChange={itens => editarItens(i + 1, itens)}
                 titulo={alt.rotulo ?? 'Kit alternativo'}
                 energiaNecessariaKwh={result.energia_necessaria_kwh}
                 kwpInstalado={alt.kwp_instalado}
@@ -556,9 +590,12 @@ export function PloomesEmbedPage() {
                   ? { ...(result.frete as FreteInfo), valor: alt.frete_valor }
                   : undefined}
                 ocultarValores={restritoUI}
-                editable={false}
+                editable
+                pickerPorApiKey
+                totalComFreteServidor={totalPorKit[i + 1] ?? null}
+                recalculando={!!recalculandoKit[i + 1]}
                 collapsible defaultOpen={false}
-                onEscolher={() => aplicarNaProposta(alt)}
+                onEscolher={() => aplicarNaProposta(alt, i + 1)}
                 escolherLabel="Aplicar à proposta"
               />
             ))}

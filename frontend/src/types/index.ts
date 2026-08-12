@@ -313,6 +313,9 @@ export interface KitItem {
   energia_unit_kwh?: number
   corrente_pico_a?: number
   tensao_v?: number
+  /** Wp do módulo, por unidade. Sem isto o kWp do sistema não acompanha a
+   *  edição do kit e a proposta sai com a potência do kit original. */
+  potencia_wp?: number
   // inversor (por unidade)
   potencia_inversao_kw?: number
   potencia_pico_kw?: number

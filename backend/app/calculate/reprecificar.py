@@ -78,6 +78,12 @@ async def reprecificar(db: AsyncSession, req: ReprecificarRequest) -> Reprecific
             potencia_pico_kw=eff_float(prod, "peak_power_kw"),
             corrente_entrada_a=eff_float(prod, "battery_input_max_current_a"),
             entradas_bateria=(int(v) if (v := eff_float(prod, "battery_inputs")) else None),
+            # `power` do módulo vem em kW no cadastro; a tela e a proposta
+            # trabalham em Wp.
+            potencia_wp=(round(pw * 1000, 1)
+                         if (pw := eff_float(prod, "power")) and
+                            str(prod.tipo_manual or prod.tipo_auto or "") == "modulo_fv"
+                         else None),
         ))
 
     preco_total = round(sum(i.preco_total for i in itens), 2)

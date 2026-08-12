@@ -118,6 +118,9 @@ class KitItem(BaseModel):
     energia_unit_kwh: Optional[float] = None
     corrente_pico_a: Optional[float] = None
     tensao_v: Optional[float] = None
+    #: Wp do módulo, por unidade. Sem isto o kWp do sistema não acompanha a
+    #: edição do kit — a proposta sairia com a potência do kit original.
+    potencia_wp: Optional[float] = None
     # inversor (por unidade)
     potencia_inversao_kw: Optional[float] = None   # potência nominal de saída/EPS
     potencia_pico_kw: Optional[float] = None       # potência de pico (partida)

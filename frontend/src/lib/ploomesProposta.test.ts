@@ -223,3 +223,62 @@ describe('tipo de estrutura no resumo', () => {
     expect(resumoParaProposta(KIT_HIBRIDO, 3.68, 1).tipo_estrutura).toBe('')
   })
 })
+
+describe('resumo com o kit editado na tela', () => {
+  const KIT_BASE = {
+    marca: 'WEG', bateria_modelo: 'CB100', inversor_modelo: 'M050',
+    qtd_baterias: 2, qtd_inversores: 1, capacidade_total_kwh: 20.14,
+    potencia_total_kw: 6, preco_total: 30000, kwp_instalado: 8.89,
+    distribuicao_baterias: [2], n_caixas_juncao: 1, pico_entregavel_kw: 6,
+    itens: [
+      { meubess_id: 'm1', nome: 'Módulo 635', tipo: 'modulo_fv', qtd: 14,
+        preco_unitario: 600, preco_total: 8400, potencia_wp: 635 },
+      { meubess_id: 'b1', nome: 'CB100', tipo: 'bateria', qtd: 2,
+        preco_unitario: 11974, preco_total: 23948, energia_unit_kwh: 10.07 },
+    ],
+  } as unknown as KitInfo
+
+  it('tabela, descrições e energia saem dos itens EDITADOS', () => {
+    // O bug relatado em campo: o preço ia atualizado para o Ploomes e a
+    // tabela de Itens do Kit continuava a do kit original.
+    const editados = [
+      { meubess_id: 'm1', nome: 'Módulo 635', tipo: 'modulo_fv', qtd: 20,
+        preco_unitario: 600, preco_total: 12000, potencia_wp: 635 },
+      { meubess_id: 'b1', nome: 'CB100', tipo: 'bateria', qtd: 3,
+        preco_unitario: 11974, preco_total: 35922, energia_unit_kwh: 10.07 },
+    ]
+    const r = resumoParaProposta(KIT_BASE, 30, 1, [], '', editados)
+
+    expect(r.qtd_modulos).toBe(20)
+    expect(r.itens_html).toContain('20')
+    expect(r.descricao_baterias).toContain('3')
+    expect(r.energia_total_kwh).toBeCloseTo(30.21, 2)   // 3 × 10,07
+  })
+
+  it('kWp acompanha a quantidade de módulos, não o kit original', () => {
+    // Sem isto a proposta saía com 8,89 kWp e 20 módulos — dois números
+    // se contradizendo na mesma folha.
+    const editados = [
+      { meubess_id: 'm1', nome: 'Módulo 635', tipo: 'modulo_fv', qtd: 20,
+        preco_unitario: 600, preco_total: 12000, potencia_wp: 635 },
+    ]
+    const r = resumoParaProposta(KIT_BASE, 30, 1, [], '', editados)
+    expect(r.kwp_sistema).toBeCloseTo(12.7, 2)          // 20 × 635 Wp
+    expect(r.kwp_sistema).not.toBe(KIT_BASE.kwp_instalado)
+  })
+
+  it('sem itens editados continua usando os do kit', () => {
+    const r = resumoParaProposta(KIT_BASE, 30, 1, [], '')
+    expect(r.qtd_modulos).toBe(14)
+    expect(r.kwp_sistema).toBeCloseTo(8.89, 2)
+  })
+
+  it('item sem potencia_wp cai no kWp do servidor em vez de zerar', () => {
+    const editados = [
+      { meubess_id: 'm1', nome: 'Módulo antigo', tipo: 'modulo_fv', qtd: 10,
+        preco_unitario: 600, preco_total: 6000 },
+    ]
+    const r = resumoParaProposta(KIT_BASE, 30, 1, [], '', editados)
+    expect(r.kwp_sistema).toBeCloseTo(8.89, 2)
+  })
+})
