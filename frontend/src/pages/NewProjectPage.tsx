@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BatteryCharging, TrendingUp, Plus } from 'lucide-react'
 import { FreightSection, estimarFreteParaPreco } from '@/components/FreightSection'
 import { NumeroCarga } from '@/components/CampoCarga'
+import { FeedbackDialog } from '@/components/FeedbackDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { CityCombobox } from '@/components/CityCombobox'
 import { AddLoadDialog } from '@/components/AddLoadDialog'
@@ -645,7 +646,27 @@ export function NewProjectPage() {
         {result && (
           result.kit_selecionado ? (
             <div className="mt-8 space-y-3">
-              <h2 className="font-display text-xl font-bold tracking-tight text-ink">Opções de kit</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-xl font-bold tracking-tight text-ink">Opções de kit</h2>
+                <FeedbackDialog origem="interna"
+                  autorNome={(user?.user_metadata?.nome as string) ?? user?.email}
+                  autorEmail={user?.email}
+                  contexto={{
+                    entradas: {
+                      powerpeak_kwp: kwp, tipo_instalacao: tipoInstalacao,
+                      padrao_entrada: padraoEntrada, autonomia,
+                      fixing_type: fixingType, cargas: rows,
+                    },
+                    kit_sugerido: result.kit_selecionado ? {
+                      inversor: result.kit_selecionado.inversor_modelo,
+                      bateria: result.kit_selecionado.bateria_modelo,
+                      qtd_baterias: result.kit_selecionado.qtd_baterias,
+                      preco_total: result.kit_selecionado.preco_total,
+                    } : null,
+                    itens_na_tela: itensSugerido,
+                    diagnostico: result.diagnostico ?? null,
+                  }} />
+              </div>
               {/* Antes de apresentar ao cliente: o que o motor deixou de fora e por quê */}
               <DiagnosticoKit diagnostico={result.diagnostico} />
               <KitResult

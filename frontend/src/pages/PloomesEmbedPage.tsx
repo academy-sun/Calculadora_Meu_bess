@@ -13,6 +13,7 @@ import { extrairUF, normalizarFixingType, rotuloFixingType } from '@/lib/ploomes
 import { resumoParaProposta } from '@/lib/ploomesProposta'
 import { energiaTotalKwh } from '@/lib/kitMetrics'
 import { definirApiKey } from '@/lib/api'
+import { FeedbackDialog } from '@/components/FeedbackDialog'
 import { reprecificarKit } from '@/lib/kitEdicao'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
@@ -587,7 +588,32 @@ export function PloomesEmbedPage() {
       {result && (
         result.kit_selecionado ? (
           <div className="space-y-3">
-            <h2 className="font-display text-lg font-bold text-ink">Opções de kit</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-lg font-bold text-ink">Opções de kit</h2>
+              {/* Junto do resultado, não num rodapé: é olhando o kit que a
+                  pessoa percebe que algo está errado. */}
+              {/* Sem autor: o embed não recebe a identidade do usuário do
+                  Ploomes hoje. O contexto do cálculo é o que permite achar
+                  a proposta e, por ela, quem escreveu. */}
+              <FeedbackDialog origem="embed" porApiKey
+                contexto={{
+                  entradas: {
+                    powerpeak_kwp: kwp, tipo_instalacao: tipoInstalacao,
+                    padrao_entrada: padraoEntrada, autonomia, fixing_type: fixingType,
+                    tipo_frete: tipoFrete, uf_entrega: ufEntrega,
+                    cargas: rows,
+                  },
+                  kit_sugerido: result.kit_selecionado ? {
+                    inversor: result.kit_selecionado.inversor_modelo,
+                    bateria: result.kit_selecionado.bateria_modelo,
+                    qtd_baterias: result.kit_selecionado.qtd_baterias,
+                    capacidade_kwh: result.kit_selecionado.capacidade_total_kwh,
+                    total_com_frete: result.kit_selecionado.total_com_frete,
+                  } : null,
+                  itens_na_tela: itensPorKit[0] ?? [],
+                  diagnostico: result.diagnostico ?? null,
+                }} />
+            </div>
             {/* Antes de apresentar ao cliente: o que o motor deixou de fora e por quê */}
             {!restritoUI && <DiagnosticoKit diagnostico={result.diagnostico} />}
             {enviado && (

@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     meubess_api_key: str = ""
     meubess_api_url: str = "https://plataforma.meubess.com.br/api/v1"
 
+    # Feedback do usuário — notificação por e-mail (opcional).
+    # Sem SMTP_HOST o feedback continua sendo gravado e aparece na caixa de
+    # entrada da plataforma; o e-mail é aviso em cima do registro, não o
+    # registro. Ver app/feedback/email.py.
+    feedback_email_to: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_ssl: bool = False      # True para porta 465
+
     # Sync periódico do catálogo (preços). 3600 = de hora em hora.
     # 0 ou negativo desliga o agendador — usado nos testes e em dev, onde não
     # se quer bater na plataforma a cada execução.

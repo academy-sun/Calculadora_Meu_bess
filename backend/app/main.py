@@ -10,6 +10,7 @@ from app.auth.router import router as admin_users_router
 from app.calculate.router import router as calculate_router
 from app.catalog import scheduler as catalog_scheduler
 from app.catalog.router import router as catalog_router
+from app.feedback.router import router as feedback_router
 from app.ploomes.router import router as ploomes_router
 from app.projects.router import router as projects_router
 
@@ -46,6 +47,7 @@ app.include_router(catalog_router)
 app.include_router(projects_router)
 app.include_router(calculate_router)
 app.include_router(ploomes_router)
+app.include_router(feedback_router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

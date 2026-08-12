@@ -7,6 +7,7 @@ import {
   Package,
   LogOut,
   Users,
+  MessageSquare,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -70,6 +71,7 @@ export function Layout() {
               <NavItem to="/products" icon={Package} label="Catálogo MeuBESS" />
               <NavItem to="/catalog/loads" icon={Zap} label="Cargas Padrão" />
               <NavItem to="/admin/users" icon={Users} label="Usuários" />
+              <NavItem to="/admin/feedback" icon={MessageSquare} label="Feedback" />
             </>
           )}
         </nav>

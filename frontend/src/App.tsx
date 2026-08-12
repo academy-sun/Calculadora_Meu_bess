@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/lib/queryClient'
+import { FeedbacksPage } from '@/pages/FeedbacksPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { AdminRoute } from '@/components/AdminRoute'
 import { Layout } from '@/components/Layout'
@@ -34,6 +35,7 @@ export function App() {
                 <Route path="catalog" element={<CatalogPage />} />
                 <Route path="catalog/loads" element={<CatalogLoadsPage />} />
                 <Route path="admin/users" element={<UsersAdminPage />} />
+                <Route path="admin/feedback" element={<FeedbacksPage />} />
               </Route>
             </Route>
           </Route>
