@@ -185,9 +185,13 @@ export function KitResult({
       </div>
 
       {onEscolher && (
-        <button onClick={onEscolher} disabled={escolhendo}
+        // Travado durante a reprecificação: clicar no meio dela aplicaria o
+        // total anterior à edição, que é justamente o número que vai para a
+        // proposta.
+        <button onClick={onEscolher} disabled={escolhendo || recalculando}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:opacity-50">
-          <CheckCircle2 size={17} /> {escolhendo ? 'Salvando…' : escolherLabel}
+          <CheckCircle2 size={17} />{' '}
+          {recalculando ? 'Recalculando…' : escolhendo ? 'Salvando…' : escolherLabel}
         </button>
       )}
 

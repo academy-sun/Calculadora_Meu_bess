@@ -13,6 +13,15 @@ from app.catalog import service as catalog_service
 from app.database import get_db
 
 
+#: Tipos que podem entrar num kit. Fora daqui não é produto cotável: os 51
+#: 'indefinido' são os inversores de frequência CFW500, tirados do motor na
+#: migration 012 — mas o picker os listava, porque estavam ativos e com
+#: preço. Reclassificar sem filtrar aqui deixava a porta aberta pela tela.
+TIPOS_COTAVEIS = (
+    "inversor_hibrido", "inversor_string", "bateria", "modulo_fv", "acessorio",
+)
+
+
 class ProdutoParaKit(BaseModel):
     """Produto do catálogo para o picker do embed.
 
@@ -85,7 +94,7 @@ async def produtos_para_kit(
     produtos = await catalog_service.list_products(
         db, tipo=tipo, titulo=q, marca=marca,
         potencia_min=potencia_min, potencia_max=potencia_max,
-        active=True, limit=400)
+        active=True, limit=800)
     restrito = perfil == "restrito"
     return [
         ProdutoParaKit(
@@ -97,4 +106,5 @@ async def produtos_para_kit(
         )
         for p in produtos
         if p.price is not None and float(p.price) > 0
+        and str(p.tipo_manual or p.tipo_auto or "") in TIPOS_COTAVEIS
     ]

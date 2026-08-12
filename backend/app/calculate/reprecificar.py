@@ -40,6 +40,24 @@ class ReprecificarResponse(BaseModel):
     total_com_frete: float
 
 
+#: Vocabulário de `tipo` do ITEM DE KIT, que é o que a tela consome. Não é o
+#: mesmo do catálogo: o motor chama o híbrido de "inversor", e a réplica de
+#: "inversor_hibrido". Devolver o do catálogo quebrou três coisas de uma vez —
+#: a descrição dos inversores saía vazia na proposta, a potência de partida
+#: zerava e a de inversão somava a bateria junto.
+_TIPO_DO_CATALOGO = {
+    "inversor_hibrido": "inversor",
+    "inversor_string": "inversor_string",
+    "bateria": "bateria",
+    "modulo_fv": "modulo_fv",
+}
+
+
+def _tipo_item(prod) -> str:
+    catalogo = str(prod.tipo_manual or prod.tipo_auto or "")
+    return _TIPO_DO_CATALOGO.get(catalogo, "acessorio")
+
+
 async def reprecificar(db: AsyncSession, req: ReprecificarRequest) -> ReprecificarResponse:
     """Preços e totais do kit editado. Ignora id que não existe mais no catálogo.
 
@@ -61,29 +79,34 @@ async def reprecificar(db: AsyncSession, req: ReprecificarRequest) -> Reprecific
         if prod is None:
             continue
         preco = eff_float(prod, "price") or 0.0
+        tipo = _tipo_item(prod)
+        e_bateria = tipo == "bateria"
+        e_inversor = tipo in ("inversor", "inversor_string")
+        e_modulo = tipo == "modulo_fv"
         itens.append(KitItem(
             meubess_id=pedido.meubess_id,
             nome=str(eff(prod, "title") or ""),
-            tipo=str(prod.tipo_manual or prod.tipo_auto or "acessorio"),
+            tipo=tipo,
             qtd=pedido.qtd,
             preco_unitario=round(preco, 2),
             preco_total=round(preco * pedido.qtd, 2),
-            # Atributos que a tela usa para recalcular energia, potência de
-            # partida e de inversão ao vivo. Sem eles as métricas do card
-            # zerariam a cada edição.
-            energia_unit_kwh=eff_float(prod, "usable_capacity_kwh"),
-            corrente_pico_a=eff_float(prod, "peak_discharge_current_a"),
-            tensao_v=eff_float(prod, "nominal_voltage_v"),
-            potencia_inversao_kw=eff_float(prod, "max_eps_power") or eff_float(prod, "power"),
-            potencia_pico_kw=eff_float(prod, "peak_power_kw"),
-            corrente_entrada_a=eff_float(prod, "battery_input_max_current_a"),
-            entradas_bateria=(int(v) if (v := eff_float(prod, "battery_inputs")) else None),
+            # Atributos POR TIPO. Preencher todos em todo produto fazia a
+            # bateria carregar potencia_inversao_kw, e a soma de potência de
+            # inversão da tela contava a bateria como se fosse inversor.
+            energia_unit_kwh=eff_float(prod, "usable_capacity_kwh") if e_bateria else None,
+            corrente_pico_a=(eff_float(prod, "peak_discharge_current_a")
+                             or eff_float(prod, "max_continuous_current_a")) if e_bateria else None,
+            tensao_v=eff_float(prod, "nominal_voltage_v") if e_bateria else None,
+            potencia_inversao_kw=(eff_float(prod, "max_eps_power")
+                                  or eff_float(prod, "max_output_power")
+                                  or eff_float(prod, "power")) if e_inversor else None,
+            potencia_pico_kw=eff_float(prod, "peak_power_kw") if e_inversor else None,
+            corrente_entrada_a=eff_float(prod, "battery_input_max_current_a") if e_inversor else None,
+            entradas_bateria=(int(v) if e_inversor and (v := eff_float(prod, "battery_inputs")) else None),
             # `power` do módulo vem em kW no cadastro; a tela e a proposta
             # trabalham em Wp.
             potencia_wp=(round(pw * 1000, 1)
-                         if (pw := eff_float(prod, "power")) and
-                            str(prod.tipo_manual or prod.tipo_auto or "") == "modulo_fv"
-                         else None),
+                         if e_modulo and (pw := eff_float(prod, "power")) else None),
         ))
 
     preco_total = round(sum(i.preco_total for i in itens), 2)

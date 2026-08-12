@@ -7,6 +7,10 @@
  */
 import type { KitItem } from '@/types'
 
+/** Tipos de item que o motor emite para inversor. O híbrido é 'inversor';
+ *  'inversor_hibrido' é o vocabulário do CATÁLOGO e não deve chegar aqui. */
+const TIPOS_INVERSOR = ['inversor', 'inversor_string']
+
 /**
  * Réplica exata de `_distribuir` + `_pico_dc_kw` em kit_builder.py (backend): distribui as
  * baterias uniformemente entre as entradas (1 slot por entrada física, cada um com seu próprio
@@ -14,7 +18,9 @@ import type { KitItem } from '@/types'
  * Mantida idêntica ao motor — qualquer aproximação aqui pode causar erro de dimensionamento.
  */
 export function calcPotenciaPartidaKw(itens: KitItem[]): number {
-  const inversores = itens.filter(it => it.tipo === 'inversor' && it.potencia_pico_kw != null)
+  const inversores = itens.filter(
+    it => TIPOS_INVERSOR.includes(String(it.tipo || '').toLowerCase())
+      && it.potencia_pico_kw != null)
   const baterias = itens.filter(it => it.tipo === 'bateria' && it.corrente_pico_a != null && it.tensao_v != null)
   const picoInvTotal = inversores.reduce((s, inv) => s + (inv.potencia_pico_kw ?? 0) * inv.qtd, 0)
   if (inversores.length === 0 || baterias.length === 0) return picoInvTotal
@@ -45,7 +51,13 @@ export function energiaTotalKwh(itens: KitItem[]): number {
   return itens.reduce((s, it) => s + (it.energia_unit_kwh ?? 0) * it.qtd, 0)
 }
 
-/** Potência total de inversão — soma dos inversores, híbridos e string. */
+/** Potência total de inversão — soma dos inversores, híbridos e string.
+ *
+ * Filtra por tipo em vez de somar o campo onde quer que ele apareça: uma
+ * bateria que viesse com potencia_inversao_kw preenchido entrava na conta e
+ * inflava o número (visto em campo: 25,1 kW num kit de 16,2). */
 export function potenciaInversaoKw(itens: KitItem[]): number {
-  return itens.reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
+  return itens
+    .filter(it => TIPOS_INVERSOR.includes(String(it.tipo || '').toLowerCase()))
+    .reduce((s, it) => s + (it.potencia_inversao_kw ?? 0) * it.qtd, 0)
 }

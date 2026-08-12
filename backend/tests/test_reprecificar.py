@@ -85,3 +85,54 @@ async def test_restrito_mantem_os_atributos_de_engenharia():
     r = limpar_para_restrito(await reprecificar(db, ReprecificarRequest(
         itens=[ItemEditado(meubess_id="b1", qtd=2)])))
     assert r.itens[0].energia_unit_kwh == 10.07
+
+
+class _ProdTipo(_Prod):
+    """Produto com o tipo do CATÁLOGO, que é diferente do tipo do ITEM."""
+
+
+async def test_traduz_o_tipo_do_catalogo_para_o_do_motor():
+    """A tela espera 'inversor' para híbrido; o catálogo diz 'inversor_hibrido'.
+
+    Devolver o do catálogo quebrou três coisas em campo de uma vez: descrição
+    dos inversores vazia na proposta, potência de partida zerada e potência de
+    inversão somando a bateria junto.
+    """
+    db = _db([_Prod("i1", "SIW200H M050", 6919.0, tipo="inversor_hibrido")])
+    r = await reprecificar(db, ReprecificarRequest(
+        itens=[ItemEditado(meubess_id="i1", qtd=2)]))
+    assert r.itens[0].tipo == "inversor"
+
+
+async def test_bateria_nao_recebe_potencia_de_inversao():
+    """Foi o que inflou a potência de inversão de 16,2 para 25,1 kW: a soma da
+    tela contava a bateria como se fosse inversor."""
+    db = _db([_Prod("b1", "CB100", 11974.0, tipo="bateria",
+                    usable_capacity_kwh=10.07, power=3.0)])
+    r = await reprecificar(db, ReprecificarRequest(
+        itens=[ItemEditado(meubess_id="b1", qtd=3)]))
+    item = r.itens[0]
+    assert item.tipo == "bateria"
+    assert item.potencia_inversao_kw is None
+    assert item.potencia_pico_kw is None
+    assert item.energia_unit_kwh == 10.07      # o que a bateria tem, ela mantém
+
+
+async def test_inversor_nao_recebe_atributos_de_bateria():
+    db = _db([_Prod("i1", "M050", 6919.0, tipo="inversor_hibrido",
+                    max_eps_power=5.0, peak_power_kw=6.0,
+                    usable_capacity_kwh=99.0)])
+    item = (await reprecificar(db, ReprecificarRequest(
+        itens=[ItemEditado(meubess_id="i1", qtd=1)]))).itens[0]
+    assert item.energia_unit_kwh is None
+    assert item.potencia_inversao_kw == 5.0
+    assert item.potencia_pico_kw == 6.0
+
+
+async def test_modulo_leva_wp_e_nada_de_inversor():
+    db = _db([_Prod("m1", "LONGI 635", 600.0, tipo="modulo_fv", power=0.635)])
+    item = (await reprecificar(db, ReprecificarRequest(
+        itens=[ItemEditado(meubess_id="m1", qtd=14)]))).itens[0]
+    assert item.tipo == "modulo_fv"
+    assert item.potencia_wp == 635.0
+    assert item.potencia_inversao_kw is None

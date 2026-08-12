@@ -10,6 +10,7 @@ import { KitResult } from '@/components/KitResult'
 import { DiagnosticoKit } from '@/components/DiagnosticoKit'
 import { extrairUF, normalizarFixingType, rotuloFixingType } from '@/lib/ploomesContext'
 import { resumoParaProposta } from '@/lib/ploomesProposta'
+import { energiaTotalKwh } from '@/lib/kitMetrics'
 import { definirApiKey } from '@/lib/api'
 import { reprecificarKit } from '@/lib/kitEdicao'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
@@ -193,9 +194,17 @@ export function PloomesEmbedPage() {
     // sub-dimensionada de propósito). Vale para qualquer kit abaixo de 100%,
     // não só o rotulado como econômico: o risco de aplicar sem perceber é o
     // mesmo venha de onde vier.
-    if (kit.cobertura_energia != null && kit.cobertura_energia < 1) {
-      const pct = (kit.cobertura_energia * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
-      const kwhKit = kit.capacidade_total_kwh.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+    // Cobertura DO KIT NA TELA. Usar kit.cobertura_energia avisava de
+    // subdimensionamento mesmo depois de o vendedor acrescentar bateria e
+    // levar o kit a 134% — o número era do kit que o servidor montou.
+    const energiaPedida = result?.energia_necessaria_kwh ?? 0
+    const energiaKit = energiaTotalKwh(itensPorKit[idxKit] ?? kit.itens ?? [])
+    const cobertura = energiaPedida > 0 && energiaKit > 0
+      ? energiaKit / energiaPedida
+      : kit.cobertura_energia
+    if (cobertura != null && cobertura < 1) {
+      const pct = (cobertura * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+      const kwhKit = energiaKit.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
       const kwhPedido = (result?.energia_necessaria_kwh ?? 0)
         .toLocaleString('pt-BR', { maximumFractionDigits: 1 })
       const ok = window.confirm(
