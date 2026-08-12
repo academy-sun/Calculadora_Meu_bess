@@ -188,6 +188,19 @@ def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
 # 4. Acessórios FV: cabeamento CC, MC4 e estrutura (fórmulas MeuBESS)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _cabo_da_cor(cabos: list, cor: str):
+    """Cabo daquela cor, o mais barato. Cai no mais barato geral se não houver.
+
+    O catálogo tem os dois produtos — 'CABO SOLAR 6MM PRETO' e '... VERMELHO' —
+    mas o kit escolhia UM e o repetia com um sufixo de cor no nome. A linha
+    vermelha da proposta saía com o produto preto: nome e código errados, e um
+    dos dois cabos nunca era comprado do item certo. O sufixo some junto, que
+    era a origem da confusão.
+    """
+    da_cor = [c for c in cabos if cor.lower() in str(_tit(c)).lower()]
+    return min(da_cor or cabos, key=_preco)
+
+
 def _cabo_mc4_items(qty_modulos: int, cabos: list, mc4s: list) -> list[dict]:
     """
     Cabos CC: metros = ceil((módulos×2) / 25) × 25, em duas cores (preto + vermelho).
@@ -199,11 +212,11 @@ def _cabo_mc4_items(qty_modulos: int, cabos: list, mc4s: list) -> list[dict]:
 
     cabos_v = [c for c in cabos if _preco(c) > 0]
     if cabos_v and metros > 0:
-        cabo = min(cabos_v, key=_preco)
         for cor in ("Preto", "Vermelho"):
+            cabo = _cabo_da_cor(cabos_v, cor)
             itens.append({
                 "meubess_id": str(getattr(cabo, "meubess_id", "") or ""),
-                "nome": f"{_tit(cabo)} — {cor}", "tipo": "acessorio", "qtd": metros,
+                "nome": _tit(cabo), "tipo": "acessorio", "qtd": metros,
                 "preco_unitario": round(_preco(cabo), 2),
                 "preco_total": round(_preco(cabo) * metros, 2),
             })
