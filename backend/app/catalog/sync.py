@@ -225,17 +225,37 @@ def _avisar_campos_ignorados(produtos: list[dict]) -> None:
     # produtos é justamente o que passa despercebido. E desce um nível nos
     # objetos aninhados, senão um dado dentro de `brand`/`supplier` ficaria
     # invisível.
-    vistas: set[str] = set()
+    #
+    # Separa PRESENTE de PREENCHIDO. "O campo não existe" e "o campo existe
+    # e está nulo em todos os produtos" levam a conversas opostas com a
+    # origem: no primeiro caso falta subir a alteração, no segundo ela já
+    # subiu e falta popular o dado.
+    presentes: set[str] = set()
+    com_valor: set[str] = set()
     for prod in produtos:
         for k, v in prod.items():
-            if v is None:
-                continue
-            vistas.add(k)
+            presentes.add(k)
+            if v is not None:
+                com_valor.add(k)
             if isinstance(v, dict):
-                vistas |= {f"{k}.{sub}" for sub, sv in v.items() if sv is not None}
-    ignoradas = sorted(vistas - _CHAVES_CONHECIDAS)
+                for sub, sv in v.items():
+                    presentes.add(f"{k}.{sub}")
+                    if sv is not None:
+                        com_valor.add(f"{k}.{sub}")
+
+    ignoradas = sorted(presentes - _CHAVES_CONHECIDAS)
     if ignoradas:
-        log.info("campos da plataforma que o sync ignora: %s", ", ".join(ignoradas))
+        rotulos = [i if i in com_valor else f"{i} (sempre nulo)" for i in ignoradas]
+        log.info("campos da plataforma que o sync ignora: %s", ", ".join(rotulos))
+
+    # Campos que o sync JÁ mapeia mas que a origem nunca preenche. É como
+    # se percebe que uma coluna virou letra morta — foi o caso do
+    # price_sale, nulo nos 679 produtos.
+    vazios = sorted(k for k in _CHAVES_CONHECIDAS
+                    if k in presentes and k not in com_valor)
+    if vazios:
+        log.info("campos que o sync importa e a plataforma nunca preenche: %s",
+                 ", ".join(vazios))
 
 
 def _map_to_raw(product: dict) -> dict:
