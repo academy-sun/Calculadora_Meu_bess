@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     meubess_api_key: str = ""
     meubess_api_url: str = "https://plataforma.meubess.com.br/api/v1"
 
+    #: Aponta um produto (id ou trecho do título) para o sync despejar o JSON
+    #: cru dele no log. Vazio = desligado. Serve para mostrar à MeuBESS o que a
+    #: API deles devolve de fato — a plataforma só é alcançável de dentro do
+    #: container, então não dá para consultar da máquina de quem desenvolve.
+    sync_debug_produto: str = ""
+
     # Feedback do usuário — notificação por e-mail (opcional).
     # Sem SMTP_HOST o feedback continua sendo gravado e aparece na caixa de
     # entrada da plataforma; o e-mail é aviso em cima do registro, não o

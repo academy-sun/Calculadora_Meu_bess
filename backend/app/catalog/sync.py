@@ -258,6 +258,29 @@ def _avisar_campos_ignorados(produtos: list[dict]) -> None:
                  ", ".join(vazios))
 
 
+def _logar_produto_bruto(produtos: list[dict]) -> None:
+    """Despeja o JSON cru de UM produto, quando SYNC_DEBUG_PRODUTO aponta para ele.
+
+    Existe para responder à pergunta "o que exatamente a API de vocês devolve?"
+    sem depender de acesso à rede da origem — a plataforma só é alcançável de
+    dentro do container. Serve para levar evidência à MeuBESS quando um campo
+    combinado não chega.
+
+    Desligado por padrão. O valor da variável é casado contra o id e contra o
+    título, então tanto faz apontar por um ou por outro.
+    """
+    alvo = (settings.sync_debug_produto or "").strip().lower()
+    if not alvo:
+        return
+    import json
+    for prod in produtos:
+        if alvo == str(prod.get("id", "")).lower() or alvo in str(prod.get("title", "")).lower():
+            log.info("PRODUTO BRUTO DA API: %s",
+                     json.dumps(prod, indent=2, ensure_ascii=False))
+            return
+    log.warning("SYNC_DEBUG_PRODUTO=%r não casou com nenhum produto", alvo)
+
+
 def _map_to_raw(product: dict) -> dict:
     """Achata o JSON do produto MeuBESS no formato das colunas de meubess_products."""
     raw = {
@@ -537,6 +560,7 @@ async def sync_all_products(db: AsyncSession) -> dict:
             ) from exc
 
         _avisar_campos_ignorados(products)
+        _logar_produto_bruto(products)
 
         for product in products:
             await _process_product(db, product, result)
