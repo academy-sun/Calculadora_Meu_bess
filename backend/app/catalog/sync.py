@@ -16,6 +16,7 @@ IMPORTANTE: a MeuBESS é somente-leitura. Toda interação é GET na API.
 
 from datetime import datetime
 
+import logging
 import httpx
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,9 @@ from app.config import settings
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
+
+log = logging.getLogger("catalog.sync")
 
 
 def _auth_headers() -> dict[str, str]:
@@ -192,6 +196,37 @@ def classify_product(raw: dict) -> tuple[str, str, bool]:
 
 
 # ── mapeamento raw (espelha o produto MeuBESS em colunas) ─────────────────────
+
+
+#: Chaves do payload da plataforma que o sync JÁ consome, direto ou aninhado.
+#: Serve só para o aviso abaixo — não é validação.
+_CHAVES_CONHECIDAS: set[str] = set()
+
+
+def _avisar_campos_ignorados(produtos: list[dict]) -> None:
+    """Registra campos que a plataforma manda e o sync descarta.
+
+    Não é diagnóstico de erro: é como se descobre que a origem passou a expor
+    um dado que interessa. Custou caro descobrir tarde que o preço de custo
+    existia na API e não estava sendo importado — a calculadora cotou com o
+    "preço de venda fixo" da plataforma, que é preenchido à mão e não segue a
+    fórmula de margem. Um aviso por sync evita a próxima.
+    """
+    if not produtos:
+        return
+    global _CHAVES_CONHECIDAS
+    if not _CHAVES_CONHECIDAS:
+        import inspect
+        import re
+        fonte = inspect.getsource(_map_to_raw)
+        _CHAVES_CONHECIDAS = set(re.findall(r'\.get\("([a-zA-Z_]+)"', fonte)) | {"id"}
+
+    vistas: set[str] = set()
+    for prod in produtos[:50]:      # amostra basta; o payload é homogêneo
+        vistas |= {k for k, v in prod.items() if v is not None}
+    ignoradas = sorted(vistas - _CHAVES_CONHECIDAS)
+    if ignoradas:
+        log.info("campos da plataforma que o sync ignora: %s", ", ".join(ignoradas))
 
 
 def _map_to_raw(product: dict) -> dict:
@@ -471,6 +506,8 @@ async def sync_all_products(db: AsyncSession) -> dict:
             raise ValueError(
                 f"Erro de rede ao acessar plataforma meubess.com.br: {exc}"
             ) from exc
+
+        _avisar_campos_ignorados(products)
 
         for product in products:
             await _process_product(db, product, result)
