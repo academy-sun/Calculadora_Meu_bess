@@ -221,9 +221,18 @@ def _avisar_campos_ignorados(produtos: list[dict]) -> None:
         fonte = inspect.getsource(_map_to_raw)
         _CHAVES_CONHECIDAS = set(re.findall(r'\.get\("([a-zA-Z_]+)"', fonte)) | {"id"}
 
+    # Varre TODOS, não uma amostra: um campo que só é preenchido em poucos
+    # produtos é justamente o que passa despercebido. E desce um nível nos
+    # objetos aninhados, senão um dado dentro de `brand`/`supplier` ficaria
+    # invisível.
     vistas: set[str] = set()
-    for prod in produtos[:50]:      # amostra basta; o payload é homogêneo
-        vistas |= {k for k, v in prod.items() if v is not None}
+    for prod in produtos:
+        for k, v in prod.items():
+            if v is None:
+                continue
+            vistas.add(k)
+            if isinstance(v, dict):
+                vistas |= {f"{k}.{sub}" for sub, sv in v.items() if sv is not None}
     ignoradas = sorted(vistas - _CHAVES_CONHECIDAS)
     if ignoradas:
         log.info("campos da plataforma que o sync ignora: %s", ", ".join(ignoradas))
