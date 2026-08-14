@@ -10,6 +10,7 @@ from app.calculate.reprecificar import ReprecificarRequest, ReprecificarResponse
 from app.calculate.schemas import CalculateRequest, CalculateResponse
 from app.calculate.service import run_calculation
 from app.catalog import service as catalog_service
+from app.engines.kit_attributes import preco_venda
 from app.database import get_db
 
 
@@ -96,15 +97,20 @@ async def produtos_para_kit(
         potencia_min=potencia_min, potencia_max=potencia_max,
         active=True, limit=800)
     restrito = perfil == "restrito"
+    # Preço é o do MOTOR (custo / (1 - margem)), não o `price` do cadastro.
+    # Enquanto o picker lia `price`, ele listava produto que a cotação recusa
+    # (tem price, não tem custo), escondia produto cotável (tem custo, não tem
+    # price) e mostrava ao admin um unitário diferente do que entraria no kit.
+    itens = ((p, preco_venda(p)) for p in produtos)
     return [
         ProdutoParaKit(
             meubess_id=p.meubess_id,
             title=str(p.title or ""),
             marca=str(p.marca or ""),
             tipo=str(p.tipo_manual or p.tipo_auto or ""),
-            price=None if restrito else (float(p.price) if p.price is not None else None),
+            price=None if restrito else preco,
         )
-        for p in produtos
-        if p.price is not None and float(p.price) > 0
+        for p, preco in itens
+        if preco
         and str(p.tipo_manual or p.tipo_auto or "") in TIPOS_COTAVEIS
     ]
