@@ -29,8 +29,10 @@ if sys.platform == "win32":
 from app.calculate.service import CONEXOES_REDE                     # noqa: E402
 from app.catalog.service import list_products                       # noqa: E402
 from app.database import AsyncSessionLocal                          # noqa: E402
-from app.engines.kit_attributes import eff                          # noqa: E402
+from app.engines.kit_attributes import eff, preco_venda              # noqa: E402
 from app.engines.kit_builder import (                               # noqa: E402
+    FASES_REDE,
+    _NOME_FASES,
     _alertas_rede,
     _bloqueio_rede,
     carga_existe_na_rede,
@@ -43,6 +45,8 @@ from app.engines.kit_builder import (                               # noqa: E402
 PADROES = [
     ("mono_127",    "127",     "Monofásico"),
     ("mono_220",    "220",     "Monofásico"),
+    ("bi_127_220",  "127/220", "Bifásico"),
+    ("bi_220_380",  "220/380", "Bifásico"),
     ("tri_127_220", "127/220", "Trifásico"),
     ("tri_220_380", "220/380", "Trifásico"),
 ]
@@ -98,7 +102,7 @@ def _hibridos_que_atendem(inversores, padrao, fase_rede, tensao_carga, fase_carg
             recusados.append((_tit(inv), why or "incompatível"))
             continue
         ressalvas = [a for a in _alertas_rede(inv, fase_rede, padrao)
-                     if "unidade monofásica" in a]
+                     if "requer aumento de carga" in a]
         (com_ressalva if ressalvas else atendem).append(_tit(inv))
     return atendem, com_ressalva, recusados
 
@@ -140,16 +144,18 @@ async def montar(marca: str | None = None) -> list[dict]:
         strings = await list_products(db, tipo="inversor_string",
                                       marca=marca, active=True)
 
-    # Sem preço não é produto cotável; poluiria a matriz com item de catálogo morto.
-    hibridos = [h for h in hibridos if eff(h, "price")]
-    strings = [s for s in strings if eff(s, "price")]
+    # Sem preço não é produto cotável; poluiria a matriz com item de catálogo
+    # morto. O critério é o mesmo do motor — preço derivado do CUSTO — senão a
+    # matriz prometeria equipamento que a cotação recusa.
+    hibridos = [h for h in hibridos if preco_venda(h)]
+    strings = [s for s in strings if preco_venda(s)]
     print(f"catálogo: {len(hibridos)} híbridos, {len(strings)} on-grid", file=sys.stderr)
 
     linhas = []
     for padrao, tensao_rede, ligacao_rede in PADROES:
         ongrid = _ongrid_que_atendem(strings, padrao)
         for tensao_carga, fase_carga, rotulo_fase in CARGAS:
-            fase_rede = "monofasico" if padrao.startswith("mono") else "trifasico"
+            fase_rede = _NOME_FASES[FASES_REDE[padrao]].replace("á", "a")
             # Cenário que a instalação não comporta não tem "inversor que
             # atende" — tem um erro de premissa. Listar equipamento aqui foi o
             # que fez a primeira versão da matriz parecer que o motor aceitava

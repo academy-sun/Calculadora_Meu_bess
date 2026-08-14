@@ -14,6 +14,7 @@ import { DiagnosticoKit } from '@/components/DiagnosticoKit'
 import { SaveQuoteDialog } from '@/components/SaveQuoteDialog'
 import { useCalculate, useProject, useSaveQuote, useUpdateQuote } from '@/hooks/useProjects'
 import { useStandardLoads } from '@/hooks/useCatalog'
+import { PADROES_ENTRADA, faseDoPadrao, tensaoPadraoDaCarga } from '@/lib/padraoEntrada'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
 
 type TipoCalculo = 'backup' | 'arbitragem'
@@ -167,8 +168,8 @@ export function NewProjectPage() {
 
   // ── Backup ──────────────────────────────────────────────────────────────────
   const [padraoEntrada, setPadraoEntrada] = useState('mono_220')
-  const tipoInstalacao: 'monofasico' | 'trifasico' =
-    padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
+  const tipoInstalacao = faseDoPadrao(padraoEntrada)
+  const tensaoDaCarga = tensaoPadraoDaCarga(padraoEntrada)
   const [autonomia, setAutonomia] = useState('1')   // ciclos de autonomia
   const [backupRows, setBackupRows] = useState<BackupRow[]>([])
   const [consumoMensal, setConsumoMensal] = useState('')
@@ -325,13 +326,8 @@ export function NewProjectPage() {
             <>
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">Padrão de entrada da unidade</label>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {([
-                    { v: 'mono_127', l: 'Monofásico', s: '127 V' },
-                    { v: 'mono_220', l: 'Monofásico', s: '220 V' },
-                    { v: 'tri_127_220', l: 'Trifásico', s: '127/220 V' },
-                    { v: 'tri_220_380', l: 'Trifásico', s: '220/380 V' },
-                  ] as const).map(o => (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {PADROES_ENTRADA.map(o => (
                     <button key={o.v} type="button" onClick={() => setPadraoEntrada(o.v)}
                       className={`rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                         padraoEntrada === o.v
@@ -451,7 +447,7 @@ export function NewProjectPage() {
                           const pnomW = Math.round((consumoNum * 1000) / 30 / 24 * 100) / 100
                           insertRow({ nome: 'Consumo total (estimado)', categoria: 'Estimado',
                             qtd: 1, pnom_w: pnomW, fp: 1, fd: 1, ip_in: 1, tdia_h: 24,
-                            tensao: tipoInstalacao === 'trifasico' ? '380' : '220', fase: tipoInstalacao })
+                            tensao: tensaoDaCarga, fase: tipoInstalacao })
                         }}
                         className="flex items-center gap-1 rounded-lg border border-primary/40 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/5">
                         📊 Dimensionar considerando todo o consumo
@@ -637,7 +633,7 @@ export function NewProjectPage() {
         {showAddLoad && (
           <AddLoadDialog
             loads={loads ?? []}
-            defaultTensao={tipoInstalacao === 'trifasico' ? '380' : '220'}
+            defaultTensao={tensaoDaCarga}
             onInsert={insertRow}
             onClose={() => setShowAddLoad(false)}
           />

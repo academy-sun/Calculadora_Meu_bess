@@ -71,7 +71,7 @@ class BackupInput:
     def __init__(
         self,
         cargas: list,               # list[LoadRow]
-        tipo_instalacao: str,       # "monofasico" | "trifasico"
+        tipo_instalacao: str,       # "monofasico" | "bifasico" | "trifasico"
         autonomia_h: float = 4.0,   # for record; not used in E_EPS formula
         dod_percent: float = 90.0,  # 0-100; used in kit selection
         eficiencia_roundtrip: float = 90.0,  # for record

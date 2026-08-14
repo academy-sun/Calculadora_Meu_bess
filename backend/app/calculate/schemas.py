@@ -63,8 +63,12 @@ class CalculateRequest(BaseModel):
 
     # ── Backup ────────────────────────────────────────────────────────────────
     cargas_backup: Optional[list[BackupLoadRow]] = None
-    tipo_instalacao: Optional[Literal["monofasico", "trifasico"]] = None
-    padrao_entrada: Optional[Literal["mono_127", "mono_220", "tri_127_220", "tri_220_380"]] = None
+    tipo_instalacao: Optional[Literal["monofasico", "bifasico", "trifasico"]] = None
+    padrao_entrada: Optional[Literal[
+        "mono_127", "mono_220",
+        "bi_127_220", "bi_220_380",
+        "tri_127_220", "tri_220_380",
+    ]] = None
     autonomia_horas: Optional[float] = None      # legado
     autonomia_dias: Optional[float] = None        # dias de autonomia (multiplica a energia diária)
     dod_percent: Optional[float] = None

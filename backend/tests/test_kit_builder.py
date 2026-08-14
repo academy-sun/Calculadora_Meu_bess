@@ -976,3 +976,85 @@ class TestLinhaKPotenciaPorConfiguracao:
             fase_instalacao="trifasico", padrao_entrada="tri_220_380",
         )
         assert kits[0].qtd_inversores == 1   # 18 kVA de pico, do campo normal
+
+
+class TestPadraoBifasico:
+    """Padrão de entrada bifásico — duas fases + neutro.
+
+    Entrou depois dos outros quatro, e o motor decidia "é trifásico?" por
+    `startswith('tri')`. Todo o resto caía no ramo 'monofásico', que acerta o
+    bloqueio do inversor trifásico pelo motivo errado e erra o equilíbrio de
+    fases: numa rede de duas fases, 2 inversores monofásicos já equilibram.
+
+    O ganho prático, e a razão do pedido: o inversor monofásico de 220 V passa
+    a caber num padrão 127/220 bifásico, ligado entre as duas fases.
+    """
+    def _c(self, padrao, tensao, fase):
+        from app.engines.kit_builder import carga_existe_na_rede
+        return carga_existe_na_rede(padrao, tensao, fase)
+
+    def _run(self, inv, padrao, **kw):
+        return build_kits([inv], [cb100()], pn_kva=2.0, pp_kva=4.0,
+                          e_bat_kwh=10.0, padrao_entrada=padrao, **kw)
+
+    # ── quem se conecta ───────────────────────────────────────────────────────
+
+    def test_mono_220_passa_em_bifasico_127_220(self):
+        """O caso que motivou a mudança: liga entre as duas fases."""
+        kits, skipped = self._run(m075_220(), "bi_127_220")
+        assert [k.inversor.meubess_id for k in kits] == ["m075"], \
+            [s.motivo for s in skipped]
+
+    def test_mono_220_passa_em_bifasico_220_380(self):
+        """Aqui é fase-neutro: a rede 220/380 tem 220 V de fase."""
+        kits, _ = self._run(m075_220(), "bi_220_380")
+        assert [k.inversor.meubess_id for k in kits] == ["m075"]
+
+    def test_trifasico_bloqueado_em_bifasico(self):
+        kits, skipped = build_kits(
+            [t015()], [cb100()], pn_kva=4.0, pp_kva=12.0, e_bat_kwh=10.0,
+            fase_instalacao="bifasico", padrao_entrada="bi_220_380")
+        assert kits == []
+        motivos = [s.motivo for s in skipped]
+        assert any("mudança do padrão" in m for m in motivos), motivos
+        # E o motivo tem de dizer BIFÁSICO. Chamar de monofásico um padrão que
+        # o vendedor acabou de escolher como bifásico faz a recusa parecer bug.
+        assert any("bifásico 220/380 V" in m for m in motivos), motivos
+
+    # ── que carga existe ──────────────────────────────────────────────────────
+
+    def test_carga_trifasica_nao_existe_em_bifasico(self):
+        motivo = self._c("bi_127_220", "220", "trifasico")
+        assert "não tem três fases" in motivo
+        assert "bifásico 127/220 V" in motivo
+
+    def test_cargas_validas_no_bifasico(self):
+        for padrao, tensao, fase in [
+            ("bi_127_220", "127", "monofasico"), ("bi_127_220", "220", "monofasico"),
+            ("bi_127_220", "220", "bifasico"),
+            ("bi_220_380", "220", "monofasico"), ("bi_220_380", "380", "bifasico"),
+        ]:
+            assert self._c(padrao, tensao, fase) is None, (padrao, tensao, fase)
+
+    def test_tensao_que_a_rede_nao_tem(self):
+        assert "não existe na instalação" in self._c("bi_127_220", "380", "bifasico")
+        assert "não existe na instalação" in self._c("bi_220_380", "127", "monofasico")
+
+    # ── equilíbrio entre fases ────────────────────────────────────────────────
+
+    def _alertas(self, padrao, qtd):
+        from app.engines.kit_builder import _alertas_rede
+        return _alertas_rede(m075_220(), None, padrao, qtd)
+
+    def test_um_inversor_desequilibra_a_rede_bifasica(self):
+        assert any("desequilibrada" in a for a in self._alertas("bi_127_220", 1))
+
+    def test_dois_inversores_equilibram_a_rede_bifasica(self):
+        """Numa rede de duas fases o múltiplo é 2, não 3 — com 3 unidades é que
+        sobra uma fase carregada a mais."""
+        assert self._alertas("bi_127_220", 2) == []
+        assert any("desequilibrada" in a for a in self._alertas("bi_127_220", 3))
+
+    def test_trifasica_continua_exigindo_multiplo_de_tres(self):
+        assert any("desequilibrada" in a for a in self._alertas("tri_127_220", 2))
+        assert self._alertas("tri_127_220", 3) == []

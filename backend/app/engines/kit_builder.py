@@ -230,7 +230,12 @@ def _inversor_e_trifasico(inv) -> bool:
 
 #: Tensão ENTRE FASES de cada padrão de entrada trifásico. É a tensão que um
 #: inversor trifásico precisa conseguir operar para se ligar direto na rede.
-TENSAO_LINHA_REDE = {"tri_127_220": "220", "tri_220_380": "380"}
+TENSAO_LINHA_REDE = {
+    "tri_127_220": "220", "tri_220_380": "380",
+    # Bifásico também tem tensão entre fases: são duas fases do mesmo
+    # sistema, e entre elas está a tensão de linha.
+    "bi_127_220": "220", "bi_220_380": "380",
+}
 
 #: Tensões de conexão disponíveis em cada padrão de entrada, por tipo de
 #: inversor. Ausência da chave significa que aquele tipo não se conecta
@@ -244,6 +249,13 @@ TENSAO_LINHA_REDE = {"tri_127_220": "220", "tri_220_380": "380"}
 CONEXOES_REDE: dict[str, dict[str, set[str]]] = {
     "mono_127":    {"monofasico": {"127"}},
     "mono_220":    {"monofasico": {"220"}},
+    # Bifásico: duas fases + neutro. O inversor MONOFÁSICO tem as mesmas
+    # duas opções da rede trifásica — fase-neutro ou entre as duas fases.
+    # É o que faz um SIW200H 220 V caber num padrão 127/220 bifásico.
+    # Não há chave "trifasico": falta a terceira fase, e é isso que barra
+    # o inversor trifásico aqui.
+    "bi_127_220":  {"monofasico": {"127", "220"}},
+    "bi_220_380":  {"monofasico": {"220", "380"}},
     "tri_127_220": {"monofasico": {"127", "220"}, "trifasico": {"220"}},
     "tri_220_380": {"monofasico": {"220", "380"}, "trifasico": {"380"}},
 }
@@ -257,9 +269,38 @@ CONEXOES_REDE: dict[str, dict[str, set[str]]] = {
 TENSOES_REDE_DISPONIVEIS: dict[str, set[str]] = {
     "mono_127":    {"127"},
     "mono_220":    {"220"},
+    "bi_127_220":  {"127", "220"},
+    "bi_220_380":  {"220", "380"},
     "tri_127_220": {"127", "220"},
     "tri_220_380": {"220", "380"},
 }
+
+
+FASES_REDE: dict[str, int] = {
+    "mono_127": 1, "mono_220": 1,
+    "bi_127_220": 2, "bi_220_380": 2,
+    "tri_127_220": 3, "tri_220_380": 3,
+}
+
+_NOME_FASES = {1: "monofásico", 2: "bifásico", 3: "trifásico"}
+# "unidade monofásica", "rede bifásica" — as mensagens falam de rede e unidade,
+# que são femininas; o padrão de entrada é masculino.
+_NOME_FASES_F = {1: "monofásica", 2: "bifásica", 3: "trifásica"}
+
+
+def _rotulo_rede(padrao_entrada: str | None) -> str:
+    """'bifásico 127/220 V' — o padrão como ele aparece na tela.
+
+    O rótulo era montado por `startswith('tri') else 'monofásico'`. Com o
+    bifásico no meio isso passou a MENTIR na mensagem de bloqueio: o vendedor
+    via "padrão de entrada monofásico 127/220 V" para um padrão que ele acabou
+    de escolher como bifásico, e a recusa deixava de fazer sentido.
+    """
+    disponiveis = TENSOES_REDE_DISPONIVEIS.get(padrao_entrada or "")
+    if not disponiveis:
+        return padrao_entrada or "não informado"
+    nome = _NOME_FASES.get(FASES_REDE.get(padrao_entrada or "", 0), "padrão")
+    return f"{nome} {'/'.join(sorted(disponiveis, key=float))} V"
 
 
 def carga_existe_na_rede(
@@ -287,13 +328,15 @@ def carga_existe_na_rede(
     disponiveis = TENSOES_REDE_DISPONIVEIS.get(padrao_entrada)
     if not disponiveis:
         return None
-    rede_tri = padrao_entrada.startswith("tri")
     rotulo = "/".join(sorted(disponiveis, key=float))
 
     if fase_carga == "trifasico":
-        if not rede_tri:
-            return (f"carga trifásica em padrão de entrada monofásico "
-                    f"{rotulo} V — a instalação não tem três fases")
+        # Contagem de fases, não prefixo do código: o bifásico tem duas fases e
+        # tensão entre elas, então ele passava por 'não é tri, logo é mono'.
+        if FASES_REDE.get(padrao_entrada, 0) != 3:
+            return (f"carga trifásica em padrão de entrada "
+                    f"{_rotulo_rede(padrao_entrada)} — a instalação não tem "
+                    f"três fases")
         linha = TENSAO_LINHA_REDE.get(padrao_entrada)
         if linha and tensao_carga != linha:
             return (f"carga trifásica {tensao_carga} V em rede que entrega "
@@ -369,10 +412,9 @@ def _bloqueio_rede(inv, padrao_entrada: str | None) -> str | None:
             # alerta deixava um SIW400H K008 de R$ 24 mil ganhar a cotação de
             # uma residência 127 V — mesma razão que fez o caso do
             # autotransformador virar bloqueio.
-            disponivel = "/".join(sorted(conexoes.get("monofasico") or {"?"}))
-            return (f"inversor trifásico em padrão de entrada monofásico "
-                    f"{disponivel} V — exige mudança do padrão junto à "
-                    f"concessionária")
+            return (f"inversor trifásico em padrão de entrada "
+                    f"{_rotulo_rede(padrao_entrada)} — exige mudança do padrão "
+                    f"junto à concessionária")
         if not (da_rede & tensoes_inv):
             return (f"inversor trifásico {'/'.join(sorted(tensoes_inv))} V não opera "
                     f"em rede {'/'.join(sorted(da_rede))} V entre fases "
@@ -396,30 +438,36 @@ def _alertas_rede(
 ) -> list[str]:
     """
     R7 — compatibilidade do inversor com a rede da unidade (apenas ALERTA).
-    `padrao_entrada` ∈ {mono_127, mono_220, tri_127_220, tri_220_380} (opcional).
+    `padrao_entrada` ∈ FASES_REDE (opcional).
     """
     alertas: list[str] = []
     inv_tri = _inversor_e_trifasico(inv)
     eps = _parse_eps_voltages(eff(inv, "eps_output_voltage"))
 
-    unidade_mono = (padrao_entrada or "").startswith("mono") or fase_instalacao == "monofasico"
-    if inv_tri and unidade_mono:
+    n_fases = FASES_REDE.get(padrao_entrada or "", 0)
+    sem_tres_fases = n_fases in (1, 2) or fase_instalacao in ("monofasico", "bifasico")
+    if inv_tri and sem_tres_fases:
+        # O padrão manda; sem ele, sobra o tipo de instalação declarado.
+        nome = _NOME_FASES_F.get(n_fases) or _NOME_FASES_F.get(
+            {"bifasico": 2}.get(fase_instalacao or "", 1))
         alertas.append(
-            "Inversor trifásico em unidade monofásica — requer aumento de carga / "
-            "mudança do padrão de entrada junto à concessionária."
+            f"Inversor trifásico em unidade {nome} — requer aumento de carga / "
+            f"mudança do padrão de entrada junto à concessionária."
         )
     # O caso "inversor 380 V em rede 127/220" saiu daqui e virou bloqueio
     # (_bloqueio_rede): a plataforma é usada por vendedores sem formação
     # técnica, e um alerta que exige autotransformador passa batido.
     #
-    # Monofásico em rede trifásica é conexão válida (fase-neutro) e costuma ser
-    # mais barata que um trifásico equivalente — mas carrega uma fase por
-    # inversor. Com 1 ou 2 unidades a geração fica desequilibrada entre as três.
-    if (padrao_entrada or "").startswith("tri") and not inv_tri and qtd_inversores % 3 != 0:
+    # Monofásico em rede com mais de uma fase é conexão válida (fase-neutro) e
+    # costuma ser mais barata que um trifásico equivalente — mas carrega uma
+    # fase por inversor. O equilíbrio depende de quantas fases a rede tem: numa
+    # bifásica, 2 inversores já equilibram; numa trifásica, só múltiplos de 3.
+    if n_fases >= 2 and not inv_tri and qtd_inversores % n_fases != 0:
         alertas.append(
-            f"{qtd_inversores}× inversor monofásico em rede trifásica — conexão "
-            f"fase-neutro, com geração desequilibrada entre as fases. Confirmar "
-            f"o limite de desequilíbrio da concessionária."
+            f"{qtd_inversores}× inversor monofásico em rede "
+            f"{_NOME_FASES_F[n_fases]} — conexão fase-neutro, com geração "
+            f"desequilibrada entre as fases. Confirmar o limite de "
+            f"desequilíbrio da concessionária."
         )
     return alertas
 

@@ -16,6 +16,7 @@ import { definirApiKey } from '@/lib/api'
 import { FeedbackDialog } from '@/components/FeedbackDialog'
 import { reprecificarKit } from '@/lib/kitEdicao'
 import type { CalculateResponse, FreteInfo, KitInfo, KitItem, TipoFrete } from '@/types'
+import { PADROES_ENTRADA, faseDoPadrao, tensaoPadraoDaCarga } from '@/lib/padraoEntrada'
 
 /**
  * Página embed para o campo desenvolvedor do Ploomes.
@@ -144,8 +145,8 @@ export function PloomesEmbedPage() {
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
-  const tipoInstalacao: 'monofasico' | 'trifasico' =
-    padraoEntrada.startsWith('tri') ? 'trifasico' : 'monofasico'
+  const tipoInstalacao = faseDoPadrao(padraoEntrada)
+  const tensaoDaCarga = tensaoPadraoDaCarga(padraoEntrada)
 
   function handleTipoFrete(t: TipoFrete) {
     setTipoFrete(t)
@@ -532,10 +533,9 @@ export function PloomesEmbedPage() {
               <label className="mb-1 block text-xs font-semibold text-ink/60">Padrão de entrada</label>
               <select value={padraoEntrada} onChange={e => setPadraoEntrada(e.target.value)}
                 className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none">
-                <option value="mono_127">Monofásico 127 V</option>
-                <option value="mono_220">Monofásico 220 V</option>
-                <option value="tri_127_220">Trifásico 127/220 V</option>
-                <option value="tri_220_380">Trifásico 220/380 V</option>
+                {PADROES_ENTRADA.map(o => (
+                  <option key={o.v} value={o.v}>{o.l} {o.s}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -673,7 +673,7 @@ export function PloomesEmbedPage() {
       {showAddLoad && (
         <AddLoadDialog
           loads={loads ?? []}
-          defaultTensao={tipoInstalacao === 'trifasico' ? '380' : '220'}
+          defaultTensao={tensaoDaCarga}
           onInsert={r => setRows(prev => [...prev, { id: crypto.randomUUID(), ...r }])}
           onClose={() => setShowAddLoad(false)}
           persistNew={false}

@@ -4,12 +4,7 @@ import { ArrowLeft, Pencil, MapPin } from 'lucide-react'
 import { KitResult } from '@/components/KitResult'
 import type { BackupLoadRow, BackupRowResult, FreteInfo, KitInfo, KitItem, SolarDimensionamento } from '@/types'
 
-const PADRAO_LABEL: Record<string, { l: string; s: string }> = {
-  mono_127: { l: 'Monofásico', s: '127 V' },
-  mono_220: { l: 'Monofásico', s: '220 V' },
-  tri_127_220: { l: 'Trifásico', s: '127/220 V' },
-  tri_220_380: { l: 'Trifásico', s: '220/380 V' },
-}
+import { PADRAO_LABEL } from '@/lib/padraoEntrada'
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
