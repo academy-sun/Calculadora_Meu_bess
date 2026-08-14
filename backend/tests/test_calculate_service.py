@@ -83,3 +83,50 @@ class TestPrecoDefasado:
     def test_congelado_e_interno_nao_vai_para_o_consultor(self):
         d = self._diag([self._prod("SIW400H T030", 24 * 55), self._prod("M050", 0.5)])
         assert not any("congelado" in a for a in d.avisos), d.avisos
+
+
+class TestCenarioImpossivelChegaAoCliente:
+    """O guard de cenário impossível existia e nunca foi visto.
+
+    Ele montava a resposta com `origem_info=req.origem_info` — o formato do
+    REQUEST, não o da resposta, que é plana (origem, negocio_id,
+    solicitado_em...). O Pydantic recusava a resposta com 6 campos faltando e
+    o cliente levava 500. Medido em produção: carga 127 V num padrão 220 V
+    devolvia "Erro interno do servidor" em vez de dizer qual carga não cabe.
+
+    Aqui o que se testa é o CONTRATO da resposta — que ela valida e carrega o
+    motivo. O que conta como impossível é assunto de carga_existe_na_rede, em
+    test_kit_builder.
+    """
+    def _resposta(self):
+        from datetime import datetime, timezone
+        from app.calculate.schemas import CalculateResponse, OrigemInfo
+        from app.calculate.service import _montar_diagnostico
+        from app.calculate.schemas import CalculateRequest
+
+        origem = OrigemInfo(origem="interno", solicitante_id="t",
+                            solicitante_nome="t",
+                            solicitado_em=datetime.now(timezone.utc))
+        req = CalculateRequest(tipo_calculo="backup", origem_info=origem)
+        diag = _montar_diagnostico([], req, [], False)
+        diag.avisos = ["Cenário incompatível", "Geladeira: carga 127 V em "
+                       "padrão de entrada 220 V"] + diag.avisos
+        return CalculateResponse(
+            projeto_id=None, tipo_calculo=req.tipo_calculo,
+            origem=origem.origem, negocio_id=origem.negocio_id,
+            solicitado_em=origem.solicitado_em,
+            calculado_em=datetime.now(timezone.utc),
+            capacidade_kwh=0.0, potencia_kw=0.0,
+            kit_selecionado=None, alternativas=[], frete=None, diagnostico=diag,
+        )
+
+    def test_a_resposta_sem_kit_e_valida(self):
+        """Se este construtor não valida, o cliente recebe 500 no lugar do
+        diagnóstico — foi exatamente o que acontecia."""
+        r = self._resposta()
+        assert r.kit_selecionado is None
+        assert r.origem == "interno"
+
+    def test_o_motivo_da_recusa_vai_junto(self):
+        avisos = self._resposta().diagnostico.avisos
+        assert any("127 V" in a for a in avisos), avisos

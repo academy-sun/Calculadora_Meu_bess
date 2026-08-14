@@ -508,11 +508,24 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
                 "ou o padrão de entrada.",
                 *impossiveis,
             ] + diag.avisos
-            return CalculateResponse(
+            # A resposta é PLANA (origem, negocio_id, solicitado_em...), não
+            # aninhada em origem_info como o request. Passar o objeto inteiro
+            # fazia o Pydantic recusar a resposta com 6 campos faltando, e o
+            # cliente recebia 500 — ou seja, a validação de cenário impossível
+            # nunca chegou a ser vista: ela derrubava a requisição em vez de
+            # explicar o problema.
+            return CalculateResponse(  # type: ignore[return-value]
+                projeto_id=None,
                 tipo_calculo=req.tipo_calculo,
-                origem_info=req.origem_info,
+                origem=req.origem_info.origem,
+                negocio_id=req.origem_info.negocio_id,
+                solicitado_em=req.origem_info.solicitado_em,
+                calculado_em=datetime.now(timezone.utc),
+                capacidade_kwh=0.0,
+                potencia_kw=0.0,
                 kit_selecionado=None,
                 alternativas=[],
+                frete=None,
                 diagnostico=diag,
             )
 
