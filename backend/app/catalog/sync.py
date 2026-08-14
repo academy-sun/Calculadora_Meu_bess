@@ -573,7 +573,32 @@ async def sync_all_products(db: AsyncSession) -> dict:
     curados = await aplicar_curadoria(db)
 
     await db.commit()
-    return {**result.to_dict(), "desativados_pela_politica": curados}
+    sem_custo = await _contar_ativos_sem_custo(db)
+    return {**result.to_dict(), "desativados_pela_politica": curados,
+            "ativos_sem_custo": sem_custo}
+
+
+async def _contar_ativos_sem_custo(db: AsyncSession) -> int:
+    """Quantos produtos ATIVOS a cotação recusaria por falta de custo.
+
+    Produto sem custo não tem preço (o preço é derivado dele) e é recusado com
+    motivo — o que é o comportamento certo, e silencioso. Se a plataforma
+    parar de mandar `cost` em parte do catálogo, o efeito é equipamento
+    sumindo das cotações sem ninguém entender por quê. Uma linha por sync.
+    """
+    from sqlalchemy import func, or_, select as _select
+    total = await db.scalar(
+        _select(func.count()).select_from(MeuBESSProduct).where(
+            func.coalesce(MeuBESSProduct.ativo_manual, MeuBESSProduct.active).is_(True),
+            or_(MeuBESSProduct.cost.is_(None), MeuBESSProduct.cost <= 0),
+        )
+    )
+    if total:
+        log.warning(
+            "sync: %s produto(s) ATIVO(s) sem custo — serão recusados na cotação",
+            total,
+        )
+    return int(total or 0)
 
 
 async def preview_raw_products(limit: int = 5) -> list[dict]:
