@@ -19,7 +19,7 @@ Princípio: nunca inventa dado. Se um produto não tem Voc/Imp, ele não é eleg
 import math
 from dataclasses import dataclass, field
 
-from app.engines.kit_attributes import eff, eff_float, eff_int
+from app.engines.kit_attributes import eff, eff_float, eff_int, preco_venda
 from app.engines.kit_builder import (
     KitBESS,
     _attrs_inversor,
@@ -48,7 +48,9 @@ def _tit(p) -> str:
 
 
 def _preco(p) -> float:
-    return eff_float(p, "price") or eff_float(p, "preco") or 0.0
+    # 0.0 aqui significa "sem custo cadastrado". Quem monta item já filtra
+    # por _preco(x) > 0, então o produto simplesmente não é escolhido.
+    return preco_venda(p) or 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────

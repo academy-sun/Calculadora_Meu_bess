@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from app.engines.kit_attributes import MARGEM_VENDA
 
 
 # ── _build_load_curve ─────────────────────────────────────────────────────────
@@ -52,6 +53,12 @@ def test_build_load_curve_returns_24_points():
 
 class _FakeProd:
     def __init__(self, **kw):
+    # As fixtures declaram o PREÇO que se espera do produto; o motor hoje
+    # deriva preço de custo (preco_venda = custo / (1 - margem)). Traduzir
+    # aqui mantém cada teste falando de preço, que é o que ele afirma, sem
+    # espalhar a fórmula por dezenas de fixtures.
+        if "price" in kw and "cost" not in kw:
+            kw["cost"] = kw.pop("price") * (1 - MARGEM_VENDA)
         for k, v in kw.items():
             setattr(self, k, v)
 

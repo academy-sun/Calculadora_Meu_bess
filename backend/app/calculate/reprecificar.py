@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calculate.schemas import KitItem
 from app.catalog.models import MeuBESSProduct
-from app.engines.kit_attributes import eff, eff_float
+from app.engines.kit_attributes import eff, eff_float, preco_venda
 from app.engines.shipping import calcular_frete, calcular_frete_fob
 
 
@@ -78,7 +78,11 @@ async def reprecificar(db: AsyncSession, req: ReprecificarRequest) -> Reprecific
         prod = encontrados.get(pedido.meubess_id)
         if prod is None:
             continue
-        preco = eff_float(prod, "price") or 0.0
+        preco = preco_venda(prod)
+        if preco is None:
+            # Produto sem custo não é cotável: sai do kit em vez de entrar
+            # valendo zero e sumir do total.
+            continue
         tipo = _tipo_item(prod)
         e_bateria = tipo == "bateria"
         e_inversor = tipo in ("inversor", "inversor_string")

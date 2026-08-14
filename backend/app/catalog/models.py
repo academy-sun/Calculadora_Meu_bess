@@ -118,6 +118,10 @@ class MeuBESSProduct(Base):
     max_power_current: Mapped[float | None] = mapped_column(Numeric)
 
     # ── preço / fiscal / dimensão ───────────────────────────────────────────
+    #: Custo do material. Base do preço de venda — ver kit_attributes.preco_venda.
+    cost: Mapped[float | None] = mapped_column(Numeric)
+    #: 'Preço de Venda Fixo' da plataforma. Preenchido à mão lá e NÃO segue a
+    #: fórmula de margem: fica como referência, não é o que cotamos.
     price: Mapped[float | None] = mapped_column(Numeric)
     price_sale: Mapped[float | None] = mapped_column(Numeric)
     price_sale_until: Mapped[str | None] = mapped_column(Text)

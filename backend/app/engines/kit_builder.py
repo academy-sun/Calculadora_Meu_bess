@@ -26,7 +26,7 @@ devolvidos em `skipped` com o motivo, para o operador completar o cadastro.
 import math
 from dataclasses import dataclass, field
 
-from app.engines.kit_attributes import eff, eff_bool, eff_float, eff_int
+from app.engines.kit_attributes import eff, eff_bool, eff_float, eff_int, preco_venda
 
 
 @dataclass
@@ -491,9 +491,12 @@ def _attrs_inversor(inv, padrao_entrada: str | None = None) -> tuple[dict, str |
         "battery_inputs":  eff_int(inv, "battery_inputs"),
         "i_input_a":       eff_float(inv, "battery_input_max_current_a"),
         "max_paralelo":    eff_int(inv, "max_parallel_units") or 1,
-        "preco":           eff_float(inv, "price") or eff_float(inv, "preco") or 0.0,
+        "preco":           preco_venda(inv),
     }
-    faltando = [k for k in ("peak_power_kw", "eps_nominal_kw", "battery_inputs", "i_input_a") if not a[k]]
+    # Sem custo não há preço, e cotar com preço zero seria pior que recusar:
+    # o item entraria como o mais barato de todos e sumiria do total.
+    faltando = [k for k in ("peak_power_kw", "eps_nominal_kw", "battery_inputs",
+                            "i_input_a", "preco") if not a[k]]
     if faltando:
         return a, f"faltam dados do inversor: {', '.join(faltando)}"
     return a, None
@@ -506,9 +509,10 @@ def _attrs_bateria(bat) -> tuple[dict, str | None]:
         "i_cont_a":       eff_float(bat, "max_continuous_current_a"),
         "i_pico_a":       eff_float(bat, "peak_discharge_current_a") or eff_float(bat, "max_continuous_current_a"),
         "tensao_v":       eff_float(bat, "nominal_voltage_v"),
-        "preco":          eff_float(bat, "price") or eff_float(bat, "preco") or 0.0,
+        "preco":          preco_venda(bat),
     }
-    faltando = [k for k in ("usable_kwh", "max_paralelo", "i_cont_a", "tensao_v") if not a[k]]
+    faltando = [k for k in ("usable_kwh", "max_paralelo", "i_cont_a", "tensao_v",
+                            "preco") if not a[k]]
     if faltando:
         return a, f"faltam dados da bateria: {', '.join(faltando)}"
     return a, None
@@ -524,8 +528,8 @@ def _jbw_preco(jbw_produtos: list | None, marca: str) -> tuple[float, str, bool,
         return 0.0, "Caixa de junção (JBW)", False, ""
     mesma_marca = [j for j in jbw_produtos if (eff(j, "marca") or "") == marca]
     candidatos = mesma_marca or jbw_produtos
-    melhor = min(candidatos, key=lambda j: eff_float(j, "price") or eff_float(j, "preco") or float("inf"))
-    preco = eff_float(melhor, "price") or eff_float(melhor, "preco") or 0.0
+    melhor = min(candidatos, key=lambda j: preco_venda(j) or float("inf"))
+    preco = preco_venda(melhor) or 0.0
     return (preco, str(eff(melhor, "title") or "Caixa de junção (JBW)"), preco > 0,
             str(getattr(melhor, "meubess_id", "") or ""))
 

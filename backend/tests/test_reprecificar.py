@@ -5,13 +5,18 @@ from unittest.mock import AsyncMock, patch
 from app.calculate.reprecificar import (
     ItemEditado, ReprecificarRequest, limpar_para_restrito, reprecificar,
 )
+from app.engines.kit_attributes import MARGEM_VENDA
 
 
 class _Prod:
     def __init__(self, pid, title, price, tipo="bateria", **kw):
         self.meubess_id = pid
         self.title = title
-        self.price = price
+    # As fixtures declaram o PREÇO que se espera do produto; o motor hoje
+    # deriva preço de custo (preco_venda = custo / (1 - margem)). Traduzir
+    # aqui mantém cada teste falando de preço, que é o que ele afirma, sem
+    # espalhar a fórmula por dezenas de fixtures.
+        self.cost = price * (1 - MARGEM_VENDA)
         self.tipo_manual = None
         self.tipo_auto = tipo
         self.overrides_tecnicos = None

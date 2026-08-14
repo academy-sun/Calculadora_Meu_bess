@@ -330,6 +330,7 @@ def _map_to_raw(product: dict) -> dict:
         "max_power_current": _safe_float(product.get("max_power_current")),
 
         # preço / fiscal / dimensão
+        "cost": _safe_float(product.get("cost")),
         "price": _safe_float(product.get("price")),
         "price_sale": _safe_float(product.get("price_sale")),
         "price_sale_until": _safe_str(product.get("price_sale_until")),

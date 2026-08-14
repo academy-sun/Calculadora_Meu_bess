@@ -5,11 +5,18 @@ Testes do motor de montagem de kit (R1–R9), com os modelos WEG validados.
 import math
 
 from app.engines.kit_builder import build_kits
+from app.engines.kit_attributes import MARGEM_VENDA
 
 
 class FakeProduct:
     """Objeto leve que imita MeuBESSProduct (eff() usa getattr com default None)."""
     def __init__(self, **kw):
+    # As fixtures declaram o PREÇO que se espera do produto; o motor hoje
+    # deriva preço de custo (preco_venda = custo / (1 - margem)). Traduzir
+    # aqui mantém cada teste falando de preço, que é o que ele afirma, sem
+    # espalhar a fórmula por dezenas de fixtures.
+        if "preco" in kw and "cost" not in kw:
+            kw["cost"] = kw.pop("preco") * (1 - MARGEM_VENDA)
         for k, v in kw.items():
             setattr(self, k, v)
 

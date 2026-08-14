@@ -1,11 +1,17 @@
 """Seleção do cabo CC por cor."""
 
 from app.engines.pv_kit import _cabo_da_cor, _cabo_mc4_items
+from app.engines.kit_attributes import MARGEM_VENDA
 
 
 class _C:
     def __init__(self, pid, title, price):
-        self.meubess_id, self.title, self.price = pid, title, price
+    # As fixtures declaram o PREÇO que se espera do produto; o motor hoje
+    # deriva preço de custo (preco_venda = custo / (1 - margem)). Traduzir
+    # aqui mantém cada teste falando de preço, que é o que ele afirma, sem
+    # espalhar a fórmula por dezenas de fixtures.
+        self.meubess_id, self.title = pid, title
+        self.cost = price * (1 - MARGEM_VENDA)
     def __getattr__(self, _):
         return None
 
