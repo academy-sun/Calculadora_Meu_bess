@@ -653,9 +653,9 @@ export function NewProjectPage() {
                   autorEmail={user?.email}
                   contexto={{
                     entradas: {
-                      powerpeak_kwp: kwp, tipo_instalacao: tipoInstalacao,
+                      powerpeak_kwp: powerpeakKwp, tipo_instalacao: tipoInstalacao,
                       padrao_entrada: padraoEntrada, autonomia,
-                      fixing_type: fixingType, cargas: rows,
+                      fixing_type: fixingType, cargas: backupRows,
                     },
                     kit_sugerido: result.kit_selecionado ? {
                       inversor: result.kit_selecionado.inversor_modelo,
