@@ -27,3 +27,6 @@ class Feedback(Base):
     email_enviado: Mapped[bool] = mapped_column(Boolean, default=False)
     email_erro: Mapped[str | None] = mapped_column(Text)
     lido: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: Conta do Ploomes que mandou. Nulo na calculadora interna, que
+    #: autentica por sessão e não por chave. Ver migration 020.
+    conta_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))

@@ -102,3 +102,21 @@ def test_corpo_do_email_leva_o_contexto():
         "contexto": {"powerpeak_kwp": 8.5, "kit": "SIW200H M050"}})())
     assert "kit errado" in corpo
     assert "powerpeak_kwp" in corpo and "8.5" in corpo
+
+
+async def test_registra_de_qual_conta_veio():
+    """Sem isto, "o cliente reclamou do cálculo" não vira "qual cliente"
+    a partir do segundo cliente."""
+    db = AsyncMock()
+    with patch.object(email_mod, "enviar", AsyncMock(return_value=(False, None))):
+        fb = await service.registrar(db, _dados(), None, conta_id="conta-123")
+    assert fb.conta_id == "conta-123"
+
+
+async def test_sem_conta_continua_valendo():
+    """A calculadora interna autentica por sessão, não por chave — não tem
+    conta, e o relato dela não pode ser recusado por causa disso."""
+    db = AsyncMock()
+    with patch.object(email_mod, "enviar", AsyncMock(return_value=(False, None))):
+        fb = await service.registrar(db, _dados(), None)
+    assert fb.conta_id is None

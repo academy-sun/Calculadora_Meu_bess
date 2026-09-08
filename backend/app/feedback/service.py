@@ -7,7 +7,8 @@ from app.feedback.schemas import FeedbackCreate
 
 
 async def registrar(db: AsyncSession, dados: FeedbackCreate,
-                    user_agent: str | None) -> Feedback:
+                    user_agent: str | None,
+                    conta_id: str | None = None) -> Feedback:
     """Grava e tenta notificar, NESTA ordem.
 
     Gravar primeiro é o ponto: se o e-mail falhar, o relato continua existindo.
@@ -23,6 +24,9 @@ async def registrar(db: AsyncSession, dados: FeedbackCreate,
         contexto=dados.contexto,
         url=dados.url,
         user_agent=(user_agent or "")[:500] or None,
+        # De qual conta veio. Sem isto, "o cliente reclamou do cálculo" não
+        # tem como virar "qual cliente" depois do segundo cliente.
+        conta_id=conta_id,
     )
     db.add(fb)
     await db.commit()

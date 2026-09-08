@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Security
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_admin, require_user_or_api_key
+from app.auth.dependencies import (
+    api_key_header, require_admin, require_user_or_api_key,
+)
+from app.contas import service as contas_svc
 from app.database import get_db
 from app.feedback import service
 from app.feedback.schemas import FeedbackCreate, FeedbackCreated, FeedbackRead
@@ -15,6 +18,7 @@ async def criar_feedback(
     dados: FeedbackCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    api_key: str | None = Security(api_key_header),
     _=Depends(require_user_or_api_key),
 ):
     """Recebe o relato de quem usa a calculadora.
@@ -22,7 +26,12 @@ async def criar_feedback(
     Aceita sessão (calculadora interna) OU API key (embed do Ploomes), que é o
     mesmo nível de confiança do /calculate — o embed não tem usuário logado.
     """
-    fb = await service.registrar(db, dados, request.headers.get("user-agent"))
+    # A chave já passou por require_user_or_api_key; aqui ela serve só para
+    # dizer QUAL conta é. Vem None quando a origem é a calculadora interna,
+    # que autentica por sessão.
+    conta = await contas_svc.buscar_por_chave(db, api_key or "")
+    fb = await service.registrar(db, dados, request.headers.get("user-agent"),
+                                 conta_id=conta.id if conta else None)
     return FeedbackCreated(id=str(fb.id), email_enviado=fb.email_enviado)
 
 
