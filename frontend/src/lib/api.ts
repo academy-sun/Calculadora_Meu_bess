@@ -32,13 +32,37 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+/**
+ * Mensagem legível do erro da API.
+ *
+ * O FastAPI devolve `detail` como STRING nos erros que a gente levanta, mas
+ * como LISTA de {loc, msg} quando é o Pydantic recusando o corpo. Jogar a
+ * lista dentro de new Error() virava "[object Object]" na tela — foi
+ * exatamente o que escondeu um 422 de campo inválido no embed de um cliente,
+ * e custou um ciclo inteiro de teste para descobrir o que já vinha escrito
+ * na resposta.
+ */
+function mensagemDeErro(err: unknown, padrao: string): string {
+  const detail = (err as { detail?: unknown } | null)?.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail)) {
+    const partes = detail.map(d => {
+      const campo = Array.isArray(d?.loc) ? d.loc.filter((x: unknown) => x !== 'body').join('.') : ''
+      const msg = d?.msg ?? JSON.stringify(d)
+      return campo ? `${campo}: ${msg}` : String(msg)
+    })
+    if (partes.length) return partes.join(' · ')
+  }
+  return padrao
+}
+
 export async function apiGet<T>(path: string, useApiKey = false): Promise<T> {
   const headers = await getAuthHeaders()
   if (useApiKey) headers['X-API-Key'] = apiKeyAtual
   const res = await fetch(`${API_URL}${path}`, { headers })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string }
-    throw new Error(err.detail ?? `GET ${path} falhou: ${res.status}`)
+    const err = await res.json().catch(() => ({})) as { detail?: unknown }
+    throw new Error(mensagemDeErro(err, `GET ${path} falhou: ${res.status}`))
   }
   return res.json() as Promise<T>
 }
@@ -52,8 +76,8 @@ export async function apiPost<T>(path: string, body: unknown, useApiKey = false)
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string }
-    throw new Error(err.detail ?? `POST ${path} falhou: ${res.status}`)
+    const err = await res.json().catch(() => ({})) as { detail?: unknown }
+    throw new Error(mensagemDeErro(err, `POST ${path} falhou: ${res.status}`))
   }
   return res.json() as Promise<T>
 }
@@ -77,8 +101,8 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string }
-    throw new Error(err.detail ?? `PATCH ${path} falhou: ${res.status}`)
+    const err = await res.json().catch(() => ({})) as { detail?: unknown }
+    throw new Error(mensagemDeErro(err, `PATCH ${path} falhou: ${res.status}`))
   }
   return res.json() as Promise<T>
 }
@@ -90,8 +114,8 @@ export async function apiDelete(path: string): Promise<void> {
     headers,
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string }
-    throw new Error(err.detail ?? `DELETE ${path} falhou: ${res.status}`)
+    const err = await res.json().catch(() => ({})) as { detail?: unknown }
+    throw new Error(mensagemDeErro(err, `DELETE ${path} falhou: ${res.status}`))
   }
 }
 
@@ -104,7 +128,7 @@ export async function apiBulkDelete<T>(path: string, body: unknown): Promise<T> 
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail ?? `Erro ${res.status}`)
+    throw new Error(mensagemDeErro(err, `Erro ${res.status}`))
   }
   return res.json() as Promise<T>
 }

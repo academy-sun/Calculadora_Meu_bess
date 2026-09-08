@@ -772,6 +772,17 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
       estrutura: rEstrutura.valor, viaEstrutura: rEstrutura.via,
     };
     log('contexto lido', ctx);
+    // O DOM cru de quem falhou vai para o CONSOLE, não só para o painel: o
+    // painel é removido no modo restrito, que é justamente o modo das contas
+    // de cliente — ou seja, o diagnóstico sumia exatamente onde os campos são
+    // desconhecidos e a chance de errar o seletor é maior.
+    if (!ctx.cidade) {
+      log('DOM cidade', dumpCampo(primeiraChave([FIELD_KEYS.cidade_texto, FIELD_KEYS.cidade])));
+    }
+    if (!ctx.estrutura) {
+      log('DOM estrutura', dumpCampo(primeiraChave([
+        FIELD_KEYS.estrutura_texto, FIELD_KEYS.estrutura_texto_alt, FIELD_KEYS.estrutura])));
+    }
     mostrarDiagnostico(ctx);
 
     var iframe = document.getElementById('mb-iframe');
