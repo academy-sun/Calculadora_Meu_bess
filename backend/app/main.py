@@ -24,6 +24,17 @@ async def lifespan(app: FastAPI):
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # Chaves que já existiam como env viram linhas em `contas`, para a virada
+    # não ter passo manual: o embed configurado hoje continua valendo sem
+    # ninguém precisar cadastrá-lo antes do deploy. Idempotente.
+    try:
+        from app.contas.service import semear_do_ambiente
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            await semear_do_ambiente(db)
+    except Exception as exc:      # banco fora não pode impedir o app de subir
+        logging.getLogger("contas").warning("semeadura de contas falhou: %s", exc)
+
     tarefa = catalog_scheduler.iniciar(app)
     try:
         yield

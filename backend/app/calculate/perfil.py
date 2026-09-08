@@ -26,9 +26,17 @@ from typing import Literal
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.auth.dependencies import api_key_header, bearer_scheme, get_current_user
 from app.calculate.schemas import CalculateResponse, Diagnostico
 from app.config import settings
+from app.contas import service as contas_svc
+from app.database import get_db
+
+import logging
+
+log = logging.getLogger("perfil")
 
 Perfil = Literal["completo", "restrito"]
 
@@ -50,6 +58,7 @@ def resolver(api_key: str | None) -> Perfil:
 async def perfil_do_request(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     api_key: str | None = Security(api_key_header),
+    db: AsyncSession = Depends(get_db),
 ) -> Perfil:
     """Perfil de quem chamou: chave de API OU sessão do app interno.
 
@@ -59,23 +68,27 @@ async def perfil_do_request(
     completa dentro do CRM, exatamente o que o campo do usuário final existe
     para impedir. Quem manda chave é julgado pela chave.
 
+    A chave é resolvida na tabela `contas`, não contra variáveis de ambiente:
+    é o que permite saber DE QUEM é a requisição e cortar uma conta sem tocar
+    nas outras (ver app/contas/service.py e migration 019).
+
     Fecha em 401 quando não reconhece nada. Chave inválida não vira restrito
     silencioso: seria diagnóstico ruim para quem configurou o campo errado.
     """
     if api_key:
-        if api_key not in _chaves_validas():
+        conta = await contas_svc.buscar_por_chave(db, api_key)
+        if conta is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="API Key inválida")
-        return resolver(api_key)
+        # Sem isto, saber de qual conta veio uma cotação exigiria adivinhar
+        # pelo perfil — e com vários clientes no mesmo perfil, nem isso.
+        log.info("cálculo da conta '%s' (perfil %s)", conta.nome, conta.perfil)
+        return conta.perfil    # type: ignore[return-value]
     if credentials:
         get_current_user(credentials)   # levanta 401 se o token não presta
         return "completo"
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Autenticação necessária")
-
-
-def _chaves_validas() -> set[str]:
-    return {k for k in (settings.api_key_embed, settings.api_key_embed_restrito) if k}
 
 
 def _limpar_kit(kit) -> None:

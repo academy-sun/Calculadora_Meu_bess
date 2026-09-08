@@ -5,7 +5,7 @@ não pode ver não sai na resposta. Se um dia alguém "otimizar" isso escondendo
 só na tela, estes testes caem.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -150,6 +150,8 @@ class TestPerfilPorSessaoOuChave:
     que ela usava vinha do build — variável VITE_* vira texto dentro do
     JavaScript público, então aquilo era uma credencial de perfil COMPLETO
     publicada junto com o site. Sessão do Supabase resolve na raiz.
+
+    A chave, quando vem, é resolvida na tabela `contas`.
     """
     import pytest
 
@@ -158,27 +160,48 @@ class TestPerfilPorSessaoOuChave:
         from fastapi.security import HTTPAuthorizationCredentials
         return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
+    @staticmethod
+    def _conta(perfil, nome="Cliente X"):
+        return type("C", (), {"perfil": perfil, "nome": nome})()
+
     @pytest.mark.asyncio
     async def test_sessao_valida_da_perfil_completo(self):
         with patch.object(perfil_mod, "get_current_user", lambda c: object()):
-            assert await perfil_mod.perfil_do_request(self._cred(), None) == "completo"
+            assert await perfil_mod.perfil_do_request(self._cred(), None, None) == "completo"
 
     @pytest.mark.asyncio
-    async def test_chave_restrita_continua_restrita_mesmo_com_sessao(self):
+    async def test_perfil_vem_da_linha_da_conta(self):
+        with patch.object(perfil_mod.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=self._conta("restrito"))):
+            assert await perfil_mod.perfil_do_request(None, "K-CLIENTE", None) == "restrito"
+
+    @pytest.mark.asyncio
+    async def test_chave_continua_mandando_mesmo_com_sessao(self):
         """A precedência é da CHAVE, e é isso que protege o campo do usuário
         final: o vendedor que também usa a calculadora interna tem sessão
         nossa no mesmo navegador, e ela promoveria a restrita a completa
         dentro do Ploomes — anulando a razão de o campo restrito existir."""
-        with patch.object(perfil_mod.settings, "api_key_embed_restrito", "K-REST"), \
-             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"), \
-             patch.object(perfil_mod, "get_current_user", lambda c: object()):
-            assert await perfil_mod.perfil_do_request(self._cred(), "K-REST") == "restrito"
+        with patch.object(perfil_mod.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=self._conta("restrito"))),              patch.object(perfil_mod, "get_current_user", lambda c: object()):
+            assert await perfil_mod.perfil_do_request(self._cred(), "K-REST", None) == "restrito"
+
+    @pytest.mark.asyncio
+    async def test_conta_revogada_e_401(self):
+        """A razão de a tabela existir: cortar UMA conta sem tocar nas outras.
+        buscar_por_chave já filtra por ativa, então revogada chega aqui como
+        None — mesma resposta de chave inexistente, de propósito."""
+        from fastapi import HTTPException
+        with patch.object(perfil_mod.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=None)):
+            with pytest.raises(HTTPException) as e:
+                await perfil_mod.perfil_do_request(None, "K-REVOGADA", None)
+        assert e.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_sem_chave_e_sem_sessao_e_401(self):
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as e:
-            await perfil_mod.perfil_do_request(None, None)
+            await perfil_mod.perfil_do_request(None, None, None)
         assert e.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -186,8 +209,8 @@ class TestPerfilPorSessaoOuChave:
         """Campo configurado com chave errada tem de dizer isso, em vez de
         cotar sem preço e parecer que o perfil é que está errado."""
         from fastapi import HTTPException
-        with patch.object(perfil_mod.settings, "api_key_embed_restrito", "K-REST"), \
-             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"):
+        with patch.object(perfil_mod.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=None)):
             with pytest.raises(HTTPException) as e:
-                await perfil_mod.perfil_do_request(None, "chave-que-nao-existe")
+                await perfil_mod.perfil_do_request(None, "chave-que-nao-existe", None)
         assert e.value.status_code == 401
