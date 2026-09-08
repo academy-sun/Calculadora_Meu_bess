@@ -51,27 +51,40 @@ async def test_mensagem_e_normalizada():
     assert fb.mensagem == "texto com espaços"
 
 
-async def test_sem_smtp_configurado_nao_e_erro_e_sim_estado():
+def _fb_minimo():
+    return type("F", (), {
+        "origem": "embed", "tipo": None, "autor_nome": None, "autor_email": None,
+        "criado_em": None, "url": None, "mensagem": "x", "contexto": None})()
+
+
+async def test_sem_chave_configurada_nao_e_erro_e_sim_estado():
     """Feedback continua valendo sem e-mail — a caixa de entrada é a fonte."""
-    with patch.object(email_mod.settings, "feedback_email_to", "a@b.com"), \
-         patch.object(email_mod.settings, "smtp_host", ""):
-        enviado, motivo = await email_mod.enviar(type("F", (), {
-            "origem": "embed", "tipo": None, "autor_nome": None, "autor_email": None,
-            "criado_em": None, "url": None, "mensagem": "x", "contexto": None})())
+    with patch.object(email_mod.settings, "feedback_email_to", "a@b.com"),          patch.object(email_mod.settings, "feedback_email_from", "de@x.com"),          patch.object(email_mod.settings, "resend_api_key", ""):
+        enviado, motivo = await email_mod.enviar(_fb_minimo())
     assert enviado is False
-    assert "SMTP_HOST" in motivo
+    assert "RESEND_API_KEY" in motivo
 
 
-async def test_erro_de_rede_no_smtp_vira_texto_e_nao_excecao():
-    with patch.object(email_mod.settings, "feedback_email_to", "a@b.com"), \
-         patch.object(email_mod.settings, "smtp_host", "smtp.exemplo"), \
-         patch.object(email_mod, "_enviar_sincrono",
-                      side_effect=TimeoutError("estourou")):
-        enviado, motivo = await email_mod.enviar(type("F", (), {
-            "origem": "embed", "tipo": None, "autor_nome": None, "autor_email": None,
-            "criado_em": None, "url": None, "mensagem": "x", "contexto": None})())
+async def test_erro_de_rede_vira_texto_e_nao_excecao():
+    with patch.object(email_mod.settings, "feedback_email_to", "a@b.com"),          patch.object(email_mod.settings, "feedback_email_from", "de@x.com"),          patch.object(email_mod.settings, "resend_api_key", "re_x"),          patch.object(email_mod, "_postar",
+                      AsyncMock(side_effect=TimeoutError("estourou"))):
+        enviado, motivo = await email_mod.enviar(_fb_minimo())
     assert enviado is False
     assert "TimeoutError" in motivo
+
+
+async def test_recusa_do_resend_chega_legivel():
+    """O corpo do erro é a parte útil: "domain is not verified" diz o que
+    corrigir, "400 Bad Request" não diz nada."""
+    import httpx
+    resp = httpx.Response(403, text='{"message":"The domain is not verified"}',
+                          request=httpx.Request("POST", email_mod._URL))
+    with patch.object(email_mod.settings, "feedback_email_to", "a@b.com"),          patch.object(email_mod.settings, "feedback_email_from", "de@x.com"),          patch.object(email_mod.settings, "resend_api_key", "re_x"),          patch.object(email_mod, "_postar", AsyncMock(
+             side_effect=httpx.HTTPStatusError("erro", request=resp.request,
+                                               response=resp))):
+        enviado, motivo = await email_mod.enviar(_fb_minimo())
+    assert enviado is False
+    assert "403" in motivo and "not verified" in motivo
 
 
 def test_mensagem_vazia_e_recusada_no_schema():

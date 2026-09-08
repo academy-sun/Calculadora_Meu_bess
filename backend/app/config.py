@@ -29,17 +29,14 @@ class Settings(BaseSettings):
     #: container, então não dá para consultar da máquina de quem desenvolve.
     sync_debug_produto: str = ""
 
-    # Feedback do usuário — notificação por e-mail (opcional).
-    # Sem SMTP_HOST o feedback continua sendo gravado e aparece na caixa de
-    # entrada da plataforma; o e-mail é aviso em cima do registro, não o
+    # Feedback do usuário — notificação por e-mail via Resend (opcional).
+    # Sem RESEND_API_KEY o feedback continua sendo gravado e aparece na caixa
+    # de entrada da plataforma; o e-mail é aviso em cima do registro, não o
     # registro. Ver app/feedback/email.py.
+    # O remetente precisa estar num domínio verificado no Resend.
     feedback_email_to: str = ""
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
-    smtp_from: str = ""
-    smtp_ssl: bool = False      # True para porta 465
+    feedback_email_from: str = ""
+    resend_api_key: str = ""
 
     # Sync periódico do catálogo (preços). 3600 = de hora em hora.
     # 0 ou negativo desliga o agendador — usado nos testes e em dev, onde não

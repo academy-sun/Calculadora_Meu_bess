@@ -1,21 +1,25 @@
-"""Notificação por e-mail do feedback recebido.
+"""Notificação por e-mail do feedback recebido, via Resend.
 
-SMTP da stdlib, e não um serviço de e-mail transacional, por uma razão
-prática: a MX3 já tem caixa em domínio próprio, então dá para ligar isto com
-uma senha de app e nenhuma conta nova. Trocar por Resend/SendGrid depois é
-substituir só `_enviar_sincrono`.
+Antes era SMTP da caixa da MX3. O domínio está no Microsoft 365, que desliga
+SMTP autenticado por padrão desde 2022 — liberar exige mexer em política de
+tenant, e o resultado dependeria de uma senha de caixa guardada no servidor.
+O Resend troca isso por uma chave de API revogável e um domínio verificado.
 
-Desligado por padrão. Sem SMTP_HOST configurado, `enviar` devolve
-(False, motivo) e o feedback fica só na caixa de entrada da plataforma — que
-é o comportamento correto, não uma falha: o registro no banco é a fonte da
-verdade, o e-mail é aviso em cima dele.
+Desligado por padrão. Sem RESEND_API_KEY, `enviar` devolve (False, motivo) e
+o feedback fica só na caixa de entrada da plataforma — que é o comportamento
+correto, não uma falha: o registro no banco é a fonte da verdade, o e-mail é
+aviso em cima dele.
 """
 
-import asyncio
-import smtplib
-from email.message import EmailMessage
+import httpx
 
 from app.config import settings
+
+_URL = "https://api.resend.com/emails"
+
+#: O feedback é aviso, não transação. Se o Resend estiver lento, quem paga a
+#: espera é a pessoa que clicou em enviar — e ela já teve o relato gravado.
+_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0)
 
 
 def _corpo(fb) -> str:
@@ -39,24 +43,15 @@ def _corpo(fb) -> str:
     return "\n".join(l for l in linhas if l != "")
 
 
-def _enviar_sincrono(destinatario: str, assunto: str, corpo: str) -> None:
-    msg = EmailMessage()
-    msg["Subject"] = assunto
-    msg["From"] = settings.smtp_from or settings.smtp_user
-    msg["To"] = destinatario
-    msg.set_content(corpo)
-
-    if settings.smtp_ssl:
-        with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20) as s:
-            if settings.smtp_user:
-                s.login(settings.smtp_user, settings.smtp_password)
-            s.send_message(msg)
-    else:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
-            s.starttls()
-            if settings.smtp_user:
-                s.login(settings.smtp_user, settings.smtp_password)
-            s.send_message(msg)
+async def _postar(payload: dict) -> None:
+    """POST no Resend. Levanta em erro de rede ou status != 2xx."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.post(
+            _URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+        )
+        resp.raise_for_status()
 
 
 async def enviar(fb) -> tuple[bool, str | None]:
@@ -69,14 +64,24 @@ async def enviar(fb) -> tuple[bool, str | None]:
     destino = settings.feedback_email_to
     if not destino:
         return False, "FEEDBACK_EMAIL_TO não configurado"
-    if not settings.smtp_host:
-        return False, "SMTP_HOST não configurado"
+    if not settings.resend_api_key:
+        return False, "RESEND_API_KEY não configurada"
+    if not settings.feedback_email_from:
+        return False, "FEEDBACK_EMAIL_FROM não configurado"
 
     assunto = f"[Calculadora BESS] {fb.tipo or 'feedback'} — {fb.autor_nome or fb.origem}"
     try:
-        # smtplib é bloqueante; numa rota async isso seguraria o event loop
-        # inteiro pelo tempo do handshake TLS.
-        await asyncio.to_thread(_enviar_sincrono, destino, assunto, _corpo(fb))
+        await _postar({
+            "from": settings.feedback_email_from,
+            "to": [destino],
+            "subject": assunto,
+            "text": _corpo(fb),
+        })
         return True, None
+    except httpx.HTTPStatusError as exc:
+        # O corpo do erro do Resend é a parte útil ("domain is not verified",
+        # "invalid from address"). Sem ele sobra "400 Bad Request", que não
+        # diz o que corrigir.
+        return False, f"HTTP {exc.response.status_code}: {exc.response.text[:300]}"
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"[:500]
