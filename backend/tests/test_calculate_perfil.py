@@ -56,12 +56,10 @@ class TestResolucaoDoPerfil:
              patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"):
             assert perfil_mod.resolver("K-REST") == "restrito"
 
-    def test_chaves_de_admin_dao_perfil_completo(self):
+    def test_chave_de_admin_da_perfil_completo(self):
         with patch.object(perfil_mod.settings, "api_key_embed_restrito", "K-REST"), \
-             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"), \
-             patch.object(perfil_mod.settings, "api_key_ploomes", "K-PLOOMES"):
+             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"):
             assert perfil_mod.resolver("K-ADMIN") == "completo"
-            assert perfil_mod.resolver("K-PLOOMES") == "completo"
 
     def test_chave_desconhecida_fecha_em_restrito(self):
         """Variável esquecida no deploy não pode virar acesso completo."""
@@ -143,3 +141,53 @@ class TestPerfilRestrito:
         for confidencial in ("5987.03", "11974.06", "25989.37", "7900.0", "6000.0"):
             assert confidencial not in corpo, f"{confidencial} vazou: {corpo[:400]}"
         assert "33889.37" in corpo, "o total com frete deveria permanecer"
+
+
+class TestPerfilPorSessaoOuChave:
+    """Quem pode chamar o /calculate, e com qual perfil.
+
+    A calculadora interna deixou de mandar chave. Ela exige login, e a chave
+    que ela usava vinha do build — variável VITE_* vira texto dentro do
+    JavaScript público, então aquilo era uma credencial de perfil COMPLETO
+    publicada junto com o site. Sessão do Supabase resolve na raiz.
+    """
+    import pytest
+
+    @staticmethod
+    def _cred(token="tok"):
+        from fastapi.security import HTTPAuthorizationCredentials
+        return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    @pytest.mark.asyncio
+    async def test_sessao_valida_da_perfil_completo(self):
+        with patch.object(perfil_mod, "get_current_user", lambda c: object()):
+            assert await perfil_mod.perfil_do_request(self._cred(), None) == "completo"
+
+    @pytest.mark.asyncio
+    async def test_chave_restrita_continua_restrita_mesmo_com_sessao(self):
+        """A precedência é da CHAVE, e é isso que protege o campo do usuário
+        final: o vendedor que também usa a calculadora interna tem sessão
+        nossa no mesmo navegador, e ela promoveria a restrita a completa
+        dentro do Ploomes — anulando a razão de o campo restrito existir."""
+        with patch.object(perfil_mod.settings, "api_key_embed_restrito", "K-REST"), \
+             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"), \
+             patch.object(perfil_mod, "get_current_user", lambda c: object()):
+            assert await perfil_mod.perfil_do_request(self._cred(), "K-REST") == "restrito"
+
+    @pytest.mark.asyncio
+    async def test_sem_chave_e_sem_sessao_e_401(self):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            await perfil_mod.perfil_do_request(None, None)
+        assert e.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_chave_invalida_e_401_e_nao_restrito_silencioso(self):
+        """Campo configurado com chave errada tem de dizer isso, em vez de
+        cotar sem preço e parecer que o perfil é que está errado."""
+        from fastapi import HTTPException
+        with patch.object(perfil_mod.settings, "api_key_embed_restrito", "K-REST"), \
+             patch.object(perfil_mod.settings, "api_key_embed", "K-ADMIN"):
+            with pytest.raises(HTTPException) as e:
+                await perfil_mod.perfil_do_request(None, "chave-que-nao-existe")
+        assert e.value.status_code == 401

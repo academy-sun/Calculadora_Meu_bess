@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import verify_api_key
 from pydantic import BaseModel
 
 from app.calculate import perfil as perfil_mod
@@ -42,10 +41,11 @@ router = APIRouter(tags=["calculate"])
 async def calculate(
     req: CalculateRequest,
     db: AsyncSession = Depends(get_db),
-    api_key: str = Depends(verify_api_key),
+    perfil: perfil_mod.Perfil = Depends(perfil_mod.perfil_do_request),
 ):
     """
-    Endpoint principal de cálculo. Autenticado via API Key (X-API-Key header).
+    Endpoint principal de cálculo. Autenticado por API Key (embeds do Ploomes)
+    ou pela sessão do Supabase (calculadora interna, que exige login).
     Aceita requisições do Ploomes ou da interface interna.
 
     A resposta é filtrada pelo perfil de quem chamou (ver calculate/perfil.py):
@@ -54,14 +54,14 @@ async def calculate(
     aqui e não na tela — na tela, os valores continuariam na resposta HTTP.
     """
     resp = await run_calculation(db, req)
-    return perfil_mod.aplicar(resp, perfil_mod.resolver(api_key))
+    return perfil_mod.aplicar(resp, perfil)
 
 
 @router.post("/calculate/reprecificar", response_model=ReprecificarResponse)
 async def reprecificar_kit(
     req: ReprecificarRequest,
     db: AsyncSession = Depends(get_db),
-    api_key: str = Depends(verify_api_key),
+    perfil: perfil_mod.Perfil = Depends(perfil_mod.perfil_do_request),
 ):
     """Totais de um kit editado na tela.
 
@@ -70,7 +70,7 @@ async def reprecificar_kit(
     id + quantidade, devolve os totais que o perfil permite ver.
     """
     resp = await reprecificar_mod.reprecificar(db, req)
-    if perfil_mod.resolver(api_key) == "restrito":
+    if perfil == "restrito":
         return reprecificar_mod.limpar_para_restrito(resp)
     return resp
 
@@ -83,15 +83,14 @@ async def produtos_para_kit(
     potencia_min: float | None = None,
     potencia_max: float | None = None,
     db: AsyncSession = Depends(get_db),
-    api_key: str = Depends(verify_api_key),
+    perfil: perfil_mod.Perfil = Depends(perfil_mod.perfil_do_request),
 ):
-    """Catálogo ativo para acrescentar item ao kit, autenticado por API KEY.
+    """Catálogo ativo para acrescentar item ao kit.
 
     O picker da calculadora interna usa GET /catalog/products, que exige JWT —
     o embed não tem usuário logado, só chave. Daí este endpoint próprio, com a
     mesma barreira de perfil: no restrito o preço não vem.
     """
-    perfil = perfil_mod.resolver(api_key)
     produtos = await catalog_service.list_products(
         db, tipo=tipo, titulo=q, marca=marca,
         potencia_min=potencia_min, potencia_max=potencia_max,

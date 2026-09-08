@@ -11,13 +11,22 @@ do usuário final carrega a chave restrita, e o Ploomes esconde o campo de
 admin dos demais perfis. Editar o JavaScript do campo não escala privilégio,
 porque a resposta completa exige uma chave que o usuário final não tem.
 
-Como vai ser resolvido quando houver alçada na calculadora interna: pelo
-papel no JWT, mapeado para o mesmo enum. Só a função `resolver` muda — o
-filtro, a URL do embed e os scripts do Ploomes ficam intocados.
+A calculadora interna NÃO usa chave: ela exige login, e a sessão do Supabase
+já viaja em toda requisição. Antes ela mandava uma chave embutida no build —
+e variável de build vira texto dentro do JavaScript público, o que colocava
+uma credencial de perfil completo ao alcance de quem baixasse o bundle.
+Sessão resolve isso na raiz: some do bundle o que nunca deveria ter estado lá.
+
+Chave de API fica só onde não há login possível: os embeds do Ploomes, que
+rodam dentro do CRM sem usuário nosso.
 """
 
 from typing import Literal
 
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.auth.dependencies import api_key_header, bearer_scheme, get_current_user
 from app.calculate.schemas import CalculateResponse, Diagnostico
 from app.config import settings
 
@@ -33,9 +42,40 @@ def resolver(api_key: str | None) -> Perfil:
     """
     if api_key and api_key == settings.api_key_embed_restrito:
         return "restrito"
-    if api_key and api_key in {settings.api_key_ploomes, settings.api_key_embed}:
+    if api_key and api_key == settings.api_key_embed:
         return "completo"
     return "restrito"
+
+
+async def perfil_do_request(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    api_key: str | None = Security(api_key_header),
+) -> Perfil:
+    """Perfil de quem chamou: chave de API OU sessão do app interno.
+
+    A ordem importa. A chave vem primeiro porque o embed do Ploomes pode ter
+    as duas coisas — o navegador do vendedor tem sessão nossa se ele também
+    usa a calculadora interna, e nesse caso a sessão promoveria a restrita a
+    completa dentro do CRM, exatamente o que o campo do usuário final existe
+    para impedir. Quem manda chave é julgado pela chave.
+
+    Fecha em 401 quando não reconhece nada. Chave inválida não vira restrito
+    silencioso: seria diagnóstico ruim para quem configurou o campo errado.
+    """
+    if api_key:
+        if api_key not in _chaves_validas():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="API Key inválida")
+        return resolver(api_key)
+    if credentials:
+        get_current_user(credentials)   # levanta 401 se o token não presta
+        return "completo"
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Autenticação necessária")
+
+
+def _chaves_validas() -> set[str]:
+    return {k for k in (settings.api_key_embed, settings.api_key_embed_restrito) if k}
 
 
 def _limpar_kit(kit) -> None:

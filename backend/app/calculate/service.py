@@ -788,24 +788,12 @@ async def run_calculation(db: AsyncSession, req: CalculateRequest) -> CalculateR
     _aplicar_frete_e_cobertura(
         req, [kit_selecionado, *alternativas], energia_necessaria_kwh)
 
-    # Integração com Ploomes (Sync Automático) — apenas notifica, não persiste mais
-    # (o Project só é criado quando o usuário escolhe um kit, via POST /projects)
-    if req.origem_info.origem == "ploomes" and req.origem_info.negocio_id:
-        from app.shared.ploomes import create_ploomes_interaction
-
-        resumo = (
-            f"📊 Dimensionamento BESS concluído ({req.tipo_calculo.upper()})\n"
-            f"- Capacidade: {capacidade_kwh} kWh\n"
-            f"- Potência: {potencia_kw} kW\n"
-        )
-        if kit_selecionado:
-            resumo += f"- Kit Sugerido: {kit_selecionado.marca} {kit_selecionado.bateria_modelo}\n"
-            resumo += f"- Investimento: R$ {kit_selecionado.preco_total:,.2f}\n"
-        if payback_meses:
-            resumo += f"- Payback estimado: {payback_meses} meses\n"
-
-        import asyncio
-        asyncio.create_task(create_ploomes_interaction(req.origem_info.negocio_id, resumo))
+    # O comentário automático no negócio do Ploomes saiu daqui junto com o
+    # módulo app/ploomes: ele exigia `negocio_id`, que nenhuma tela envia,
+    # então nunca disparou. Também escrevia o preço na timeline do negócio
+    # ANTES do filtro de perfil — o usuário do campo restrito leria ali o
+    # valor que a resposta esconde dele. Está no git se voltar a fazer
+    # sentido, agora com a barreira de perfil no caminho.
 
     return CalculateResponse(
             projeto_id=None,

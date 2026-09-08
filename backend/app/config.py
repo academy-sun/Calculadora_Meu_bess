@@ -4,13 +4,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = ""
     supabase_jwt_secret: str = ""
-    api_key_ploomes: str = ""      # User-Key do Ploomes (saída) + key legada de entrada
-    api_key_embed: str = ""        # key própria do embed Ploomes (entrada em /calculate e /ploomes/*)
+    #: Chave do campo de ADMIN no Ploomes. Recebe a resposta completa.
+    #: A calculadora interna NÃO usa chave — ela exige login e manda a sessão
+    #: do Supabase. Ter uma chave no build significava publicá-la: variável
+    #: VITE_* é compilada dentro do JavaScript, que é servido a qualquer um.
+    api_key_embed: str = ""
     #: Chave do campo do USUÁRIO FINAL no Ploomes. Recebe a resposta filtrada
     #: (ver calculate/perfil.py). Separada de propósito: é ela que garante que
     #: editar o JavaScript do campo não dá acesso ao payload completo.
     api_key_embed_restrito: str = ""
-    ploomes_field_map: str = ""    # JSON: nosso campo → FieldKey da conta (ver app/ploomes/context.py)
     environment: str = "development"
 
     # Supabase — Admin API (service role key) e origem do JWKS de autenticação

@@ -3,18 +3,20 @@ import { supabase } from './supabase'
 const API_URL = (import.meta.env.VITE_API_URL as string) || '/api'
 
 /**
- * Chave de API em uso.
+ * Chave de API em uso. Começa VAZIA, de propósito.
  *
- * Vem do build (VITE_API_KEY_PLOOMES) para a calculadora interna, mas o embed
- * do Ploomes a SUBSTITUI em tempo de execução com a chave que o script do
- * campo enviar (ver definirApiKey / PloomesEmbedPage).
+ * Só os embeds do Ploomes têm chave, e ela chega em tempo de execução, do
+ * script do campo (ver definirApiKey / PloomesEmbedPage). A calculadora
+ * interna não usa nenhuma: ela exige login e o JWT do Supabase já vai em
+ * toda requisição, logo abaixo em getAuthHeaders.
  *
- * O motivo é que o bundle é público: se as chaves de admin e de usuário final
- * estivessem as duas no build, bastaria ler o JavaScript para pegar a de
- * admin e obter o payload completo. Vindo do campo, cada uma existe só onde o
- * Ploomes permite — e é o Ploomes que esconde o campo de admin dos demais.
+ * Antes o valor inicial vinha de VITE_API_KEY_PLOOMES. Variável VITE_* é
+ * compilada DENTRO do JavaScript, e o bundle é servido a qualquer um — era
+ * uma credencial de perfil completo publicada junto com o site. Pior: o
+ * valor configurado era a própria User-Key do Ploomes, que dá acesso à API
+ * do CRM. Nenhuma chave no build significa nada para vazar por aqui.
  */
-let apiKeyAtual = (import.meta.env.VITE_API_KEY_PLOOMES as string) || ''
+let apiKeyAtual = ''
 
 export function definirApiKey(chave: string): void {
   if (chave) apiKeyAtual = chave
