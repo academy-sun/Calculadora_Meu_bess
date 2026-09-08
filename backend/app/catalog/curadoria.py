@@ -25,7 +25,12 @@ MODULO_UNICO_ID = "29740487"
 MARCA_INVERSOR = "WEG"
 
 #: Linhas retiradas por decisão comercial, casadas por trecho do título.
-TITULOS_BLOQUEADOS = ("%SIW300H%", "%SBW300%Luna%")
+#: O SBW300 era casado como "%SBW300%Luna%", porque foi assim que ele apareceu
+#: no catálogo. Isso amarrava a política à redação do título na origem: um
+#: reanúncio como "SBW300 W00", sem a palavra Luna, voltaria ATIVO no sync
+#: seguinte, já que produto novo chega sem decisão nossa. A decisão comercial é
+#: sobre o modelo, não sobre como a MeuBESS escreve o nome dele.
+TITULOS_BLOQUEADOS = ("%SIW300H%", "%SBW300%")
 
 _SQL = """
 with tipo as (

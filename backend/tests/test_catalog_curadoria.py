@@ -15,7 +15,10 @@ def test_politica_declara_o_modulo_unico_e_a_marca():
     assert curadoria.MODULO_UNICO_ID == "29740487"
     assert curadoria.MARCA_INVERSOR == "WEG"
     assert any("SIW300H" in t for t in curadoria.TITULOS_BLOQUEADOS)
-    assert any("Luna" in t for t in curadoria.TITULOS_BLOQUEADOS)
+    # Sem "Luna" de propósito: casar pela redação do título na origem fazia a
+    # política soltar o produto se a MeuBESS reanunciasse com outro nome.
+    assert "%SBW300%" in curadoria.TITULOS_BLOQUEADOS
+    assert not any("Luna" in t for t in curadoria.TITULOS_BLOQUEADOS)
 
 
 def test_so_toca_linhas_sem_decisao_humana():
