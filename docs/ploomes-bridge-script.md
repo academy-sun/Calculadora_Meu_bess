@@ -435,6 +435,13 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
   // Devolve { valor, via } — 'via' alimenta o painel de diagnóstico.
   function readField(key) {
+    // Chave não configurada NESTA conta (nem toda conta tem todos os campos).
+    // Sem esta guarda o seletor vira [name=''], que CASA com elementos do
+    // Angular do Ploomes: a leitura caía no textContent deles e devolvia um
+    // bloco de template inteiro. Como não estava vazio, readPrimeiro aceitava
+    // e nunca chegava a tentar a chave real — foi assim que cidade e estrutura
+    // vieram como lixo no primeiro cliente.
+    if (!key) return { valor: null, via: 'chave não configurada' };
     try {
       var todos = [].slice.call(PloomesDocument.querySelectorAll("[name='" + key + "']"));
       if (!todos.length) return { valor: null, via: 'nenhum elemento com esse name' };
@@ -550,6 +557,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
   }
 
   function localizarElementoEscrita(key, rotulo) {
+    // Mesma armadilha da leitura, com consequência pior: [name=''] casaria com
+    // elemento arbitrário do Ploomes e o writeField escreveria NELE. Campo que
+    // a conta não tem é campo que não se escreve; o rótulo ainda é tentado,
+    // porque é o caminho legítimo quando a chave mudou.
+    if (!key) return rotulo ? localizarPorRotulo(rotulo) : null;
     var el = PloomesDocument.querySelector("input[name='" + key + "']");
     if (el) return { el: el, tipo: 'input', via: 'name' };
     el = PloomesDocument.querySelector("textarea[name='" + key + "']");
@@ -706,6 +718,15 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
 
   // ── Contexto da proposta → iframe ──────────────────────────────────────────
   // Tenta uma lista de campos em ordem e devolve o primeiro com valor.
+  // Primeira chave realmente preenchida da lista. '' significa "esta conta
+  // não tem este campo", e não um seletor a consultar.
+  function primeiraChave(chaves) {
+    for (var i = 0; i < chaves.length; i++) {
+      if (chaves[i]) return chaves[i];
+    }
+    return '';
+  }
+
   function readPrimeiro(chaves) {
     for (var i = 0; i < chaves.length; i++) {
       var r = readField(chaves[i]);
@@ -731,8 +752,11 @@ Iframe → postMessage 'meubess:saved' → bridge escreve nos 6 campos novos
     ];
     // Quando algo não veio, mostra o DOM cru — é o que permite corrigir o
     // seletor sem mais um ciclo de teste. A tradução acontece no iframe.
-    if (!ctx.cidade) linhas.push('<br><b>DOM Cidade (texto):</b> <code>' + dumpCampo(FIELD_KEYS.cidade_texto) + '</code>');
-    if (!ctx.estrutura) linhas.push('<br><b>DOM Estrutura (texto):</b> <code>' + dumpCampo(FIELD_KEYS.estrutura_texto) + '</code>');
+    // Despeja a chave que ESTA conta usa. Fixo em *_texto, o diagnóstico
+    // mostrava o DOM de uma chave vazia justamente na conta em que ela é
+    // vazia — ou seja, ficava mudo exatamente quando era necessário.
+    if (!ctx.cidade) linhas.push('<br><b>DOM Cidade:</b> <code>' + dumpCampo(primeiraChave([FIELD_KEYS.cidade_texto, FIELD_KEYS.cidade])) + '</code>');
+    if (!ctx.estrutura) linhas.push('<br><b>DOM Estrutura:</b> <code>' + dumpCampo(primeiraChave([FIELD_KEYS.estrutura_texto, FIELD_KEYS.estrutura_texto_alt, FIELD_KEYS.estrutura])) + '</code>');
     diag.innerHTML = linhas.join(' · ');
   }
 

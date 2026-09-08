@@ -260,3 +260,57 @@ describe('bridge do Ploomes — comportamentos conquistados a duras penas', () =
     expect(c.valor('total_geral')).toBe('33889,37')
   })
 })
+
+/**
+ * Chave vazia = "esta conta não tem este campo".
+ *
+ * Nem toda conta tem todos os campos: a primeira conta de cliente entrou com
+ * cidade_texto e estrutura_texto vazios, porque lá esses dados vivem em campos
+ * de opção. O seletor virava [name=''], que casa com elementos do Angular do
+ * Ploomes — a leitura devolvia o textContent deles, um bloco de template
+ * inteiro, e o readPrimeiro aceitava por não estar vazio. Cidade e estrutura
+ * chegaram na calculadora como lixo, e a chave real nunca foi consultada.
+ */
+describe('bridge do Ploomes — campo que a conta não tem', () => {
+  function cenarioSemChaveDeTexto() {
+    const dom = new JSDOM(`<!doctype html><html><body>
+      <div id="mb-widget">
+        <button id="mb-pull"></button>
+        <div id="mb-diag" style="display:none"></div>
+        <iframe id="mb-iframe"></iframe>
+      </div>
+      <!-- o isco: o Ploomes tem elementos sem name, com template dentro -->
+      <div name="">Título {{ 'CANCEL' | translate }}</div>
+      <input name="${KEYS.potencia}" value="7.92" />
+      <input name="${KEYS.cidade}" value="Curitiba" />
+    </body></html>`)
+    const { window: w } = dom
+    const fonte = SCRIPT
+      .replace("apiKey: 'COLE_AQUI_A_CHAVE'", "apiKey: 'K-TESTE'")
+      // modo completo: e o unico em que o painel sobrevive, e e dele que
+      // este teste le o resultado da leitura.
+      .replace(/modo: '(restrito|completo)'/, "modo: 'completo'")
+      .replace(/cidade_texto: '[^']*'/, "cidade_texto: ''")
+      .replace(/estrutura_texto: '[^']*'/, "estrutura_texto: ''")
+      .replace(/estrutura_texto_alt: '[^']*'/, "estrutura_texto_alt: ''")
+    // eslint-disable-next-line no-new-func
+    new Function('PloomesDocument', 'window', 'document', 'setTimeout', fonte)(
+      w.document, w, w.document, setTimeout,
+    )
+    ;(w.document.getElementById('mb-pull') as HTMLButtonElement).click()
+    return w.document.getElementById('mb-diag')!.innerHTML
+  }
+
+  it('não lê o DOM alheio quando a chave está vazia', () => {
+    expect(cenarioSemChaveDeTexto()).not.toContain('translate')
+  })
+
+  it('cai na chave seguinte, que é a que a conta usa', () => {
+    // cidade_texto vazio, cidade preenchido: tem de ler o segundo.
+    expect(cenarioSemChaveDeTexto()).toContain('Curitiba')
+  })
+
+  it('a potência continua sendo lida normalmente', () => {
+    expect(cenarioSemChaveDeTexto()).toContain('7.92')
+  })
+})
