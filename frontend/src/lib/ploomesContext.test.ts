@@ -104,3 +104,29 @@ describe('rotuloFixingType', () => {
     expect(rotuloFixingType(null)).toBe('')
   })
 })
+
+describe('estrutura da Lumie Solar', () => {
+  // O campo "Tipo de estrutura" da conta deles tem TRÊS opções, contra as dez
+  // da calculadora. O de:para não virou tabela nova: a heurística de
+  // normalizarFixingType já resolve os três rótulos. Estes testes existem para
+  // travar isso — se alguém mexer na heurística, o prefill de um cliente em
+  // produção não pode quebrar em silêncio.
+  //
+  // Os rótulos vêm da tabela de opções 1062167, lidos pela API, não do print.
+  it('Cerâmico / fibrocimento cai em telha cerâmica', () => {
+    // Rótulo ambíguo por natureza: cita as duas estruturas, que têm preços
+    // diferentes. Cerâmica é o desempate, e o vendedor troca na tela se for
+    // fibrocimento.
+    expect(normalizarFixingType('Cerâmico / fibrocimento')).toBe('tile_ceramic')
+  })
+
+  it('Estrutura de Solo cai em solo Pratyc', () => {
+    expect(normalizarFixingType('Estrutura de Solo')).toBe('ground_pratyc')
+  })
+
+  it('Metálico / trapezoidal (mini trilho) cai em mini trilho baixo', () => {
+    // Sem "alto" no rótulo, o baixo é o desempate — é o caso comum.
+    expect(normalizarFixingType('Metálico / trapezoidal (mini trilho)'))
+      .toBe('tile_metal_mini')
+  })
+})
