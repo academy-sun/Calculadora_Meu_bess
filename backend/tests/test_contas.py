@@ -88,3 +88,54 @@ async def test_criar_devolve_a_chave_uma_vez_e_guarda_so_o_hash():
     assert conta.api_key_hash == svc.hash_da_chave(chave)
     assert conta.perfil == "restrito"
     assert getattr(conta, "chave", None) is None   # não sobra em lugar nenhum
+
+
+class TestTodasAsPortasUsamATabela:
+    """A migração para a tabela precisa valer em TODAS as rotas, não só no
+    /calculate.
+
+    Ficou pela metade uma vez: /calculate passou a resolver na tabela e
+    /catalog/loads + /feedback continuaram comparando com as variáveis de
+    ambiente. Efeito em campo: a conta do primeiro cliente — que só existe na
+    tabela, como toda conta de cliente — levava 401 nas duas. O catálogo de
+    cargas apareceu vazio no embed dele, e o botão de feedback parou sem
+    reclamar.
+    """
+    import pytest
+
+    @staticmethod
+    def _conta():
+        return type("C", (), {"perfil": "restrito", "nome": "Cliente X"})()
+
+    @pytest.mark.asyncio
+    async def test_chave_de_conta_abre_catalogo_e_feedback(self):
+        from app.auth import dependencies as deps
+        with patch.object(deps.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=self._conta())):
+            assert await deps.require_user_or_api_key(None, "K-CLIENTE", None) is None
+
+    @pytest.mark.asyncio
+    async def test_chave_fora_da_tabela_e_401(self):
+        from fastapi import HTTPException
+        from app.auth import dependencies as deps
+        with patch.object(deps.contas_svc, "buscar_por_chave",
+                          AsyncMock(return_value=None)):
+            with pytest.raises(HTTPException) as e:
+                await deps.require_user_or_api_key(None, "K-QUALQUER", None)
+        assert e.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_sessao_do_app_interno_continua_valendo(self):
+        from fastapi.security import HTTPAuthorizationCredentials
+        from app.auth import dependencies as deps
+        cred = HTTPAuthorizationCredentials(scheme="Bearer", credentials="tok")
+        with patch.object(deps, "get_current_user", lambda c: object()):
+            assert await deps.require_user_or_api_key(cred, None, None) is None
+
+    @pytest.mark.asyncio
+    async def test_sem_nada_e_401(self):
+        from fastapi import HTTPException
+        from app.auth import dependencies as deps
+        with pytest.raises(HTTPException) as e:
+            await deps.require_user_or_api_key(None, None, None)
+        assert e.value.status_code == 401

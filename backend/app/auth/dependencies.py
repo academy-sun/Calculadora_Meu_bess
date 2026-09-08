@@ -5,7 +5,11 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, APIKeyHeader
 from jose import JWTError, jwt
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.auth.schemas import UserInToken
+from app.contas import service as contas_svc
+from app.database import get_db
 from app.config import settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -90,25 +94,28 @@ def require_admin(user: UserInToken = Depends(get_current_user)) -> UserInToken:
     return user
 
 
-def verify_api_key(api_key: str | None = Security(api_key_header)) -> str:
-    valid_keys = {k for k in (settings.api_key_embed,
-                              settings.api_key_embed_restrito) if k}
-    if not api_key or api_key not in valid_keys:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key inválida")
-    return api_key
-
-
-def require_user_or_api_key(
+async def require_user_or_api_key(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     api_key: str | None = Security(api_key_header),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Endpoints de leitura só-catálogo: aceita sessão Supabase (app interno) OU
-    a API key do embed Ploomes (sem login) — mesmo nível de confiança do /calculate."""
-    valid_keys = {k for k in (settings.api_key_embed,
-                              settings.api_key_embed_restrito) if k}
-    if api_key and api_key in valid_keys:
-        return
+    """Endpoints de leitura só-catálogo e de feedback: aceita sessão Supabase
+    (app interno) OU a chave de uma conta — mesmo nível de confiança do
+    /calculate.
+
+    A chave é resolvida na tabela `contas`, igual ao /calculate. Enquanto isto
+    comparava contra as variáveis de ambiente, uma conta que só existe na
+    tabela — ou seja, TODO cliente — levava 401 aqui. O sintoma em campo foi o
+    catálogo de cargas vir vazio no embed do primeiro cliente, e o botão de
+    feedback dele não funcionar (esse, em silêncio).
+    """
+    if api_key:
+        if await contas_svc.buscar_por_chave(db, api_key):
+            return
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="API Key inválida")
     if credentials:
         get_current_user(credentials)
         return
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação necessária")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Autenticação necessária")
