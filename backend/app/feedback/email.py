@@ -11,16 +11,8 @@ correto, não uma falha: o registro no banco é a fonte da verdade, o e-mail é
 aviso em cima dele.
 """
 
-import httpx
-
+from app import emails
 from app.config import settings
-
-_URL = "https://api.resend.com/emails"
-
-#: O feedback é aviso, não transação. Se o Resend estiver lento, quem paga a
-#: espera é a pessoa que clicou em enviar — e ela já teve o relato gravado.
-_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0)
-
 
 def _corpo(fb) -> str:
     linhas = [
@@ -43,17 +35,6 @@ def _corpo(fb) -> str:
     return "\n".join(l for l in linhas if l != "")
 
 
-async def _postar(payload: dict) -> None:
-    """POST no Resend. Levanta em erro de rede ou status != 2xx."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(
-            _URL,
-            json=payload,
-            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
-        )
-        resp.raise_for_status()
-
-
 async def enviar(fb) -> tuple[bool, str | None]:
     """(enviado, erro). Nunca levanta — o feedback já está gravado.
 
@@ -61,27 +42,7 @@ async def enviar(fb) -> tuple[bool, str | None]:
     e o autor reenviaria achando que não foi. Falha de e-mail vira registro em
     `email_erro`, visível na caixa de entrada.
     """
-    destino = settings.feedback_email_to
-    if not destino:
+    if not settings.feedback_email_to:
         return False, "FEEDBACK_EMAIL_TO não configurado"
-    if not settings.resend_api_key:
-        return False, "RESEND_API_KEY não configurada"
-    if not settings.feedback_email_from:
-        return False, "FEEDBACK_EMAIL_FROM não configurado"
-
     assunto = f"[Calculadora BESS] {fb.tipo or 'feedback'} — {fb.autor_nome or fb.origem}"
-    try:
-        await _postar({
-            "from": settings.feedback_email_from,
-            "to": [destino],
-            "subject": assunto,
-            "text": _corpo(fb),
-        })
-        return True, None
-    except httpx.HTTPStatusError as exc:
-        # O corpo do erro do Resend é a parte útil ("domain is not verified",
-        # "invalid from address"). Sem ele sobra "400 Bad Request", que não
-        # diz o que corrigir.
-        return False, f"HTTP {exc.response.status_code}: {exc.response.text[:300]}"
-    except Exception as exc:
-        return False, f"{type(exc).__name__}: {exc}"[:500]
+    return await emails.enviar(settings.feedback_email_to, assunto, _corpo(fb))

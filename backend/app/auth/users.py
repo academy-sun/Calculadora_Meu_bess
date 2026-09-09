@@ -1,4 +1,6 @@
 import httpx
+
+from app import emails
 from app.config import settings
 
 
@@ -34,19 +36,58 @@ async def list_auth_users() -> list[dict]:
         return data.get("users", data) if isinstance(data, dict) else data
 
 
+def _corpo_do_convite(nome: str, link: str) -> str:
+    return "\n".join([
+        f"Olá, {nome}.",
+        "",
+        "Você foi convidado para a Calculadora MeuBESS.",
+        "Use o link abaixo para definir sua senha e entrar:",
+        "",
+        link,
+        "",
+        "Se você não esperava este convite, ignore este e-mail.",
+    ])
+
+
 async def invite_auth_user(email: str, nome: str, role: str, redirect_to: str) -> dict:
+    """Cria o convite e MANDA o e-mail por conta própria.
+
+    O caminho óbvio seria POST /auth/v1/invite, que cria e envia. Ele funciona
+    — o usuário nasce com invited_at preenchido — mas quem entrega é o mailer
+    embutido do Supabase, que é para desenvolvimento: limite de poucos e-mails
+    por hora e entrega ruim para domínio externo. O primeiro convite de
+    verdade deste projeto simplesmente não chegou, sem erro em lugar nenhum.
+
+    Então usamos /admin/generate_link, que devolve o link e NÃO envia nada, e
+    o envio sai pelo Resend — domínio verificado, o mesmo caminho do feedback,
+    que já está provado em produção.
+
+    Diferente do feedback, aqui a falha de envio É o erro: sem o e-mail o
+    convite não serve para nada. Por isso ela volta no retorno em vez de virar
+    só um registro.
+    """
     async with httpx.AsyncClient() as client:
-        # redirect_to vai na QUERY, não no corpo: é assim que o GoTrue lê o
-        # destino do link do convite. No corpo ele é ignorado em silêncio, e o
-        # convidado cairia na URL padrão do projeto.
         r = await client.post(
-            _auth_url("/invite"),
+            _admin_url("/generate_link"),
             headers=_headers(),
-            params={"redirect_to": redirect_to} if redirect_to else None,
-            json={"email": email, "data": {"nome": nome, "role": role}},
+            json={
+                "type": "invite",
+                "email": email,
+                "data": {"nome": nome, "role": role},
+                **({"redirect_to": redirect_to} if redirect_to else {}),
+            },
         )
         r.raise_for_status()
-        return r.json()
+        dados = r.json()
+
+    link = dados.get("action_link") or (dados.get("properties") or {}).get("action_link")
+    if not link:
+        return {"email": email, "email_enviado": False,
+                "erro": "Supabase não devolveu o link do convite"}
+
+    enviado, erro = await emails.enviar(
+        email, "Convite para a Calculadora MeuBESS", _corpo_do_convite(nome, link))
+    return {"email": email, "email_enviado": enviado, "erro": erro}
 
 
 async def update_auth_user(user_id: str, role: str) -> dict:
