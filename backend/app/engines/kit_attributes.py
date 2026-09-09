@@ -52,10 +52,20 @@ def eff_bool(product: Any, field: str) -> bool | None:
 #: Margem que a plataforma MeuBESS aplica sobre o custo do material para chegar
 #: ao preço de venda: venda = custo / (1 - margem).
 #:
-#: Não é markup sobre o custo (que daria custo × 1,2385): é margem sobre o
-#: PREÇO, então o divisor. Confirmado com a MeuBESS: 546,10 / (1 - 0,2385) =
-#: 717,14, e não 676,35.
-MARGEM_VENDA = 0.2385
+#: Não é markup sobre o custo (que daria custo × 1,2585): é margem sobre o
+#: PREÇO, então o divisor. No LONGI 635: 546,10 / (1 - 0,2585) = 736,48.
+#:
+#: Era 0,2385 — dois pontos abaixo — e ficou assim desde que a fórmula entrou.
+#: Nenhum teste pegaria: eles conferem que a CONTA está certa, e a conta
+#: estava. O que estava errado era o número, e número de negócio só se
+#: confere contra a origem. Foi uma comparação item a item entre uma cotação
+#: nossa e a mesma cotação na plataforma que mostrou: os sete custos batiam
+#: centavo a centavo e as sete vendas estavam todas 2% baixas.
+#:
+#: Se a MeuBESS mudar a margem de novo, o sintoma volta a ser este — preço
+#: coerente, plausível e errado. A conferência é comparar um kit nos dois
+#: lados, não ler o código.
+MARGEM_VENDA = 0.2585
 
 
 def preco_venda(produto: Any) -> float | None:
@@ -64,7 +74,7 @@ def preco_venda(produto: Any) -> float | None:
     Ponto ÚNICO onde o preço é decidido — o cálculo estava espalhado por quatro
     lugares que liam `price` direto, e `price` é o "Preço de Venda Fixo" da
     plataforma: preenchido à mão lá e sem seguir a fórmula. No módulo LONGI 635
-    ele traz R$ 600,00 quando o correto são R$ 717,14.
+    ele traz R$ 600,00 quando o correto são R$ 736,48.
 
     Devolve None quando não há custo. O chamador precisa tratar isso como
     "produto não cotável" e não como preço zero: um item a R$ 0,00 entra no kit

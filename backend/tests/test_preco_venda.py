@@ -14,20 +14,35 @@ class _P:
         return None
 
 
-def test_formula_bate_com_o_caso_conferido_na_plataforma():
-    """LONGI 635: custo 546,10 na MeuBESS → venda 717,14.
+#: Kit inteiro conferido item a item contra a mesma cotação na plataforma
+#: MeuBESS. É a única forma de verificar a MARGEM: a fórmula pode estar certa
+#: e o número errado, e foi o que aconteceu — rodou com 0,2385 até esta
+#: comparação mostrar as sete vendas 2% abaixo, com os sete custos batendo.
+KIT_CONFERIDO = [
+    ("LONGI 635 monofacial",        546.10,  736.48),
+    ("SIW200H M050",               5822.82, 7852.76),
+    ("SBW CB050",                  5038.08, 6794.44),
+    ("Estrutura telha cerâmica",    292.00,  393.80),
+    ("Cabo solar 6 mm",               4.21,    5.68),
+    ("Conector MC4",                  6.69,    9.02),
+]
 
-    É margem sobre o PREÇO, não markup sobre o custo: custo × 1,2385 daria
-    676,35, que não é o número da plataforma.
-    """
-    assert preco_venda(_P(cost=546.10)) == 717.14
-    assert round(546.10 * (1 + MARGEM_VENDA), 2) != 717.14
+
+@pytest.mark.parametrize("nome,custo,venda", KIT_CONFERIDO,
+                         ids=[x[0] for x in KIT_CONFERIDO])
+def test_bate_com_a_plataforma_item_a_item(nome, custo, venda):
+    assert preco_venda(_P(cost=custo)) == venda
+
+
+def test_e_margem_sobre_o_preco_nao_markup_sobre_o_custo():
+    """custo × 1,2585 daria 686,72 no LONGI, e não é o número da plataforma."""
+    assert round(546.10 * (1 + MARGEM_VENDA), 2) != 736.48
 
 
 def test_price_da_plataforma_e_ignorado():
     """`price` é o 'Preço de Venda Fixo', preenchido à mão e fora da fórmula —
-    no LONGI ele traz 600,00 quando o correto são 717,14."""
-    assert preco_venda(_P(cost=546.10, price=600.00)) == 717.14
+    no LONGI ele traz 600,00 quando o correto são 736,48."""
+    assert preco_venda(_P(cost=546.10, price=600.00)) == 736.48
 
 
 def test_sem_custo_nao_ha_preco():
