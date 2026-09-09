@@ -190,8 +190,30 @@ def dc_capacity_modules(inv, qtd_inv: int, modulo: ModuloAttrs) -> int:
 # 4. Acessórios FV: cabeamento CC, MC4 e estrutura (fórmulas MeuBESS)
 # ─────────────────────────────────────────────────────────────────────────────
 
+#: Marca preferida no desempate de acessório. É o que a MX3 vende, e é o
+#: mesmo critério que a curadoria já aplica a inversores.
+_MARCA_PREFERIDA = "WEG"
+
+
+def _ordem_do_cabo(c) -> tuple:
+    """Critério de escolha do cabo: preço, depois MARCA, depois id.
+
+    O preço continua mandando. O que mudou é o desempate: o catálogo tem o
+    cabo de 6 mm da A.DIAS e o da WEG pelo mesmo custo (4,21), e `min` devolve
+    o primeiro da lista quando empata. A lista vem ordenada por título, então
+    'A - CABO SOLAR' vencia 'W - Unipolar flexível' por ordem alfabética —
+    saía cabo A.DIAS num kit que é todo WEG, sem nada no código dizendo isso.
+
+    O id no fim não é decoração: a plataforma tem o MESMO cabo WEG cadastrado
+    duas vezes, com títulos quase iguais. Sem um terceiro critério, qual dos
+    dois entra na proposta muda conforme a ordem que o banco devolver.
+    """
+    marca = str(eff(c, "marca") or "").upper()
+    return (_preco(c), marca != _MARCA_PREFERIDA, str(getattr(c, "meubess_id", "")))
+
+
 def _cabo_da_cor(cabos: list, cor: str):
-    """Cabo daquela cor, o mais barato. Cai no mais barato geral se não houver.
+    """Cabo daquela cor, o mais barato — e, no empate, o da marca que vendemos.
 
     O catálogo tem os dois produtos — 'CABO SOLAR 6MM PRETO' e '... VERMELHO' —
     mas o kit escolhia UM e o repetia com um sufixo de cor no nome. A linha
@@ -200,7 +222,7 @@ def _cabo_da_cor(cabos: list, cor: str):
     era a origem da confusão.
     """
     da_cor = [c for c in cabos if cor.lower() in str(_tit(c)).lower()]
-    return min(da_cor or cabos, key=_preco)
+    return min(da_cor or cabos, key=_ordem_do_cabo)
 
 
 def _cabo_mc4_items(qty_modulos: int, cabos: list, mc4s: list) -> list[dict]:

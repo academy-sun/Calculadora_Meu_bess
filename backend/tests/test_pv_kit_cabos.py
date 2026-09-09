@@ -43,3 +43,48 @@ def test_kit_leva_dois_cabos_com_ids_diferentes():
     assert len(cabos) == 2
     assert {c["meubess_id"] for c in cabos} == {"p1", "v1"}
     assert all(c["qtd"] == 50 for c in cabos)   # ceil(28/25)*25
+
+
+# O caso real: A.DIAS e WEG com o MESMO custo (4,21) no catálogo.
+ADIAS_PRETO = _C("adias", "A - CABO SOLAR 6MM 1,8KV PRETO", 5.68)
+ADIAS_PRETO.marca = "A.DIAS"
+WEG_PRETO = _C("weg", "W - Unipolar flexível NH 6 mm² Preto", 5.68)
+WEG_PRETO.marca = "WEG"
+WEG_PRETO_DUP = _C("weg2", "W - (WEG) Unipolar flexível NH 6 mm² Preto", 5.68)
+WEG_PRETO_DUP.marca = "WEG"
+BEL_PRETO = _C("bel", "B - Cabo Solar 6mm - Preto", 7.01)
+BEL_PRETO.marca = "BEL ENERGY"
+
+
+def test_no_empate_de_preco_ganha_a_marca_que_vendemos():
+    """Saiu cabo A.DIAS num kit inteiramente WEG, e não havia critério nenhum
+    dizendo isso: os dois custam 4,21, o `min` devolve o primeiro da lista, e
+    a lista vem ordenada por título — 'A - CABO SOLAR' antes de
+    'W - Unipolar flexível'. O desempate era a ordem alfabética."""
+    assert _cabo_da_cor([ADIAS_PRETO, WEG_PRETO], "Preto").meubess_id == "weg"
+    # e a ordem de entrada não pode mudar a resposta
+    assert _cabo_da_cor([WEG_PRETO, ADIAS_PRETO], "Preto").meubess_id == "weg"
+
+
+def test_preco_ainda_manda_sobre_a_marca():
+    """A preferência é DESEMPATE, não regra: cabo mais barato continua
+    ganhando, senão isto viraria uma trava de fornecedor escondida."""
+    barato = _C("outro", "X - Cabo 6mm Preto", 4.00)
+    barato.marca = "OUTRA"
+    assert _cabo_da_cor([barato, WEG_PRETO], "Preto").meubess_id == "outro"
+
+
+def test_escolha_e_estavel_entre_duplicatas_da_mesma_marca():
+    """A plataforma tem o mesmo cabo WEG cadastrado duas vezes, com títulos
+    quase iguais e custo idêntico. Sem um terceiro critério, qual entra na
+    proposta mudaria conforme a ordem que o banco devolvesse."""
+    a = _cabo_da_cor([WEG_PRETO, WEG_PRETO_DUP], "Preto").meubess_id
+    b = _cabo_da_cor([WEG_PRETO_DUP, WEG_PRETO], "Preto").meubess_id
+    assert a == b
+
+
+def test_marca_ausente_nao_quebra_a_escolha():
+    """Acessório sem marca cadastrada é comum; ele só perde o desempate."""
+    sem_marca = _C("s1", "Z - Cabo 6mm Preto", 5.68)
+    assert _cabo_da_cor([sem_marca, WEG_PRETO], "Preto").meubess_id == "weg"
+    assert _cabo_da_cor([sem_marca], "Preto").meubess_id == "s1"
