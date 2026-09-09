@@ -23,7 +23,7 @@ from sqlalchemy import text
 
 from app.catalog.sync import sync_all_products
 from app.config import settings
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, engine
 
 #: logging, não print. O stdout de um container é um pipe, e print() fica
 #: bufferizado em blocos: a primeira execução do agendador rodou e o resultado
@@ -34,6 +34,10 @@ log = logging.getLogger("catalog.sync")
 
 #: Chave do advisory lock. Número arbitrário e fixo; só precisa não colidir com
 #: outro lock consultivo do mesmo banco.
+#:
+#: O lock é de SESSÃO (pg_try_advisory_lock), e sessão no Postgres é a
+#: CONEXÃO — não a Session do SQLAlchemy. Por isso ele mora numa conexão
+#: dedicada: ver _rodar_uma_vez.
 _LOCK_ID = 815_2024
 
 #: Estado da última execução, exposto em GET /catalog/sync/status para dar
@@ -46,38 +50,56 @@ async def _rodar_uma_vez() -> None:
     inicio = datetime.now(timezone.utc)
     # Registrar o INÍCIO, não só o fim: sem esta linha, "começou e travou" e
     # "nunca começou" produzem exatamente o mesmo log — nenhum.
+    inicio_iso = inicio.isoformat()
     log.info("iniciando sync do catálogo")
-    async with AsyncSessionLocal() as db:
-        # pg_try_advisory_lock não bloqueia: se outra réplica está sincronizando,
-        # esta simplesmente pula a rodada em vez de enfileirar.
-        obteve = (await db.execute(
+    # O lock fica numa conexão DEDICADA, que não é usada pelo sync.
+    #
+    # Antes ele era pego e solto na mesma AsyncSession do sync — o que parece
+    # certo e não é: sync_all_products dá commit lá dentro, e commit devolve a
+    # conexão ao pool. O unlock saía numa conexão DIFERENTE daquela que
+    # travou, não fazia nada, e a conexão original voltava para o pool ainda
+    # segurando o lock.
+    #
+    # O efeito é intermitente, que é o pior tipo: a rodada seguinte funciona
+    # se o pool devolver a mesma conexão e é PULADA se devolver outra.
+    # Medido em produção — quatro rodadas seguidas ok e a quinta pulada, com
+    # um lock concedido a uma conexão 'idle' há 41 minutos no pg_locks.
+    # Preço parando de atualizar em silêncio é exatamente o que este
+    # agendador existe para evitar.
+    async with engine.connect() as trava:
+        obteve = (await trava.execute(
             text("select pg_try_advisory_lock(:k)"), {"k": _LOCK_ID}
         )).scalar()
         if not obteve:
             ultimo_resultado = {
                 "estado": "pulado",
                 "motivo": "outra instância estava sincronizando",
-                "em": inicio.isoformat(),
+                "em": inicio_iso,
             }
             log.info("sync pulado: outra instância estava sincronizando")
             return
         try:
-            resumo = await sync_all_products(db)
+            async with AsyncSessionLocal() as db:
+                resumo = await sync_all_products(db)
             # `synced` traz uma linha por produto — 700 dicionários, ~80 KB por
             # execução no log do Railway. Para acompanhamento periódico o que
             # importa é o agregado; o detalhe continua no POST /catalog/sync.
             resumo = {k: v for k, v in resumo.items() if k not in ("synced", "errors")}
             ultimo_resultado = {
                 "estado": "ok",
-                "em": inicio.isoformat(),
+                "em": inicio_iso,
                 "duracao_s": round(
                     (datetime.now(timezone.utc) - inicio).total_seconds(), 1),
                 **resumo,
             }
             log.info("catálogo atualizado: %s", ultimo_resultado)
         finally:
-            await db.execute(text("select pg_advisory_unlock(:k)"), {"k": _LOCK_ID})
-            await db.commit()
+            # Mesma conexão que travou, então o unlock vale. Ainda assim é o
+            # fechamento do `async with` que garante a liberação se algo
+            # escapar daqui.
+            await trava.execute(
+                text("select pg_advisory_unlock(:k)"), {"k": _LOCK_ID})
+            await trava.commit()
 
 
 async def _loop(intervalo_s: int) -> None:
